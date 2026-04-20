@@ -1,0 +1,119 @@
+'use strict';
+
+const { runBacktest } = require('./backtest');
+
+function round(value, digits = 2) {
+  return Number(Number(value || 0).toFixed(digits));
+}
+
+function hashSeed(seed) {
+  const str = String(seed || 'dex-sim');
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function createRng(seed) {
+  let state = hashSeed(seed);
+  return function next() {
+    state = Math.imul(state, 1664525) + 1013904223;
+    return ((state >>> 0) / 4294967296) * 2 - 1;
+  };
+}
+
+function generateSyntheticMarket(options = {}) {
+  const scenario = options.scenario || 'bull';
+  const periods = Math.max(40, Number(options.periods || 160));
+  const startPrice = Math.max(0.0001, Number(options.startPrice || 1));
+  const baseVolume = Math.max(1000, Number(options.baseVolume || 100000));
+  const rng = createRng(options.seed || `${scenario}-${periods}-${startPrice}`);
+
+  const prices = [];
+  const volumes = [];
+  let price = startPrice;
+
+  for (let i = 0; i < periods; i += 1) {
+    const cycle = Math.sin(i / 8) * 0.004;
+    const noise = rng() * 0.012;
+    let drift = 0;
+    let volumeMultiplier = 1;
+    let eventMove = 0;
+
+    const eventPhase = i % 24;
+    if (eventPhase === 8) {
+      eventMove -= scenario === 'bear' ? 0.08 : 0.06;
+      volumeMultiplier += 3.2;
+    } else if (eventPhase === 9) {
+      eventMove -= scenario === 'bear' ? 0.06 : 0.045;
+      volumeMultiplier += 4.2;
+    } else if (eventPhase === 10) {
+      eventMove += scenario === 'range' ? 0.05 : 0.07;
+      volumeMultiplier += 5.2;
+    } else if (eventPhase === 11) {
+      eventMove += scenario === 'bear' ? 0.03 : 0.055;
+      volumeMultiplier += 3.6;
+    }
+
+    if (scenario === 'bull') {
+      drift = 0.0045;
+      volumeMultiplier = 1.05 + Math.abs(noise) * 8;
+    } else if (scenario === 'bear') {
+      drift = -0.004;
+      volumeMultiplier = 0.95 + Math.abs(noise) * 9;
+    } else if (scenario === 'range') {
+      drift = Math.sin(i / 5) * 0.0015;
+      volumeMultiplier = 0.85 + Math.abs(noise) * 6;
+    } else if (scenario === 'breakout') {
+      drift = i < periods * 0.35 ? 0.0005 : 0.0075;
+      volumeMultiplier = i < periods * 0.35 ? 0.8 + Math.abs(noise) * 4 : 1.4 + Math.abs(noise) * 10;
+    } else if (scenario === 'volatile') {
+      drift = 0.001;
+      volumeMultiplier = 1.2 + Math.abs(noise) * 14;
+    }
+
+    const shock = scenario === 'volatile' ? rng() * 0.035 : rng() * 0.015;
+    price *= Math.max(0.72, 1 + drift + cycle + noise + shock + eventMove);
+    price = Math.max(0.0001, price);
+
+    const volume = baseVolume * Math.max(0.2, volumeMultiplier + (Math.abs(shock) * 20) + Math.abs(eventMove) * 18);
+    prices.push(round(price, 6));
+    volumes.push(round(volume));
+  }
+
+  return {
+    scenario,
+    periods,
+    startPrice: round(startPrice, 6),
+    endPrice: round(prices[prices.length - 1], 6),
+    prices,
+    volumes,
+  };
+}
+
+function runPaperSimulation(options = {}) {
+  const market = generateSyntheticMarket(options);
+  const result = runBacktest(market.prices, market.volumes, options.strategySettings, {
+    startingBalance: options.startingBalance,
+    tradePct: options.tradePct,
+    riskSettings: options.riskSettings,
+  });
+
+  if (!result) {
+    return null;
+  }
+
+  return {
+    scenario: market.scenario,
+    periods: market.periods,
+    market,
+    ...result,
+  };
+}
+
+module.exports = {
+  generateSyntheticMarket,
+  runPaperSimulation,
+};

@@ -1,0 +1,13 @@
+version: '3.9'
+services:
+  dex-bot:
+    build: .
+    container_name: dex-momentum-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data

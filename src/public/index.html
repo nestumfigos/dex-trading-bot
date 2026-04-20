@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DEX Bot Control Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+  <div class="bg-orb orb-one"></div>
+  <div class="bg-orb orb-two"></div>
+  <div class="grid-overlay"></div>
+
+  <main class="app-shell">
+    <header class="hero panel reveal">
+      <div>
+        <div class="eyebrow-row">
+          <span id="mode-chip" class="chip tone-paper">Paper</span>
+          <span id="brain-chip" class="chip tone-neutral">AI idle</span>
+          <span id="uptime-chip" class="chip tone-neutral">Uptime -</span>
+        </div>
+        <h1>DEX Bot Control Room</h1>
+        <p class="hero-copy">Configure the strategy, monitor live paper trading, preview Anthropic signals, and run backtests without leaving the bot.</p>
+      </div>
+      <div class="hero-actions">
+        <div class="status-block">
+          <span class="status-label">Last refresh</span>
+          <strong id="last-refresh">Waiting for data</strong>
+          <div id="health-notices" class="health-notices"></div>
+        </div>
+        <div class="button-row">
+          <button id="refresh-button" class="button button-secondary" type="button">Refresh</button>
+          <button id="reset-paper-button" class="button" type="button">Reset Paper Portfolio</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="metric-grid reveal">
+      <article class="metric-card">
+        <span class="metric-label">Equity</span>
+        <strong id="metric-equity" class="metric-value">$0.00</strong>
+        <span id="metric-exposure" class="metric-meta">Exposure $0.00</span>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">Total PnL</span>
+        <strong id="metric-pnl" class="metric-value">$0.00</strong>
+        <span id="metric-pnl-detail" class="metric-meta">Realized $0.00 / Unrealized $0.00</span>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">Win Rate</span>
+        <strong id="metric-winrate" class="metric-value">-</strong>
+        <span id="metric-trades" class="metric-meta">0 closed trades</span>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">Open Positions</span>
+        <strong id="metric-positions" class="metric-value">0</strong>
+        <span id="metric-cash" class="metric-meta">Cash $0.00</span>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">AI Calls</span>
+        <strong id="metric-ai-calls" class="metric-value">0</strong>
+        <span id="metric-ai-success" class="metric-meta">Success rate -</span>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">Scanner</span>
+        <strong id="metric-scans" class="metric-value">0</strong>
+        <span id="metric-scanner-detail" class="metric-meta">Tracked tokens 0</span>
+      </article>
+    </section>
+
+    <section class="workspace-grid">
+      <section class="panel span-2 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Portfolio</span>
+            <h2>Equity Curve</h2>
+          </div>
+          <p>Live paper-trading cash and equity over time.</p>
+        </div>
+        <div id="portfolio-chart" class="chart-shell"></div>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Scanner</span>
+            <h2>Chain Status</h2>
+          </div>
+          <p>Current discovery loop activity by chain.</p>
+        </div>
+        <div id="chain-status-grid" class="chain-status-grid"></div>
+      </section>
+
+      <section class="panel span-2 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Configuration</span>
+            <h2>Strategy and Risk Lab</h2>
+          </div>
+          <p>Update technical settings, risk guardrails, paper mode, and the Anthropic brain.</p>
+        </div>
+        <form id="config-form" class="form-grid">
+          <label class="field">
+            <span>Paper Trading</span>
+            <select id="paperTrading">
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Paper Balance</span>
+            <input id="paperBalance" type="number" min="100" step="100">
+          </label>
+          <label class="field">
+            <span>EMA Fast</span>
+            <input id="emaFast" type="number" min="1">
+          </label>
+          <label class="field">
+            <span>EMA Slow</span>
+            <input id="emaSlow" type="number" min="2">
+          </label>
+          <label class="field">
+            <span>RSI Period</span>
+            <input id="rsiPeriod" type="number" min="2">
+          </label>
+          <label class="field">
+            <span>RSI Buy Threshold</span>
+            <input id="rsiBuyThreshold" type="number" min="1" max="100">
+          </label>
+          <label class="field">
+            <span>Volume Spike</span>
+            <input id="volumeSpikeMultiplier" type="number" min="1" step="0.1">
+          </label>
+          <label class="field">
+            <span>Scan Interval (sec)</span>
+            <input id="scanIntervalSeconds" type="number" min="5">
+          </label>
+          <label class="field">
+            <span>Max Position %</span>
+            <input id="maxPositionSizePct" type="number" min="1" max="100" step="0.5">
+          </label>
+          <label class="field">
+            <span>Stop Loss %</span>
+            <input id="stopLossPct" type="number" min="1" max="100" step="0.5">
+          </label>
+          <label class="field">
+            <span>Take Profit %</span>
+            <input id="takeProfitPct" type="number" min="1" step="0.5">
+          </label>
+          <label class="field">
+            <span>Min Liquidity USD</span>
+            <input id="minLiquidityUsd" type="number" min="0" step="1000">
+          </label>
+          <label class="field">
+            <span>Max Concurrent</span>
+            <input id="maxConcurrentPositions" type="number" min="1" step="1">
+          </label>
+          <label class="field">
+            <span>Daily Drawdown %</span>
+            <input id="dailyDrawdownLimitPct" type="number" min="1" max="100" step="0.5">
+          </label>
+          <label class="field">
+            <span>Anthropic Enabled</span>
+            <select id="anthropicEnabled">
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Anthropic Model</span>
+            <input id="anthropicModel" type="text">
+          </label>
+          <label class="field">
+            <span>Anthropic Temperature</span>
+            <input id="anthropicTemperature" type="number" min="0" max="1" step="0.1">
+          </label>
+          <label class="field field-wide">
+            <span>Sell Tiers (JSON)</span>
+            <textarea id="sellTiers"></textarea>
+          </label>
+          <div class="info-card field-wide">
+            <strong>Position sizing logic</strong>
+            <p>Each trade sizes to <strong>maxPositionPct</strong> of current balance, capped at <strong>5% of balance</strong>, with a minimum trade of <strong>$10</strong>.</p>
+            <p>In live mode, this uses actual wallet balance. In paper mode, it uses the paper balance shown above.</p>
+            <p>Trades may still be blocked if liquidity, drawdown, or other risk checks fail.</p>
+          </div>
+          <div class="form-actions field-wide">
+            <button class="button" type="submit">Save Control Profile</button>
+            <span id="config-status" class="form-status">No changes yet.</span>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Anthropic Brain</span>
+            <h2>Signal Preview</h2>
+          </div>
+          <p>Ask the AI layer for a live read on any tracked token.</p>
+        </div>
+        <form id="ai-form" class="stack-form">
+          <label class="field">
+            <span>Chain</span>
+            <select id="ai-chain">
+              <option value="solana">Solana</option>
+              <option value="bsc">BSC</option>
+              <option value="base">Base</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Token Address</span>
+            <input id="ai-token" type="text" list="token-options" placeholder="Paste a tracked token address">
+          </label>
+          <button class="button" type="submit">Preview AI Signal</button>
+          <div id="ai-preview" class="result-card muted-card">No preview requested yet.</div>
+        </form>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Backtesting</span>
+            <h2>Replay Tracked History</h2>
+          </div>
+          <p>Run the current strategy over locally captured price and volume history.</p>
+        </div>
+        <form id="backtest-form" class="stack-form">
+          <label class="field">
+            <span>Tracked Token</span>
+            <input id="backtest-token" type="text" list="token-options" placeholder="Choose a tracked token">
+          </label>
+          <label class="field">
+            <span>Starting Balance</span>
+            <input id="backtest-balance" type="number" min="100" step="100" value="10000">
+          </label>
+          <label class="field">
+            <span>Trade Size %</span>
+            <input id="backtest-trade-pct" type="number" min="1" max="100" step="1" value="5">
+          </label>
+          <button class="button" type="submit">Run Backtest</button>
+          <div id="backtest-summary" class="result-card muted-card">Backtest output will appear here once the bot has enough local history.</div>
+          <div id="backtest-chart" class="chart-shell compact-chart"></div>
+        </form>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Paper Sandbox</span>
+            <h2>Scenario Simulation</h2>
+          </div>
+          <p>Stress the strategy against synthetic bull, bear, range, breakout, or volatile markets.</p>
+        </div>
+        <form id="simulation-form" class="stack-form">
+          <label class="field">
+            <span>Scenario</span>
+            <select id="simulation-scenario">
+              <option value="bull">Bull Trend</option>
+              <option value="bear">Bear Trend</option>
+              <option value="range">Range Bound</option>
+              <option value="breakout">Breakout</option>
+              <option value="volatile">Volatile Chop</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Periods</span>
+            <input id="simulation-periods" type="number" min="40" step="10" value="160">
+          </label>
+          <label class="field">
+            <span>Start Price</span>
+            <input id="simulation-price" type="number" min="0.001" step="0.1" value="1">
+          </label>
+          <label class="field">
+            <span>Starting Balance</span>
+            <input id="simulation-balance" type="number" min="100" step="100" value="10000">
+          </label>
+          <label class="field">
+            <span>Trade Size %</span>
+            <input id="simulation-trade-pct" type="number" min="1" max="100" step="1" value="5">
+          </label>
+          <button class="button" type="submit">Run Simulation</button>
+          <div id="simulation-summary" class="result-card muted-card">Synthetic scenario results will appear here.</div>
+          <div id="simulation-chart" class="chart-shell compact-chart"></div>
+        </form>
+      </section>
+
+      <section class="panel span-2 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Positions</span>
+            <h2>Open Exposure</h2>
+          </div>
+          <p>Live paper positions with current value, stop levels, and AI context.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Chain</th>
+                <th>Entry</th>
+                <th>Now</th>
+                <th>Value</th>
+                <th>Unrealized</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="positions-table">
+              <tr><td colspan="7" class="empty-row">No open positions.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Signals</span>
+            <h2>Recent Decisions</h2>
+          </div>
+          <p>Latest technical and AI-overridden calls.</p>
+        </div>
+        <div id="signals-feed" class="signal-feed">
+          <div class="empty-state">No signals recorded yet.</div>
+        </div>
+      </section>
+
+      <section class="panel span-3 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">News & Sentiment</span>
+            <h2>Crypto Headlines</h2>
+          </div>
+          <p>Aggregated headlines with automatic fallbacks and rate-limit protection.</p>
+        </div>
+        <div id="news-feed" class="news-feed muted-card">Loading news...</div>
+      </section>
+
+      <section class="panel span-3 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Portfolio</span>
+            <h2>Correlation Heat Map</h2>
+          </div>
+          <p>Visualize the correlation between tracked tokens (returns, last 40 bars).</p>
+        </div>
+        <div id="correlation-heatmap" class="heatmap-shell"><div class="empty-state">No correlation data yet — scanner is still collecting price history.</div></div>
+      </section>
+
+      <section class="panel span-3 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Trading Journal</span>
+            <h2>Trade Log</h2>
+          </div>
+          <p>Buys, sells, values, and realized PnL.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Side</th>
+                <th>Token</th>
+                <th>Chain</th>
+                <th>Value</th>
+                <th>PnL</th>
+                <th>Reason</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="trades-table">
+              <tr><td colspan="8" class="empty-row">No trades yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel span-3 reveal">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Market Coverage</span>
+            <h2>Tracked Tokens</h2>
+          </div>
+          <p>Latest symbol snapshots, signals, RSI, and volume spike context.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Chain</th>
+                <th>Price</th>
+                <th>24h Change</th>
+                <th>Liquidity</th>
+                <th>Signal</th>
+                <th>RSI</th>
+                <th>Vol Spike</th>
+              </tr>
+            </thead>
+            <tbody id="tracked-table">
+              <tr><td colspan="8" class="empty-row">Scanner is still warming up.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <datalist id="token-options"></datalist>
+  </main>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>
