@@ -71,22 +71,8 @@
       </article>
     </section>
 
-    <nav class="view-menu panel reveal" aria-label="Dashboard sections">
-      <div class="view-menu-left">
-        <button class="view-button is-active" type="button" data-view="overview">Overview</button>
-        <button class="view-button" type="button" data-view="operations">Operations</button>
-        <button class="view-button" type="button" data-view="intelligence">Intelligence</button>
-        <button class="view-button" type="button" data-view="records">Records</button>
-      </div>
-      <div class="view-menu-tools" aria-label="Display density">
-        <span class="density-label">Table density</span>
-        <button class="density-button is-active" type="button" data-density="comfortable" aria-pressed="true">Comfortable</button>
-        <button class="density-button" type="button" data-density="compact" aria-pressed="false">Compact</button>
-      </div>
-    </nav>
-
-    <section class="view-panel workspace-grid reveal is-active" id="view-overview" data-view-panel="overview">
-      <section class="panel span-2">
+    <section class="dashboard-flow reveal">
+      <section class="panel row-panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Portfolio</span>
@@ -97,7 +83,7 @@
         <div id="portfolio-chart" class="chart-shell"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel row-panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Scanner</span>
@@ -108,7 +94,7 @@
         <div id="chain-status-grid" class="chain-status-grid"></div>
       </section>
 
-      <section class="panel span-2">
+      <section class="panel row-panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Positions</span>
@@ -116,7 +102,7 @@
           </div>
           <p>Live paper positions with current value, stop levels, and AI context.</p>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap tracked-table-wrap">
           <table>
             <thead>
               <tr>
@@ -136,7 +122,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel row-panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Signals</span>
@@ -148,10 +134,78 @@
           <div class="empty-state">No signals recorded yet.</div>
         </div>
       </section>
-    </section>
 
-    <section class="view-panel workspace-grid reveal" id="view-operations" data-view-panel="operations">
-      <section class="panel span-2">
+      <section class="panel row-panel">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Portfolio</span>
+            <h2>Correlation Heat Map</h2>
+          </div>
+          <p>Visualize the correlation between tracked tokens (returns, last 40 bars).</p>
+        </div>
+        <div id="correlation-heatmap" class="heatmap-shell"><div class="empty-state">No correlation data yet — scanner is still collecting price history.</div></div>
+      </section>
+
+      <section class="panel row-panel">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Trading Journal</span>
+            <h2>Trade Log</h2>
+          </div>
+          <p>Buys, sells, values, and realized PnL.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Side</th>
+                <th>Token</th>
+                <th>Chain</th>
+                <th>Value</th>
+                <th>PnL</th>
+                <th>Reason</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="trades-table">
+              <tr><td colspan="8" class="empty-row">No trades yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel row-panel">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Market Coverage</span>
+            <h2>Tracked Tokens</h2>
+          </div>
+          <p>Latest symbol snapshots, signals, RSI, and volume spike context.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Chain</th>
+                <th>Price</th>
+                <th>24h Change</th>
+                <th>Liquidity</th>
+                <th>Signal</th>
+                <th>RSI</th>
+                <th>Vol Spike</th>
+              </tr>
+            </thead>
+            <tbody id="tracked-table">
+              <tr><td colspan="8" class="empty-row">Scanner is still warming up.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="bottom-grid workspace-grid">
+        <section class="panel span-2">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Configuration</span>
@@ -249,9 +303,9 @@
             <span id="config-status" class="form-status">No changes yet.</span>
           </div>
         </form>
-      </section>
+        </section>
 
-      <section class="panel">
+        <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Backtesting</span>
@@ -276,9 +330,9 @@
           <div id="backtest-summary" class="result-card muted-card">Backtest output will appear here once the bot has enough local history.</div>
           <div id="backtest-chart" class="chart-shell compact-chart"></div>
         </form>
-      </section>
+        </section>
 
-      <section class="panel">
+        <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Paper Sandbox</span>
@@ -317,11 +371,9 @@
           <div id="simulation-summary" class="result-card muted-card">Synthetic scenario results will appear here.</div>
           <div id="simulation-chart" class="chart-shell compact-chart"></div>
         </form>
-      </section>
-    </section>
+        </section>
 
-    <section class="view-panel workspace-grid reveal" id="view-intelligence" data-view-panel="intelligence">
-      <section class="panel">
+        <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Anthropic Brain</span>
@@ -345,9 +397,9 @@
           <button class="button" type="submit">Preview AI Signal</button>
           <div id="ai-preview" class="result-card muted-card">No preview requested yet.</div>
         </form>
-      </section>
+        </section>
 
-      <section class="panel span-2">
+        <section class="panel span-2">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">News & Sentiment</span>
@@ -357,76 +409,6 @@
         </div>
         <div id="news-feed" class="news-feed muted-card">Loading news...</div>
       </section>
-
-      <section class="panel span-3">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Portfolio</span>
-            <h2>Correlation Heat Map</h2>
-          </div>
-          <p>Visualize the correlation between tracked tokens (returns, last 40 bars).</p>
-        </div>
-        <div id="correlation-heatmap" class="heatmap-shell"><div class="empty-state">No correlation data yet — scanner is still collecting price history.</div></div>
-      </section>
-    </section>
-
-    <section class="view-panel workspace-grid records-grid reveal" id="view-records" data-view-panel="records">
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Trading Journal</span>
-            <h2>Trade Log</h2>
-          </div>
-          <p>Buys, sells, values, and realized PnL.</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Side</th>
-                <th>Token</th>
-                <th>Chain</th>
-                <th>Value</th>
-                <th>PnL</th>
-                <th>Reason</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody id="trades-table">
-              <tr><td colspan="8" class="empty-row">No trades yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Market Coverage</span>
-            <h2>Tracked Tokens</h2>
-          </div>
-          <p>Latest symbol snapshots, signals, RSI, and volume spike context.</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Token</th>
-                <th>Chain</th>
-                <th>Price</th>
-                <th>24h Change</th>
-                <th>Liquidity</th>
-                <th>Signal</th>
-                <th>RSI</th>
-                <th>Vol Spike</th>
-              </tr>
-            </thead>
-            <tbody id="tracked-table">
-              <tr><td colspan="8" class="empty-row">Scanner is still warming up.</td></tr>
-            </tbody>
-          </table>
-        </div>
       </section>
     </section>
 

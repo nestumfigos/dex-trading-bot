@@ -2,8 +2,13 @@
 async function renderNewsFeed() {
   const target = document.getElementById('news-feed');
   if (!target) return;
+  const ttlMs = 5 * 60 * 1000;
+  if (appState.newsLoadedAt && (Date.now() - appState.newsLoadedAt) < ttlMs) {
+    return;
+  }
   try {
     const { news } = await fetchJson('/api/news');
+    appState.newsLoadedAt = Date.now();
     if (!news.length) {
       target.innerHTML = '<div class="empty-state">No news headlines available.</div>';
       return;
@@ -30,6 +35,10 @@ async function renderNewsFeed() {
 async function renderCorrelationHeatmap() {
   const target = document.getElementById('correlation-heatmap');
   if (!target) return;
+  const ttlMs = 60 * 1000;
+  if (appState.correlationLoadedAt && (Date.now() - appState.correlationLoadedAt) < ttlMs && appState.correlation) {
+    return;
+  }
   const requestVersion = ++correlationRenderVersion;
   try {
     const payload = await fetchJson('/api/correlation');
@@ -43,6 +52,7 @@ async function renderCorrelationHeatmap() {
 
     if (tokens.length) {
       appState.correlation = { tokens, matrix };
+      appState.correlationLoadedAt = Date.now();
     } else if (appState.correlation && Array.isArray(appState.correlation.tokens) && appState.correlation.tokens.length) {
       tokens = appState.correlation.tokens;
       matrix = appState.correlation.matrix;
@@ -107,9 +117,16 @@ const appState = {
   simulation: null,
   aiPreview: null,
   correlation: null,
+  correlationLoadedAt: 0,
+  newsLoadedAt: 0,
+  renderCache: {},
 };
 
 let correlationRenderVersion = 0;
+let renderTimer = null;
+let pendingSupplementalRefresh = false;
+let lastRenderAt = 0;
+let lastStateSignature = '';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -199,21 +216,90 @@ function formatHealthReason(reason) {
   return `${normalized.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}.`;
 }
 
+function buildStateSignature(status) {
+  if (!status || !status.portfolio || !status.market || !status.brain) {
+    return 'empty';
+  }
+
+  const chainSummary = Array.isArray(status.market.chainSummary) ? status.market.chainSummary : [];
+  const positions = Array.isArray(status.portfolio.positions) ? status.portfolio.positions : [];
+  const trades = Array.isArray(status.portfolio.recentTrades) ? status.portfolio.recentTrades : [];
+  const tracked = Array.isArray(status.market.trackedTokens) ? status.market.trackedTokens : [];
+  const signals = Array.isArray(status.market.recentSignals) ? status.market.recentSignals : [];
+  const pnlHistory = Array.isArray(status.portfolio.pnlHistory) ? status.portfolio.pnlHistory : [];
+
+  const chainSig = chainSummary
+    .map((c) => `${c.name}:${c.status}:${c.tokensScanned}:${c.openPositions}:${c.lastUpdate || ''}`)
+    .join('|');
+  const positionSig = positions
+    .map((p) => `${p.address}:${p.currentPrice}:${p.unrealizedPnl}`)
+    .join('|');
+  const tradeSig = trades
+    .slice(0, 20)
+    .map((t) => `${t.timestamp}:${t.type}:${t.address}:${t.valueUsd}:${t.pnl}`)
+    .join('|');
+  const trackedSig = tracked
+    .slice(0, 40)
+    .map((t) => `${t.address}:${t.price}:${t.priceChange24h}:${t.finalSignal}`)
+    .join('|');
+  const signalSig = signals
+    .slice(0, 80)
+    .map((s) => `${s.timestamp}:${s.address || s.symbol}:${s.finalSignal}:${s.price}`)
+    .join('|');
+  const pnlLast = pnlHistory.length ? pnlHistory[pnlHistory.length - 1] : null;
+  const pnlSig = `${pnlHistory.length}:${pnlLast ? `${pnlLast.equity || 0}:${pnlLast.cash || 0}` : 'none'}`;
+
+  return [
+    status.mode,
+    status.uptimeSeconds,
+    status.portfolio.equity,
+    status.portfolio.exposureUsd,
+    status.portfolio.totalPnl,
+    status.portfolio.unrealizedPnl,
+    status.portfolio.winRate,
+    status.portfolio.openPositionCount,
+    status.portfolio.closedTrades,
+    status.brain.status,
+    status.brain.callCount,
+    status.brain.successRate,
+    chainSig,
+    positionSig,
+    tradeSig,
+    trackedSig,
+    signalSig,
+    pnlSig,
+  ].join('::');
+}
+
+function downsampleSeries(points, maxPoints = 160) {
+  if (!Array.isArray(points) || points.length <= maxPoints) {
+    return Array.isArray(points) ? points : [];
+  }
+
+  const sampled = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i += 1) {
+    const index = Math.round(i * step);
+    sampled.push(points[index]);
+  }
+  return sampled;
+}
+
 function chartSvg(points, series, label) {
   if (!Array.isArray(points) || !points.length) {
     return '<div class="chart-empty">No chart data yet.</div>';
   }
 
-  const width = 920;
-  const height = 260;
-  const padding = 24;
-  const values = points.map((point) => Number(point[series] || 0));
+  const width = 1500;
+  const height = 280;
+  const padding = 26;
+  const values = downsampleSeries(points, 160).map((point) => Number(point[series] || 0));
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
 
   const path = values.map((value, index) => {
-    const x = padding + ((width - padding * 2) * index) / Math.max(points.length - 1, 1);
+    const x = padding + ((width - padding * 2) * index) / Math.max(values.length - 1, 1);
     const y = height - padding - ((value - min) / range) * (height - padding * 2);
     return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(' ');
@@ -222,7 +308,7 @@ function chartSvg(points, series, label) {
   const latest = values[values.length - 1];
 
   return `
-    <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" aria-label="${escapeHtml(label)}">
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" preserveAspectRatio="none" aria-label="${escapeHtml(label)}">
       <defs>
         <linearGradient id="line-fill-${series}" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stop-color="rgba(74, 211, 194, 0.35)"></stop>
@@ -235,11 +321,11 @@ function chartSvg(points, series, label) {
       </defs>
       <rect x="0" y="0" width="${width}" height="${height}" rx="18" fill="rgba(255,255,255,0.02)"></rect>
       <path d="${area}" fill="url(#line-fill-${series})"></path>
-      <path d="${path}" fill="none" stroke="url(#line-stroke-${series})" stroke-width="3.5" stroke-linecap="round"></path>
-      <text x="${padding}" y="20" fill="#99a9bd" font-size="12">${escapeHtml(label)}</text>
-      <text x="${width - padding}" y="20" text-anchor="end" fill="#f3f4f6" font-size="12">${escapeHtml(formatMoney(latest))}</text>
-      <text x="${padding}" y="${height - 10}" fill="#99a9bd" font-size="11">Low ${escapeHtml(formatMoney(min))}</text>
-      <text x="${width - padding}" y="${height - 10}" text-anchor="end" fill="#99a9bd" font-size="11">High ${escapeHtml(formatMoney(max))}</text>
+      <path d="${path}" fill="none" stroke="url(#line-stroke-${series})" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+      <text x="${padding}" y="24" fill="#99a9bd" font-size="15">${escapeHtml(label)}</text>
+      <text x="${width - padding}" y="24" text-anchor="end" fill="#f3f4f6" font-size="15">${escapeHtml(formatMoney(latest))}</text>
+      <text x="${padding}" y="${height - 12}" fill="#99a9bd" font-size="13">Low ${escapeHtml(formatMoney(min))}</text>
+      <text x="${width - padding}" y="${height - 12}" text-anchor="end" fill="#99a9bd" font-size="13">High ${escapeHtml(formatMoney(max))}</text>
     </svg>
   `;
 }
@@ -261,8 +347,25 @@ async function fetchHealthStatus() {
 
 function setText(selector, value) {
   const node = $(selector);
-  if (node) {
+  if (node && node.textContent !== String(value)) {
     node.textContent = value;
+  }
+}
+
+function setHtmlIfChanged(selector, cacheKey, html) {
+  const node = $(selector);
+  if (!node) return;
+  if (appState.renderCache[cacheKey] === html) {
+    return;
+  }
+  appState.renderCache[cacheKey] = html;
+  node.innerHTML = html;
+}
+
+function setValueIfChanged(selector, value) {
+  const node = $(selector);
+  if (node && node.value !== String(value ?? '')) {
+    node.value = value;
   }
 }
 
@@ -273,10 +376,16 @@ function renderHero(status) {
   const brainChip = $('#brain-chip');
 
   modeChip.textContent = status.mode === 'paper' ? 'Paper Trading' : 'Live Trading';
-  modeChip.className = `chip ${status.mode === 'paper' ? 'tone-paper' : 'tone-live'}`;
+  const modeClass = `chip ${status.mode === 'paper' ? 'tone-paper' : 'tone-live'}`;
+  if (modeChip.className !== modeClass) {
+    modeChip.className = modeClass;
+  }
 
   brainChip.textContent = brain.enabled ? `AI ${brain.status}` : 'AI disabled';
-  brainChip.className = `chip ${brain.enabled ? 'tone-hold' : 'tone-neutral'}`;
+  const brainClass = `chip ${brain.enabled ? 'tone-hold' : 'tone-neutral'}`;
+  if (brainChip.className !== brainClass) {
+    brainChip.className = brainClass;
+  }
 
   setText('#uptime-chip', `Uptime ${Math.round(status.uptimeSeconds / 60)}m`);
   setText('#last-refresh', new Date(status.timestamp).toLocaleTimeString());
@@ -285,8 +394,14 @@ function renderHero(status) {
   setText('#metric-exposure', `Exposure ${formatMoney(portfolio.exposureUsd)}`);
 
   const pnlNode = $('#metric-pnl');
-  pnlNode.textContent = `${portfolio.totalPnl >= 0 ? '+' : ''}${formatMoney(portfolio.totalPnl)}`;
-  pnlNode.className = `metric-value ${portfolio.totalPnl >= 0 ? 'positive' : 'negative'}`;
+  const pnlText = `${portfolio.totalPnl >= 0 ? '+' : ''}${formatMoney(portfolio.totalPnl)}`;
+  if (pnlNode.textContent !== pnlText) {
+    pnlNode.textContent = pnlText;
+  }
+  const pnlClass = `metric-value ${portfolio.totalPnl >= 0 ? 'positive' : 'negative'}`;
+  if (pnlNode.className !== pnlClass) {
+    pnlNode.className = pnlClass;
+  }
 
   setText('#metric-pnl-detail', `Realized ${formatMoney(portfolio.realizedPnl)} / Unrealized ${formatMoney(portfolio.unrealizedPnl)}`);
   setText('#metric-winrate', portfolio.winRate === null ? '-' : `${portfolio.winRate.toFixed(1)}%`);
@@ -304,7 +419,7 @@ function renderHero(status) {
   const health = appState.health;
   if (!healthNotices) return;
   if (!health) {
-    healthNotices.innerHTML = '';
+    setHtmlIfChanged('#health-notices', 'healthNotices', '');
     return;
   }
 
@@ -312,32 +427,31 @@ function renderHero(status) {
   const unhealthyReasons = Array.isArray(health.unhealthyReasons) ? health.unhealthyReasons : [];
   if (health.ok === null) {
     const errorMsg = health.error || 'health status unavailable';
-    healthNotices.innerHTML = `<div class="health-notice health-notice-neutral">Health: ${escapeHtml(errorMsg)}</div>`;
+    setHtmlIfChanged('#health-notices', 'healthNotices', `<div class="health-notice health-notice-neutral">Health: ${escapeHtml(errorMsg)}</div>`);
     return;
   }
   if (health.ok === false) {
     const reasons = unhealthyReasons.length
       ? unhealthyReasons
       : (degradedReasons.length ? degradedReasons : ['health_check_failed']);
-    healthNotices.innerHTML = reasons.map((reason) => (
+    setHtmlIfChanged('#health-notices', 'healthNotices', reasons.map((reason) => (
       `<div class="health-notice health-notice-error">Critical: ${escapeHtml(formatHealthReason(reason))}</div>`
-    )).join('');
+    )).join(''));
     return;
   }
 
   if (degradedReasons.length > 0) {
-    healthNotices.innerHTML = degradedReasons.map((reason) => (
+    setHtmlIfChanged('#health-notices', 'healthNotices', degradedReasons.map((reason) => (
       `<div class="health-notice health-notice-warning">Degraded: ${escapeHtml(formatHealthReason(reason))}</div>`
-    )).join('');
+    )).join(''));
     return;
   }
 
-  healthNotices.innerHTML = '';
+  setHtmlIfChanged('#health-notices', 'healthNotices', '');
 }
 
 function renderChainStatus(status) {
-  const target = $('#chain-status-grid');
-  target.innerHTML = status.market.chainSummary.map((chain) => `
+  const html = status.market.chainSummary.map((chain) => `
     ${(() => {
       const momentum = chain.strategies?.momentum || {};
       const swing = chain.strategies?.swing || {};
@@ -367,18 +481,18 @@ function renderChainStatus(status) {
       `;
     })()}
   `).join('');
+  setHtmlIfChanged('#chain-status-grid', 'chainStatusGrid', html);
 }
 
 function renderPositions(status) {
-  const target = $('#positions-table');
   const positions = status.portfolio.positions;
 
   if (!positions.length) {
-    target.innerHTML = '<tr><td colspan="7" class="empty-row">No open positions.</td></tr>';
+    setHtmlIfChanged('#positions-table', 'positionsTable', '<tr><td colspan="7" class="empty-row">No open positions.</td></tr>');
     return;
   }
 
-  target.innerHTML = positions.map((position) => `
+  const html = positions.map((position) => `
     <tr>
       <td>
         <div class="token-stack">
@@ -399,18 +513,18 @@ function renderPositions(status) {
       </td>
     </tr>
   `).join('');
+  setHtmlIfChanged('#positions-table', 'positionsTable', html);
 }
 
 function renderTrades(status) {
-  const target = $('#trades-table');
   const trades = status.portfolio.recentTrades;
 
   if (!trades.length) {
-    target.innerHTML = '<tr><td colspan="8" class="empty-row">No trades yet.</td></tr>';
+    setHtmlIfChanged('#trades-table', 'tradesTable', '<tr><td colspan="8" class="empty-row">No trades yet.</td></tr>');
     return;
   }
 
-  target.innerHTML = trades.map((trade) => `
+  const html = trades.map((trade) => `
     <tr>
       <td>${new Date(trade.timestamp).toLocaleTimeString()}</td>
       <td><span class="chip ${trade.type === 'BUY' ? 'tone-buy' : 'tone-sell'}">${escapeHtml(trade.type)}</span></td>
@@ -429,18 +543,18 @@ function renderTrades(status) {
       <td>${escapeHtml(trade.signalSource || 'technical')}</td>
     </tr>
   `).join('');
+  setHtmlIfChanged('#trades-table', 'tradesTable', html);
 }
 
 function renderTracked(status) {
-  const target = $('#tracked-table');
   const tracked = status.market.trackedTokens;
 
   if (!tracked.length) {
-    target.innerHTML = '<tr><td colspan="8" class="empty-row">Scanner is still warming up.</td></tr>';
+    setHtmlIfChanged('#tracked-table', 'trackedTable', '<tr><td colspan="8" class="empty-row">Scanner is still warming up.</td></tr>');
     return;
   }
 
-  target.innerHTML = tracked.map((token) => `
+  const html = tracked.map((token) => `
     <tr>
       <td>
         <div class="token-stack">
@@ -457,35 +571,37 @@ function renderTracked(status) {
       <td>${token.indicators.volumeSpike ? `${escapeHtml(String(token.indicators.volumeSpike))}x` : '-'}</td>
     </tr>
   `).join('');
+  setHtmlIfChanged('#tracked-table', 'trackedTable', html);
 }
 
 function renderSignals(status) {
-  const target = $('#signals-feed');
   const signals = status.market.recentSignals;
 
   if (!signals.length) {
-    target.innerHTML = '<div class="empty-state">No signals recorded yet.</div>';
+    setHtmlIfChanged('#signals-feed', 'signalsFeed', '<div class="empty-state">No signals recorded yet.</div>');
     return;
   }
 
-  target.innerHTML = signals.map((signal) => `
+  const html = signals.map((signal) => `
     <article class="signal-item">
       <div class="signal-headline">
-        <strong>${escapeHtml(signal.symbol)} on ${escapeHtml(signal.chain)}</strong>
-        <span class="chip ${toneForSignal(signal.finalSignal)}">${escapeHtml(signal.finalSignal)}</span>
+        <strong class="signal-token">${escapeHtml(signal.symbol || '-')}</strong>
+        <span class="signal-chain">${escapeHtml(signal.chain || '-')}</span>
       </div>
+      <div class="signal-stats">${formatMoney(signal.price)} | ${escapeHtml(signal.finalSignal || '-')}</div>
       <div class="signal-meta">
-        Price ${formatMoney(signal.price)}<br>
-        Technical ${escapeHtml(signal.technicalSignal)} -> Final ${escapeHtml(signal.finalSignal)} via ${escapeHtml(signal.signalSource)}<br>
-        RSI ${signal.rsi || '-'} | Volume spike ${signal.volumeSpike || '-'} | ${escapeHtml(formatAgo(signal.timestamp))}
-        ${signal.aiReason ? `<br>${escapeHtml(signal.aiReason)}` : ''}
+        <div class="signal-line">Tech ${escapeHtml(signal.technicalSignal || '-')} -> ${escapeHtml(signal.finalSignal || '-')}</div>
+        <div class="signal-line">RSI ${signal.rsi || '-'} | Vol ${signal.volumeSpike || '-'}</div>
+        <div class="signal-age">${escapeHtml(formatAgo(signal.timestamp))}</div>
       </div>
     </article>
   `).join('');
+  setHtmlIfChanged('#signals-feed', 'signalsFeed', html);
 }
 
 function renderPortfolioChart(status) {
-  $('#portfolio-chart').innerHTML = chartSvg(status.portfolio.pnlHistory, 'equity', 'Portfolio equity');
+  const html = chartSvg(status.portfolio.pnlHistory, 'equity', 'Portfolio equity');
+  setHtmlIfChanged('#portfolio-chart', 'portfolioChart', html);
 }
 
 function renderResultSummary(targetSelector, result, type) {
@@ -507,28 +623,29 @@ function renderResultSummary(targetSelector, result, type) {
 
 function renderBacktest() {
   renderResultSummary('#backtest-summary', appState.backtest, 'backtest');
-  $('#backtest-chart').innerHTML = appState.backtest
+  const html = appState.backtest
     ? chartSvg(appState.backtest.equityCurve, 'equity', 'Backtest equity')
     : '<div class="chart-empty">No backtest run yet.</div>';
+  setHtmlIfChanged('#backtest-chart', 'backtestChart', html);
 }
 
 function renderSimulation() {
   renderResultSummary('#simulation-summary', appState.simulation, 'simulation');
-  $('#simulation-chart').innerHTML = appState.simulation
+  const html = appState.simulation
     ? chartSvg(appState.simulation.equityCurve, 'equity', 'Simulation equity')
     : '<div class="chart-empty">No simulation run yet.</div>';
+  setHtmlIfChanged('#simulation-chart', 'simulationChart', html);
 }
 
 function renderAiPreview() {
-  const target = $('#ai-preview');
   const preview = appState.aiPreview;
 
   if (!preview) {
-    target.textContent = 'No preview requested yet.';
+    setText('#ai-preview', 'No preview requested yet.');
     return;
   }
 
-  target.innerHTML = `
+  const html = `
     <strong>${escapeHtml(preview.token.symbol)} on ${escapeHtml(preview.token.chain)}</strong><br>
     Price ${formatMoney(preview.token.price)} | Liquidity ${formatMoney(preview.token.liquidityUsd)} | Volume ${formatMoney(preview.token.volume24h)}<br>
     Technical: ${escapeHtml(preview.technical.signal || 'UNKNOWN')}<br>
@@ -536,34 +653,36 @@ function renderAiPreview() {
       ? `AI: <span class="${preview.ai.signal === 'BUY' ? 'positive' : preview.ai.signal === 'SELL' ? 'negative' : 'neutral'}">${escapeHtml(preview.ai.signal)}</span> (${preview.ai.confidence || 0}% confidence)<br>${escapeHtml(preview.ai.reason || '')}`
       : 'AI: unavailable or disabled.'}
   `;
+  setHtmlIfChanged('#ai-preview', 'aiPreview', html);
 }
 
 function populateTokenOptions(tokens) {
-  $('#token-options').innerHTML = tokens.map((token) => (
+  const html = tokens.map((token) => (
     `<option value="${escapeHtml(token.address)}">${escapeHtml(token.symbol)} - ${escapeHtml(token.chain)}</option>`
   )).join('');
+  setHtmlIfChanged('#token-options', 'tokenOptions', html);
 }
 
 function syncConfigForm(config) {
   if (!config) return;
-  $('#paperTrading').value = String(config.paperTrading);
-  $('#paperBalance').value = config.paperBalance;
-  $('#emaFast').value = config.strategy.emaFast;
-  $('#emaSlow').value = config.strategy.emaSlow;
-  $('#rsiPeriod').value = config.strategy.rsiPeriod;
-  $('#rsiBuyThreshold').value = config.strategy.rsiBuyThreshold;
-  $('#volumeSpikeMultiplier').value = config.strategy.volumeSpikeMultiplier;
-  $('#sellTiers').value = JSON.stringify(config.strategy.sellTiers, null, 2);
-  $('#scanIntervalSeconds').value = config.bot.scanIntervalSeconds;
-  $('#maxPositionSizePct').value = config.risk.maxPositionSizePct;
-  $('#stopLossPct').value = config.risk.stopLossPct;
-  $('#takeProfitPct').value = config.risk.takeProfitPct;
-  $('#minLiquidityUsd').value = config.risk.minLiquidityUsd;
-  $('#maxConcurrentPositions').value = config.risk.maxConcurrentPositions;
-  $('#dailyDrawdownLimitPct').value = config.risk.dailyDrawdownLimitPct;
-  $('#anthropicEnabled').value = String(config.anthropic.enabled);
-  $('#anthropicModel').value = config.anthropic.model;
-  $('#anthropicTemperature').value = config.anthropic.temperature;
+  setValueIfChanged('#paperTrading', String(config.paperTrading));
+  setValueIfChanged('#paperBalance', config.paperBalance);
+  setValueIfChanged('#emaFast', config.strategy.emaFast);
+  setValueIfChanged('#emaSlow', config.strategy.emaSlow);
+  setValueIfChanged('#rsiPeriod', config.strategy.rsiPeriod);
+  setValueIfChanged('#rsiBuyThreshold', config.strategy.rsiBuyThreshold);
+  setValueIfChanged('#volumeSpikeMultiplier', config.strategy.volumeSpikeMultiplier);
+  setValueIfChanged('#sellTiers', JSON.stringify(config.strategy.sellTiers, null, 2));
+  setValueIfChanged('#scanIntervalSeconds', config.bot.scanIntervalSeconds);
+  setValueIfChanged('#maxPositionSizePct', config.risk.maxPositionSizePct);
+  setValueIfChanged('#stopLossPct', config.risk.stopLossPct);
+  setValueIfChanged('#takeProfitPct', config.risk.takeProfitPct);
+  setValueIfChanged('#minLiquidityUsd', config.risk.minLiquidityUsd);
+  setValueIfChanged('#maxConcurrentPositions', config.risk.maxConcurrentPositions);
+  setValueIfChanged('#dailyDrawdownLimitPct', config.risk.dailyDrawdownLimitPct);
+  setValueIfChanged('#anthropicEnabled', String(config.anthropic.enabled));
+  setValueIfChanged('#anthropicModel', config.anthropic.model);
+  setValueIfChanged('#anthropicTemperature', config.anthropic.temperature);
 }
 
 function renderAll() {
@@ -579,23 +698,65 @@ function renderAll() {
   renderBacktest();
   renderSimulation();
   renderAiPreview();
-  renderCorrelationHeatmap();
-  renderNewsFeed();
 }
 
-async function loadDashboard() {
-  const [statusResult, configResult, healthResult] = await Promise.allSettled([
+function scheduleRender({ refreshSupplemental = false } = {}) {
+  pendingSupplementalRefresh = pendingSupplementalRefresh || refreshSupplemental;
+  if (renderTimer) {
+    return;
+  }
+
+  const elapsed = Date.now() - lastRenderAt;
+  const delay = Math.max(0, 500 - elapsed);
+  renderTimer = window.setTimeout(() => {
+    renderTimer = null;
+    lastRenderAt = Date.now();
+    renderAll();
+    if (pendingSupplementalRefresh) {
+      pendingSupplementalRefresh = false;
+      loadSupplementalData(true);
+    }
+  }, delay);
+}
+
+function loadSupplementalData(force = false) {
+  if (force) {
+    appState.correlationLoadedAt = 0;
+    appState.newsLoadedAt = 0;
+  }
+
+  renderCorrelationHeatmap().catch((error) => {
+    const target = document.getElementById('correlation-heatmap');
+    if (target) {
+      target.innerHTML = `<div class="empty-state">Error loading correlation: ${escapeHtml(error.message)}</div>`;
+    }
+  });
+
+  renderNewsFeed().catch((error) => {
+    const target = document.getElementById('news-feed');
+    if (target) {
+      target.innerHTML = `<div class="empty-state">Error loading news: ${escapeHtml(error.message)}</div>`;
+    }
+  });
+}
+
+async function loadDashboard(options = {}) {
+  const includeConfig = Boolean(options.includeConfig);
+  const refreshSupplemental = Boolean(options.refreshSupplemental);
+  const requests = [
     fetchJson('/api/status'),
-    fetchJson('/api/config'),
+    includeConfig ? fetchJson('/api/config') : Promise.resolve(appState.config),
     fetchHealthStatus(),
-  ]);
+  ];
+  const [statusResult, configResult, healthResult] = await Promise.allSettled(requests);
   appState.status = statusResult.status === 'fulfilled' ? statusResult.value : null;
   appState.config = configResult.status === 'fulfilled' ? configResult.value : null;
   appState.health = (healthResult.status === 'fulfilled' && healthResult.value && typeof healthResult.value === 'object')
     ? healthResult.value
     : { ok: null, degraded: false, degradedReasons: [], error: 'health fetch failed' };
   if (appState.status) syncConfigForm(appState.config);
-  renderAll();
+  lastStateSignature = appState.status ? buildStateSignature(appState.status) : '';
+  scheduleRender({ refreshSupplemental });
 }
 
 async function saveConfig(event) {
@@ -638,7 +799,7 @@ async function saveConfig(event) {
       body: JSON.stringify(payload),
     });
     $('#config-status').textContent = 'Configuration saved. Scanner schedule updated.';
-    await loadDashboard();
+    await loadDashboard({ includeConfig: true, refreshSupplemental: true });
   } catch (error) {
     $('#config-status').textContent = error.message;
   }
@@ -732,8 +893,14 @@ function connectSocket() {
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'state') {
-        appState.status = data.payload;
-        renderAll();
+        const nextStatus = data.payload;
+        const nextSignature = buildStateSignature(nextStatus);
+        if (nextSignature === lastStateSignature) {
+          return;
+        }
+        lastStateSignature = nextSignature;
+        appState.status = nextStatus;
+        scheduleRender();
       }
     } catch (error) {
       console.warn('WebSocket payload error', error);
@@ -745,97 +912,24 @@ function connectSocket() {
   });
 }
 
-function setActiveView(view) {
-  const requestedView = String(view || 'overview');
-  const buttons = Array.from(document.querySelectorAll('.view-button'));
-  const panels = Array.from(document.querySelectorAll('[data-view-panel]'));
-  const panelViews = new Set(panels.map((panel) => panel.getAttribute('data-view-panel')));
-  const resolvedView = panelViews.has(requestedView) ? requestedView : 'overview';
-
-  buttons.forEach((button) => {
-    const isActive = button.getAttribute('data-view') === resolvedView;
-    button.classList.toggle('is-active', isActive);
-    button.setAttribute('aria-pressed', String(isActive));
-  });
-
-  panels.forEach((panel) => {
-    const isActive = panel.getAttribute('data-view-panel') === resolvedView;
-    panel.classList.toggle('is-active', isActive);
-  });
-}
-
-function bindViewMenu() {
-  const buttons = document.querySelectorAll('.view-button');
-  if (!buttons.length) return;
-
-  buttons.forEach((button) => {
-    button.addEventListener('click', () => {
-      const view = button.getAttribute('data-view') || 'overview';
-      setActiveView(view);
-      if (window.location.hash !== `#${view}`) {
-        window.history.replaceState(null, '', `#${view}`);
-      }
-    });
-  });
-
-  const initialHash = String(window.location.hash || '').replace(/^#/, '');
-  setActiveView(initialHash || 'overview');
-}
-
-function setDensityMode(mode) {
-  const resolvedMode = mode === 'compact' ? 'compact' : 'comfortable';
-  document.body.classList.toggle('density-compact', resolvedMode === 'compact');
-
-  const buttons = Array.from(document.querySelectorAll('.density-button'));
-  buttons.forEach((button) => {
-    const isActive = button.getAttribute('data-density') === resolvedMode;
-    button.classList.toggle('is-active', isActive);
-    button.setAttribute('aria-pressed', String(isActive));
-  });
-
-  try {
-    window.localStorage.setItem('dashboard-density', resolvedMode);
-  } catch (_error) {
-    // Ignore storage failures (private mode / blocked storage).
-  }
-}
-
-function bindDensityMenu() {
-  const buttons = document.querySelectorAll('.density-button');
-  if (!buttons.length) return;
-
-  buttons.forEach((button) => {
-    button.addEventListener('click', () => {
-      const mode = button.getAttribute('data-density') || 'comfortable';
-      setDensityMode(mode);
-    });
-  });
-
-  let savedMode = 'compact';
-  try {
-    savedMode = window.localStorage.getItem('dashboard-density') || 'compact';
-  } catch (_error) {
-    savedMode = 'compact';
-  }
-  setDensityMode(savedMode);
-}
-
 function bindEvents() {
-  bindViewMenu();
-  bindDensityMenu();
   $('#config-form').addEventListener('submit', saveConfig);
   $('#ai-form').addEventListener('submit', requestAiPreview);
   $('#backtest-form').addEventListener('submit', requestBacktest);
   $('#simulation-form').addEventListener('submit', requestSimulation);
-  $('#refresh-button').addEventListener('click', loadDashboard);
+  $('#refresh-button').addEventListener('click', () => loadDashboard({ includeConfig: true, refreshSupplemental: true }));
   $('#reset-paper-button').addEventListener('click', resetPaperPortfolio);
 }
 
 async function start() {
   bindEvents();
-  await loadDashboard();
+  await loadDashboard({ includeConfig: true, refreshSupplemental: true });
   connectSocket();
-  window.setInterval(loadDashboard, 15000);
+  window.setInterval(() => {
+    loadDashboard({ includeConfig: false, refreshSupplemental: false }).catch((error) => {
+      console.warn('Dashboard polling refresh failed', error);
+    });
+  }, 20000);
 }
 
 start().catch((error) => {
