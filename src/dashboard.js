@@ -489,6 +489,25 @@ function startDashboard(portfolio, ctx) {
     if (bindHost === '0.0.0.0') {
       logger.info(`Network access: http://${networkIP}:${config.bot.port}`);
     }
+
+    // Bug 8: warn when write endpoints are reachable without token auth.
+    if (!adminToken) {
+      if (bindHost === '0.0.0.0') {
+        // Exposed to the network AND no token — this is a remote-execution risk.
+        logger.warn(
+          '[SECURITY] Dashboard is bound to 0.0.0.0 without DASHBOARD_ADMIN_TOKEN. ' +
+          'Write endpoints (/api/config, /api/backtest, etc.) are accessible to anyone ' +
+          'on the network. Set DASHBOARD_ADMIN_TOKEN in your .env immediately.'
+        );
+      } else {
+        // Localhost only but no token — lower risk, still worth a notice.
+        logger.warn(
+          '[SECURITY] DASHBOARD_ADMIN_TOKEN is not set. Write endpoints are protected by ' +
+          'localhost-only access, but any process on this machine can modify bot configuration. ' +
+          'Set DASHBOARD_ADMIN_TOKEN in your .env for stronger protection.'
+        );
+      }
+    }
   });
 }
 

@@ -745,7 +745,84 @@ function connectSocket() {
   });
 }
 
+function setActiveView(view) {
+  const requestedView = String(view || 'overview');
+  const buttons = Array.from(document.querySelectorAll('.view-button'));
+  const panels = Array.from(document.querySelectorAll('[data-view-panel]'));
+  const panelViews = new Set(panels.map((panel) => panel.getAttribute('data-view-panel')));
+  const resolvedView = panelViews.has(requestedView) ? requestedView : 'overview';
+
+  buttons.forEach((button) => {
+    const isActive = button.getAttribute('data-view') === resolvedView;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+
+  panels.forEach((panel) => {
+    const isActive = panel.getAttribute('data-view-panel') === resolvedView;
+    panel.classList.toggle('is-active', isActive);
+  });
+}
+
+function bindViewMenu() {
+  const buttons = document.querySelectorAll('.view-button');
+  if (!buttons.length) return;
+
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const view = button.getAttribute('data-view') || 'overview';
+      setActiveView(view);
+      if (window.location.hash !== `#${view}`) {
+        window.history.replaceState(null, '', `#${view}`);
+      }
+    });
+  });
+
+  const initialHash = String(window.location.hash || '').replace(/^#/, '');
+  setActiveView(initialHash || 'overview');
+}
+
+function setDensityMode(mode) {
+  const resolvedMode = mode === 'compact' ? 'compact' : 'comfortable';
+  document.body.classList.toggle('density-compact', resolvedMode === 'compact');
+
+  const buttons = Array.from(document.querySelectorAll('.density-button'));
+  buttons.forEach((button) => {
+    const isActive = button.getAttribute('data-density') === resolvedMode;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+
+  try {
+    window.localStorage.setItem('dashboard-density', resolvedMode);
+  } catch (_error) {
+    // Ignore storage failures (private mode / blocked storage).
+  }
+}
+
+function bindDensityMenu() {
+  const buttons = document.querySelectorAll('.density-button');
+  if (!buttons.length) return;
+
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const mode = button.getAttribute('data-density') || 'comfortable';
+      setDensityMode(mode);
+    });
+  });
+
+  let savedMode = 'compact';
+  try {
+    savedMode = window.localStorage.getItem('dashboard-density') || 'compact';
+  } catch (_error) {
+    savedMode = 'compact';
+  }
+  setDensityMode(savedMode);
+}
+
 function bindEvents() {
+  bindViewMenu();
+  bindDensityMenu();
   $('#config-form').addEventListener('submit', saveConfig);
   $('#ai-form').addEventListener('submit', requestAiPreview);
   $('#backtest-form').addEventListener('submit', requestBacktest);

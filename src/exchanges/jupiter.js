@@ -8,6 +8,19 @@ const axios = require('axios');
 const bs58 = require('bs58');
 const config = require('../../config');
 const logger = require('../utils/logger');
+
+/**
+ * Bug 7 — age-adaptive cache TTL for token data.
+ * Tokens < 6h old: 15s (configurable via MOMENTUM_TOKEN_CACHE_TTL_MS)
+ * Tokens 6–24h old: 30s (configurable via NEW_TOKEN_CACHE_TTL_MS)
+ * Older tokens: falls back to BIRDEYE_CACHE_TTL_MS (default 60s)
+ */
+function tokenDataCacheTtl(listingAgeDays) {
+  const ageHours = Number(listingAgeDays || 0) * 24;
+  if (ageHours < 6) return Math.round(Number(config.birdeye?.momentumTokenCacheTtlMs ?? 15_000) / 1000);
+  if (ageHours < 24) return Math.round(Number(config.birdeye?.newTokenCacheTtlMs ?? 30_000) / 1000);
+  return Math.round(Number(config.birdeye?.cacheTtlMs ?? 60_000) / 1000);
+}
 const { getTokenMetrics } = require('../utils/coingecko');
 const { getNativeAssetPrice } = require('../utils/market-data');
 const { getTokenHolders, getTokenInfo } = require('../utils/onchain/solscan');
@@ -240,7 +253,8 @@ class JupiterExchange {
         tvl: tvl || null,
       };
 
-      await this.cache.set(cacheKey, result, 60);
+      // Bug 7: use a shorter TTL for new/momentum tokens so stale data expires faster.
+      await this.cache.set(cacheKey, result, tokenDataCacheTtl(result.listingAgeDays));
       return result;
     } catch (err) {
       logger.error(`Jupiter getTokenData failed for ${mintAddress}: ${err.message}`);

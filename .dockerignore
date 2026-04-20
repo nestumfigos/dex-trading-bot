@@ -3,6 +3,9 @@ npm-debug.log
 .git
 .gitignore
 .env
+*.env
+.env.*
+!.env.example
 logs
 data
 .vscode

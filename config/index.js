@@ -52,6 +52,12 @@ const config = {
     rpmLimit: parseInt(process.env.BIRDEYE_RPM_LIMIT || '30', 10),
     cacheTtlMs: parseInt(process.env.BIRDEYE_CACHE_TTL_MS || '60000', 10),
     dexscreenerCacheTtlMs: parseInt(process.env.DEXSCREENER_CACHE_TTL_MS || '90000', 10),
+    // Bug 7: age-adaptive token-data cache TTLs.
+    // Tokens < 6h old use a short TTL (15s default) so stale data never lingers longer than one poll.
+    // Tokens 6–24h old use a medium TTL (30s default).
+    // Tokens > 24h old fall back to cacheTtlMs above.
+    momentumTokenCacheTtlMs: parseInt(process.env.MOMENTUM_TOKEN_CACHE_TTL_MS || '15000', 10),
+    newTokenCacheTtlMs: parseInt(process.env.NEW_TOKEN_CACHE_TTL_MS || '30000', 10),
   },
 
   coinmarketcap: {
@@ -113,6 +119,40 @@ const config = {
     maxSuppressedTokenErrors: parseInt(process.env.MAX_SUPPRESSED_TOKEN_ERRORS || '10', 10),
     maxRoundTripFrictionPct: parseFloat(process.env.MAX_ROUND_TRIP_FRICTION_PCT || '15'),
     maxReserveImbalanceRatio: parseFloat(process.env.MAX_RESERVE_IMBALANCE_RATIO || '1000'),
+    maxMarketImpactPct: parseFloat(process.env.MAX_MARKET_IMPACT_PCT || '3'),
+    maxTradeShareOfHourlyVolumePct: parseFloat(process.env.MAX_TRADE_SHARE_HOURLY_VOLUME_PCT || '0.5'),
+    assumedWinRatePct: parseFloat(process.env.ASSUMED_WIN_RATE_PCT || '42'),
+    estimatedDexFeePctPerSide: parseFloat(process.env.ESTIMATED_DEX_FEE_PCT_PER_SIDE || '0.3'),
+    estimatedMevTaxPctPerRoundTrip: parseFloat(process.env.ESTIMATED_MEV_TAX_PCT_PER_ROUND_TRIP || '0.7'),
+    estimatedNetworkCostPctPerRoundTrip: parseFloat(process.env.ESTIMATED_NETWORK_COST_PCT_PER_ROUND_TRIP || '0.2'),
+    minNetExpectedEdgePct: parseFloat(process.env.MIN_NET_EXPECTED_EDGE_PCT || '0.8'),
+    maxHoldMinutesGlobal: parseInt(process.env.MAX_HOLD_MINUTES_GLOBAL || '4320', 10),
+    maxDailyLossPctByChain: (() => {
+      const raw = process.env.MAX_DAILY_LOSS_PCT_BY_CHAIN;
+      if (raw) {
+        try { return JSON.parse(raw); } catch { /* fall through */ }
+      }
+      return { solana: 3.5, bsc: 2.5, base: 2.5, kucoin: 3.0 };
+    })(),
+    oracleStopEnabled: process.env.ORACLE_STOP_ENABLED === 'true',
+    chainlinkFeedByToken: (() => {
+      const raw = process.env.CHAINLINK_FEED_BY_TOKEN;
+      if (raw) {
+        try { return JSON.parse(raw); } catch { /* fall through */ }
+      }
+      return {};
+    })(),
+    pythFeedByToken: (() => {
+      const raw = process.env.PYTH_FEED_BY_TOKEN;
+      if (raw) {
+        try { return JSON.parse(raw); } catch { /* fall through */ }
+      }
+      return {};
+    })(),
+    oraclePriceCacheMs: parseInt(process.env.ORACLE_PRICE_CACHE_MS || '2000', 10),
+    realtimeStopLossEnabled: process.env.REALTIME_STOP_LOSS_ENABLED !== 'false',
+    realtimeStopCheckSeconds: parseInt(process.env.REALTIME_STOP_CHECK_SECONDS || '8', 10),
+    realtimeStopFetchTimeoutMs: parseInt(process.env.REALTIME_STOP_FETCH_TIMEOUT_MS || '6000', 10),
   },
 
   bot: {
@@ -167,6 +207,22 @@ const config = {
     adminToken: process.env.DASHBOARD_ADMIN_TOKEN || '',
   },
 
+  // Time-of-day trading windows (UTC hours).
+  // New entries are only opened during these windows; exit checks always run.
+  // Set TRADING_WINDOWS_ENABLED=false to disable entirely (trade 24/7).
+  // Override windows via TRADING_WINDOWS='[{"startUtcHour":8,"endUtcHour":12}]' (JSON array).
+  tradingWindows: (() => {
+    const raw = process.env.TRADING_WINDOWS;
+    if (raw) {
+      try { return JSON.parse(raw); } catch { /* fall through to default */ }
+    }
+    return [
+      { startUtcHour: 8,  endUtcHour: 12 }, // US pre-market + Asia close overlap
+      { startUtcHour: 20, endUtcHour: 24 }, // US evening + Asia open overlap
+    ];
+  })(),
+  tradingWindowsEnabled: process.env.TRADING_WINDOWS_ENABLED !== 'false',
+
   // Dual Strategy Configuration
   strategies: {
     // Strategy A: Established Token Swing Trading (longer timeframes, larger sizes)
@@ -175,6 +231,8 @@ const config = {
       emaFast: parseInt(process.env.STRATEGY_SWING_EMA_FAST || '21', 10),
       emaSlow: parseInt(process.env.STRATEGY_SWING_EMA_SLOW || '55', 10),
       rsiPeriod: parseInt(process.env.STRATEGY_SWING_RSI_PERIOD || '21', 10),
+      candleInterval: process.env.STRATEGY_SWING_CANDLE_INTERVAL || '1h',
+      candleLookbackBars: parseInt(process.env.STRATEGY_SWING_CANDLE_LOOKBACK_BARS || '120', 10),
       rsiBuyThreshold: parseFloat(process.env.STRATEGY_SWING_RSI_BUY_MIN || '45'),
       rsiBuyMaxThreshold: parseFloat(process.env.STRATEGY_SWING_RSI_BUY_MAX || '65'),
       volumeSpikeMultiplier: parseFloat(process.env.STRATEGY_SWING_VOLUME_SPIKE || '1.8'),
@@ -192,10 +250,16 @@ const config = {
       maxConcurrentPositions: parseInt(process.env.STRATEGY_SWING_MAX_POSITIONS || '3', 10),
       trailingActivationMultiplier: parseFloat(process.env.STRATEGY_SWING_TRAIL_ACTIVATION_MULT || '2.0'),
       trailingStopPct: parseFloat(process.env.STRATEGY_SWING_TRAIL_STOP_PCT || '20'),
+      maxHoldMinutes: parseInt(process.env.STRATEGY_SWING_MAX_HOLD_MINUTES || '4320', 10),
       rsiExitThreshold: parseFloat(process.env.STRATEGY_SWING_RSI_EXIT || '78'),
       liquidityDropExitPct: parseFloat(process.env.STRATEGY_SWING_LIQ_DROP_EXIT_PCT || '30'),
       holderConcentrationJumpPct: parseFloat(process.env.STRATEGY_SWING_HOLDER_JUMP_PCT || '8'),
       disabledFilters: (process.env.STRATEGY_SWING_DISABLED_FILTERS || 'reddit,defillama').split(',').filter(f => f.trim()), // Disable Reddit & DeFiLlama for swing
+      // Item 7: adaptive tiered exit — delay/accelerate each sell tier based on momentum at trigger time.
+      adaptiveTierExit: process.env.STRATEGY_SWING_ADAPTIVE_TIER_EXIT !== 'false',
+      tierDelayRsiMin: parseFloat(process.env.STRATEGY_SWING_TIER_DELAY_RSI_MIN || '70'),         // RSI above this + volume OK → delay 1 cycle (let winners run)
+      tierAccelSellRatioPct: parseFloat(process.env.STRATEGY_SWING_TIER_ACCEL_SELL_RATIO || '60'), // Sell ratio above this → immediate full exit
+      tierLocalHighReversalPct: parseFloat(process.env.STRATEGY_SWING_TIER_REVERSAL_PCT || '5'),   // Price reversal from local high → immediate full exit
       sellTiers: [
         { profitMultiplier: 1.4, sellPct: 0.5 },
         { profitMultiplier: 1.7, sellPct: 0.25 },
@@ -208,8 +272,10 @@ const config = {
       emaFast: parseInt(process.env.STRATEGY_MOMENTUM_EMA_FAST || '9', 10),
       emaSlow: parseInt(process.env.STRATEGY_MOMENTUM_EMA_SLOW || '21', 10),
       rsiPeriod: parseInt(process.env.STRATEGY_MOMENTUM_RSI_PERIOD || '14', 10),
-      rsiBuyThreshold: parseFloat(process.env.STRATEGY_MOMENTUM_RSI_BUY_MIN || '45'),
-      rsiBuyMaxThreshold: parseFloat(process.env.STRATEGY_MOMENTUM_RSI_BUY_MAX || '65'),
+      candleInterval: process.env.STRATEGY_MOMENTUM_CANDLE_INTERVAL || '15m',
+      candleLookbackBars: parseInt(process.env.STRATEGY_MOMENTUM_CANDLE_LOOKBACK_BARS || '120', 10),
+      rsiBuyThreshold: parseFloat(process.env.STRATEGY_MOMENTUM_RSI_BUY_MIN || '55'),
+      rsiBuyMaxThreshold: parseFloat(process.env.STRATEGY_MOMENTUM_RSI_BUY_MAX || '75'),
       volumeSpikeMultiplier: parseFloat(process.env.STRATEGY_MOMENTUM_VOLUME_SPIKE || '2.5'),
       lowVolVolumeSpikeMultiplier: parseFloat(process.env.STRATEGY_MOMENTUM_LOW_VOL_SPIKE || '2.1'),
       highVolVolumeSpikeMultiplier: parseFloat(process.env.STRATEGY_MOMENTUM_HIGH_VOL_SPIKE || '3.0'),
@@ -236,6 +302,11 @@ const config = {
       liquidityDropExitPct: parseFloat(process.env.STRATEGY_MOMENTUM_LIQ_DROP_EXIT_PCT || '20'),
       holderConcentrationJumpPct: parseFloat(process.env.STRATEGY_MOMENTUM_HOLDER_JUMP_PCT || '6'),
       disabledFilters: (process.env.STRATEGY_MOMENTUM_DISABLED_FILTERS || '').split(',').filter(f => f.trim()), // Keep all filters
+      // Item 7: adaptive tiered exit — delay/accelerate each sell tier based on momentum at trigger time.
+      adaptiveTierExit: process.env.STRATEGY_MOMENTUM_ADAPTIVE_TIER_EXIT !== 'false',
+      tierDelayRsiMin: parseFloat(process.env.STRATEGY_MOMENTUM_TIER_DELAY_RSI_MIN || '70'),         // RSI above this + volume OK → delay 1 cycle (let winners run)
+      tierAccelSellRatioPct: parseFloat(process.env.STRATEGY_MOMENTUM_TIER_ACCEL_SELL_RATIO || '60'), // Sell ratio above this → immediate full exit
+      tierLocalHighReversalPct: parseFloat(process.env.STRATEGY_MOMENTUM_TIER_REVERSAL_PCT || '5'),   // Price reversal from local high → immediate full exit
       sellTiers: [
         { profitMultiplier: 1.25, sellPct: 0.5 },
         { profitMultiplier: 1.6, sellPct: 0.25 },
@@ -249,7 +320,8 @@ const config = {
     emaFast: 9,
     emaSlow: 21,
     rsiPeriod: 14,
-    rsiBuyThreshold: 45,
+    rsiBuyThreshold: 55,
+    rsiBuyMaxThreshold: 75,
     volumeSpikeMultiplier: 2.5,
     lowVolVolumeSpikeMultiplier: 2.1,
     highVolVolumeSpikeMultiplier: 3.0,
@@ -297,6 +369,12 @@ const config = {
     maxRetries: parseInt(process.env.EXECUTION_MAX_RETRIES) || 3,
     retryDelayMs: parseInt(process.env.EXECUTION_RETRY_DELAY_MS) || 1200,
     solanaPriorityFeeLamports: parseInt(process.env.SOLANA_PRIORITY_FEE_LAMPORTS) || 50000,
+    requiredConfirmationsBsc: parseInt(process.env.REQUIRED_CONFIRMATIONS_BSC || '2', 10),
+    requiredConfirmationsBase: parseInt(process.env.REQUIRED_CONFIRMATIONS_BASE || '2', 10),
+    bscPrivateTxRpcUrl: process.env.BSC_PRIVATE_TX_RPC_URL || '',
+    requirePrivateTxForBsc: process.env.REQUIRE_PRIVATE_TX_FOR_BSC === 'true',
+    mevGuardEnabled: process.env.MEV_GUARD_ENABLED !== 'false',
+    mevGuardMinLiquidityUsd: parseFloat(process.env.MEV_GUARD_MIN_LIQUIDITY_USD || '150000'),
     solanaOnlyDirectRoutes: process.env.SOLANA_ONLY_DIRECT_ROUTES === 'true',
     solanaMaxPriceImpactPct: parseFloat(process.env.SOLANA_MAX_PRICE_IMPACT_PCT) || 5,
     kucoinMaxSlippagePct: parseFloat(process.env.KUCOIN_MAX_SLIPPAGE_PCT) || 1.2,

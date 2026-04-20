@@ -71,8 +71,22 @@
       </article>
     </section>
 
-    <section class="workspace-grid">
-      <section class="panel span-2 reveal">
+    <nav class="view-menu panel reveal" aria-label="Dashboard sections">
+      <div class="view-menu-left">
+        <button class="view-button is-active" type="button" data-view="overview">Overview</button>
+        <button class="view-button" type="button" data-view="operations">Operations</button>
+        <button class="view-button" type="button" data-view="intelligence">Intelligence</button>
+        <button class="view-button" type="button" data-view="records">Records</button>
+      </div>
+      <div class="view-menu-tools" aria-label="Display density">
+        <span class="density-label">Table density</span>
+        <button class="density-button is-active" type="button" data-density="comfortable" aria-pressed="true">Comfortable</button>
+        <button class="density-button" type="button" data-density="compact" aria-pressed="false">Compact</button>
+      </div>
+    </nav>
+
+    <section class="view-panel workspace-grid reveal is-active" id="view-overview" data-view-panel="overview">
+      <section class="panel span-2">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Portfolio</span>
@@ -83,7 +97,7 @@
         <div id="portfolio-chart" class="chart-shell"></div>
       </section>
 
-      <section class="panel reveal">
+      <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Scanner</span>
@@ -94,7 +108,50 @@
         <div id="chain-status-grid" class="chain-status-grid"></div>
       </section>
 
-      <section class="panel span-2 reveal">
+      <section class="panel span-2">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Positions</span>
+            <h2>Open Exposure</h2>
+          </div>
+          <p>Live paper positions with current value, stop levels, and AI context.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Chain</th>
+                <th>Entry</th>
+                <th>Now</th>
+                <th>Value</th>
+                <th>Unrealized</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="positions-table">
+              <tr><td colspan="7" class="empty-row">No open positions.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <span class="panel-kicker">Signals</span>
+            <h2>Recent Decisions</h2>
+          </div>
+          <p>Latest technical and AI-overridden calls.</p>
+        </div>
+        <div id="signals-feed" class="signal-feed">
+          <div class="empty-state">No signals recorded yet.</div>
+        </div>
+      </section>
+    </section>
+
+    <section class="view-panel workspace-grid reveal" id="view-operations" data-view-panel="operations">
+      <section class="panel span-2">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Configuration</span>
@@ -194,33 +251,7 @@
         </form>
       </section>
 
-      <section class="panel reveal">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Anthropic Brain</span>
-            <h2>Signal Preview</h2>
-          </div>
-          <p>Ask the AI layer for a live read on any tracked token.</p>
-        </div>
-        <form id="ai-form" class="stack-form">
-          <label class="field">
-            <span>Chain</span>
-            <select id="ai-chain">
-              <option value="solana">Solana</option>
-              <option value="bsc">BSC</option>
-              <option value="base">Base</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Token Address</span>
-            <input id="ai-token" type="text" list="token-options" placeholder="Paste a tracked token address">
-          </label>
-          <button class="button" type="submit">Preview AI Signal</button>
-          <div id="ai-preview" class="result-card muted-card">No preview requested yet.</div>
-        </form>
-      </section>
-
-      <section class="panel reveal">
+      <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Backtesting</span>
@@ -247,7 +278,7 @@
         </form>
       </section>
 
-      <section class="panel reveal">
+      <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Paper Sandbox</span>
@@ -287,49 +318,36 @@
           <div id="simulation-chart" class="chart-shell compact-chart"></div>
         </form>
       </section>
+    </section>
 
-      <section class="panel span-2 reveal">
+    <section class="view-panel workspace-grid reveal" id="view-intelligence" data-view-panel="intelligence">
+      <section class="panel">
         <div class="panel-header">
           <div>
-            <span class="panel-kicker">Positions</span>
-            <h2>Open Exposure</h2>
+            <span class="panel-kicker">Anthropic Brain</span>
+            <h2>Signal Preview</h2>
           </div>
-          <p>Live paper positions with current value, stop levels, and AI context.</p>
+          <p>Ask the AI layer for a live read on any tracked token.</p>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Token</th>
-                <th>Chain</th>
-                <th>Entry</th>
-                <th>Now</th>
-                <th>Value</th>
-                <th>Unrealized</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody id="positions-table">
-              <tr><td colspan="7" class="empty-row">No open positions.</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <form id="ai-form" class="stack-form">
+          <label class="field">
+            <span>Chain</span>
+            <select id="ai-chain">
+              <option value="solana">Solana</option>
+              <option value="bsc">BSC</option>
+              <option value="base">Base</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Token Address</span>
+            <input id="ai-token" type="text" list="token-options" placeholder="Paste a tracked token address">
+          </label>
+          <button class="button" type="submit">Preview AI Signal</button>
+          <div id="ai-preview" class="result-card muted-card">No preview requested yet.</div>
+        </form>
       </section>
 
-      <section class="panel reveal">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Signals</span>
-            <h2>Recent Decisions</h2>
-          </div>
-          <p>Latest technical and AI-overridden calls.</p>
-        </div>
-        <div id="signals-feed" class="signal-feed">
-          <div class="empty-state">No signals recorded yet.</div>
-        </div>
-      </section>
-
-      <section class="panel span-3 reveal">
+      <section class="panel span-2">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">News & Sentiment</span>
@@ -340,7 +358,7 @@
         <div id="news-feed" class="news-feed muted-card">Loading news...</div>
       </section>
 
-      <section class="panel span-3 reveal">
+      <section class="panel span-3">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Portfolio</span>
@@ -350,8 +368,10 @@
         </div>
         <div id="correlation-heatmap" class="heatmap-shell"><div class="empty-state">No correlation data yet — scanner is still collecting price history.</div></div>
       </section>
+    </section>
 
-      <section class="panel span-3 reveal">
+    <section class="view-panel workspace-grid records-grid reveal" id="view-records" data-view-panel="records">
+      <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Trading Journal</span>
@@ -380,7 +400,7 @@
         </div>
       </section>
 
-      <section class="panel span-3 reveal">
+      <section class="panel">
         <div class="panel-header">
           <div>
             <span class="panel-kicker">Market Coverage</span>

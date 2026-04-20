@@ -6,6 +6,37 @@ const logger = require('../utils/logger');
 const { getTokenMetrics } = require('../utils/coingecko');
 const { getNativeAssetPrice } = require('../utils/market-data');
 
+/**
+ * Bug 7 — age-adaptive cache TTL for token data.
+ * Tokens < 6h old: 15s  |  6–24h: 30s  |  older: 60s (all configurable via env)
+ */
+function tokenDataCacheTtl(listingAgeDays) {
+  const ageHours = Number(listingAgeDays || 0) * 24;
+  if (ageHours < 6) return Math.round(Number(config.birdeye?.momentumTokenCacheTtlMs ?? 15_000) / 1000);
+  if (ageHours < 24) return Math.round(Number(config.birdeye?.newTokenCacheTtlMs ?? 30_000) / 1000);
+  return Math.round(Number(config.birdeye?.cacheTtlMs ?? 60_000) / 1000);
+}
+
+// Tracks the next pending nonce to prevent nonce reuse across concurrent txs.
+class NonceManager {
+  constructor(provider, address) {
+    this._provider = provider;
+    this._address = address;
+    this._nonce = null;
+  }
+
+  async nextNonce() {
+    if (this._nonce === null) {
+      this._nonce = await this._provider.getTransactionCount(this._address, 'pending');
+    } else {
+      this._nonce += 1;
+    }
+    return this._nonce;
+  }
+
+  reset() { this._nonce = null; }
+}
+
 const BSC_RPCS = [
   config.bsc.rpcUrl,
   'https://bsc-dataseed.binance.org/',
@@ -71,16 +102,41 @@ class PancakeSwapExchange {
     this.provider = null;
     this.wallet = null;
     this.router = null;
+    this.privateProvider = null;
+    this.privateWallet = null;
+    this.privateRouter = null;
     this.discoveryCache = { tokens: [], fetchedAt: 0 };
     this.cache = cache;
     this._bnbPriceCache = { value: null, cachedAt: null };
     this._frictionCache = new Map();
+    this._nonceManager = null;
   }
 
   async initialize() {
     this.provider = await getWorkingProvider(BSC_RPCS);
     this.wallet = config.bsc.privateKey ? new ethers.Wallet(config.bsc.privateKey, this.provider) : null;
     this.router = new ethers.Contract(config.bsc.pancakeRouterV2, ROUTER_ABI, this.wallet || this.provider);
+    if (config.execution?.bscPrivateTxRpcUrl && config.bsc.privateKey) {
+      try {
+        this.privateProvider = new ethers.JsonRpcProvider(config.execution.bscPrivateTxRpcUrl);
+        await this.privateProvider.getBlockNumber();
+        this.privateWallet = new ethers.Wallet(config.bsc.privateKey, this.privateProvider);
+        this.privateRouter = new ethers.Contract(config.bsc.pancakeRouterV2, ROUTER_ABI, this.privateWallet);
+        logger.info('PancakeSwap private transaction route enabled');
+      } catch (error) {
+        this.privateProvider = null;
+        this.privateWallet = null;
+        this.privateRouter = null;
+        logger.warn(`PancakeSwap private transaction route unavailable: ${error.message}`);
+      }
+    }
+    if (this.wallet) {
+      this._nonceManager = new NonceManager(this.privateProvider || this.provider, this.wallet.address);
+    }
+  }
+
+  hasPrivateTxRoute() {
+    return Boolean(this.privateRouter && this.privateProvider);
   }
 
   async getTokenData(tokenAddress) {
@@ -142,7 +198,8 @@ class PancakeSwapExchange {
         }
       }
 
-      await this.cache.set(cacheKey, result, 60);
+      // Bug 7: use a shorter TTL for new/momentum tokens so stale data expires faster.
+      await this.cache.set(cacheKey, result, tokenDataCacheTtl(result.listingAgeDays));
       return result;
     } catch (err) {
       logger.error(`PancakeSwap getTokenData failed for ${tokenAddress}: ${err.message}`);
@@ -186,11 +243,12 @@ class PancakeSwapExchange {
   }
 
   async ensureApproval(tokenAddress, amount) {
-    const token = new ethers.Contract(tokenAddress, ERC20_ABI, this.wallet);
+    const activeWallet = this.privateWallet || this.wallet;
+    const token = new ethers.Contract(tokenAddress, ERC20_ABI, activeWallet);
     const allowance = await token.allowance(this.wallet.address, config.bsc.pancakeRouterV2);
     if (allowance < amount) {
       const tx = await token.approve(config.bsc.pancakeRouterV2, ethers.MaxUint256);
-      await tx.wait();
+      await tx.wait(Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2)));
     }
   }
 
@@ -212,6 +270,9 @@ class PancakeSwapExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      const activeRouter = (config.execution?.mevGuardEnabled !== false && this.privateRouter) ? this.privateRouter : this.router;
+      const activeProvider = activeRouter?.runner?.provider || this.privateProvider || this.provider;
+      const requiredConfirmations = Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2));
 
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         try {
@@ -221,24 +282,29 @@ class PancakeSwapExchange {
           const amountOutMin = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
           const deadline = Math.floor(Date.now() / 1000) + 300;
 
-          const txRequest = await this.router.swapExactETHForTokensSupportingFeeOnTransferTokens.populateTransaction(
+          const txRequest = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens.populateTransaction(
             amountOutMin,
             [config.bsc.wbnb, tokenAddress],
             this.wallet.address,
             deadline,
             { value: amountIn }
           );
-          const estimatedGas = await this.provider.estimateGas({ ...txRequest, from: this.wallet.address, value: amountIn });
+          const estimatedGas = await activeProvider.estimateGas({ ...txRequest, from: this.wallet.address, value: amountIn });
 
-          const tx = await this.router.swapExactETHForTokensSupportingFeeOnTransferTokens(
+          const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
+          const tx = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
             amountOutMin,
             [config.bsc.wbnb, tokenAddress],
             this.wallet.address,
             deadline,
-            { value: amountIn, gasLimit: (estimatedGas * 120n) / 100n }
+            { value: amountIn, gasLimit: (estimatedGas * 120n) / 100n, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
           );
 
-          const receipt = await tx.wait();
+          const receipt = await tx.wait(requiredConfirmations);
+          if (!receipt || receipt.status === 0) {
+            if (this._nonceManager) this._nonceManager.reset();
+            throw new Error(`BUY transaction reverted (hash=${tx.hash})`);
+          }
 
           // Parse confirmed tokens received from Transfer events on the token contract.
           const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
@@ -261,7 +327,15 @@ class PancakeSwapExchange {
           const bnbSpent = Number(bnbAmount);
           const bnbPriceUsd = await this.getBnbPrice().catch(() => 0);
           const filledQuoteUsd = bnbPriceUsd > 0 ? bnbSpent * bnbPriceUsd : 0;
-          return { txid: receipt.hash, slippageBps, filledBaseQty, filledQuoteUsd };
+          return {
+            txid: receipt.hash,
+            slippageBps,
+            filledBaseQty,
+            filledQuoteUsd,
+            blockNumber: receipt.blockNumber,
+            confirmations: requiredConfirmations,
+            privateRouteUsed: Boolean(activeRouter === this.privateRouter),
+          };
         } catch (error) {
           if (attempt >= retries) throw error;
           logger.warn(`PancakeSwap BUY retry ${attempt}/${retries} failed: ${error.message}`);
@@ -287,6 +361,9 @@ class PancakeSwapExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      const activeRouter = (config.execution?.mevGuardEnabled !== false && this.privateRouter) ? this.privateRouter : this.router;
+      const activeProvider = activeRouter?.runner?.provider || this.privateProvider || this.provider;
+      const requiredConfirmations = Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2));
 
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         try {
@@ -297,25 +374,30 @@ class PancakeSwapExchange {
           const amountOutMin = (amounts[1] * BigInt(10000 - slippageBps)) / 10000n;
           const deadline = Math.floor(Date.now() / 1000) + 300;
 
-          const txRequest = await this.router.swapExactTokensForETHSupportingFeeOnTransferTokens.populateTransaction(
+          const txRequest = await activeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens.populateTransaction(
             rawTokenAmount,
             amountOutMin,
             [tokenAddress, config.bsc.wbnb],
             this.wallet.address,
             deadline
           );
-          const estimatedGas = await this.provider.estimateGas({ ...txRequest, from: this.wallet.address });
+          const estimatedGas = await activeProvider.estimateGas({ ...txRequest, from: this.wallet.address });
 
-          const tx = await this.router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+          const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
+          const tx = await activeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
             rawTokenAmount,
             amountOutMin,
             [tokenAddress, config.bsc.wbnb],
             this.wallet.address,
             deadline,
-            { gasLimit: (estimatedGas * 120n) / 100n }
+            { gasLimit: (estimatedGas * 120n) / 100n, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
           );
 
-          const receipt = await tx.wait();
+          const receipt = await tx.wait(requiredConfirmations);
+          if (!receipt || receipt.status === 0) {
+            if (this._nonceManager) this._nonceManager.reset();
+            throw new Error(`SELL transaction reverted (hash=${tx.hash})`);
+          }
 
           // Parse actual token debit from wallet via Transfer event (from=wallet) on the token contract.
           // Using swapExactTokensForETHSupportingFeeOnTransferTokens means the router calls
@@ -379,7 +461,15 @@ class PancakeSwapExchange {
           }
           const bnbPriceUsd = await this.getBnbPrice().catch(() => 0);
           const filledQuoteUsd = nativeBnbReceived > 0 && bnbPriceUsd > 0 ? nativeBnbReceived * bnbPriceUsd : 0;
-          return { txid: receipt.hash, slippageBps, filledBaseQty, filledQuoteUsd };
+          return {
+            txid: receipt.hash,
+            slippageBps,
+            filledBaseQty,
+            filledQuoteUsd,
+            blockNumber: receipt.blockNumber,
+            confirmations: requiredConfirmations,
+            privateRouteUsed: Boolean(activeRouter === this.privateRouter),
+          };
         } catch (error) {
           if (attempt >= retries) throw error;
           logger.warn(`PancakeSwap SELL retry ${attempt}/${retries} failed: ${error.message}`);

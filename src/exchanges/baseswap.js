@@ -6,6 +6,37 @@ const logger = require('../utils/logger');
 const { getTokenMetrics } = require('../utils/coingecko');
 const { getNativeAssetPrice } = require('../utils/market-data');
 
+/**
+ * Bug 7 — age-adaptive cache TTL for token data.
+ * Tokens < 6h old: 15s  |  6–24h: 30s  |  older: 60s (all configurable via env)
+ */
+function tokenDataCacheTtl(listingAgeDays) {
+  const ageHours = Number(listingAgeDays || 0) * 24;
+  if (ageHours < 6) return Math.round(Number(config.birdeye?.momentumTokenCacheTtlMs ?? 15_000) / 1000);
+  if (ageHours < 24) return Math.round(Number(config.birdeye?.newTokenCacheTtlMs ?? 30_000) / 1000);
+  return Math.round(Number(config.birdeye?.cacheTtlMs ?? 60_000) / 1000);
+}
+
+// Tracks the next pending nonce to prevent nonce reuse across concurrent txs.
+class NonceManager {
+  constructor(provider, address) {
+    this._provider = provider;
+    this._address = address;
+    this._nonce = null;
+  }
+
+  async nextNonce() {
+    if (this._nonce === null) {
+      this._nonce = await this._provider.getTransactionCount(this._address, 'pending');
+    } else {
+      this._nonce += 1;
+    }
+    return this._nonce;
+  }
+
+  reset() { this._nonce = null; }
+}
+
 const ROUTER_ABI = [
   'function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)',
   'function swapExactETHForTokensSupportingFeeOnTransferTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable',
@@ -43,6 +74,7 @@ class BaseSwapExchange {
       cachedAt: null,
     };
     this._frictionCache = new Map();
+    this._nonceManager = null;
   }
 
   async initialize() {
@@ -77,6 +109,13 @@ class BaseSwapExchange {
 
     this.wallet = config.base.privateKey ? new ethers.Wallet(config.base.privateKey, this.provider) : null;
     this.router = new ethers.Contract(config.base.baseswapRouter, ROUTER_ABI, this.wallet || this.provider);
+    if (this.wallet) {
+      this._nonceManager = new NonceManager(this.provider, this.wallet.address);
+    }
+  }
+
+  hasPrivateTxRoute() {
+    return false;
   }
 
   async getTokenData(tokenAddress) {
@@ -134,7 +173,8 @@ class BaseSwapExchange {
         }
       }
 
-      await this.cache?.set(cacheKey, result, 180);
+      // Bug 7: use a shorter TTL for new/momentum tokens so stale data expires faster.
+      await this.cache?.set(cacheKey, result, tokenDataCacheTtl(result.listingAgeDays));
       return result;
     } catch (err) {
       logger.error(`BaseSwap getTokenData failed for ${tokenAddress}: ${err.message}`);
@@ -147,7 +187,7 @@ class BaseSwapExchange {
     const allowance = await token.allowance(this.wallet.address, config.base.baseswapRouter);
     if (allowance < amount) {
       const tx = await token.approve(config.base.baseswapRouter, ethers.MaxUint256);
-      await tx.wait();
+      await tx.wait(Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2)));
     }
   }
 
@@ -204,6 +244,7 @@ class BaseSwapExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      const requiredConfirmations = Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2));
 
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         try {
@@ -223,6 +264,7 @@ class BaseSwapExchange {
           );
           const estimatedGas = await this.provider.estimateGas({ ...txRequest, from: this.wallet.address, value: amountIn });
 
+          const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
           const tx = await this.router.swapExactETHForTokensSupportingFeeOnTransferTokens(
             amountOutMin,
             [config.base.weth, tokenAddress],
@@ -233,10 +275,15 @@ class BaseSwapExchange {
               gasLimit: (estimatedGas * 120n) / 100n,
               maxFeePerGas: feeData.maxFeePerGas,
               maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+              ...(txNonce !== undefined ? { nonce: txNonce } : {}),
             }
           );
 
-          const receipt = await tx.wait();
+          const receipt = await tx.wait(requiredConfirmations);
+          if (!receipt || receipt.status === 0) {
+            if (this._nonceManager) this._nonceManager.reset();
+            throw new Error(`BUY transaction reverted (hash=${tx.hash})`);
+          }
 
           // Parse confirmed tokens received from Transfer events on the token contract.
           const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
@@ -259,7 +306,14 @@ class BaseSwapExchange {
           const ethSpent = Number(ethAmount);
           const ethPriceUsd = await this.getEthPrice().catch(() => 0);
           const filledQuoteUsd = ethPriceUsd > 0 ? ethSpent * ethPriceUsd : 0;
-          return { txid: receipt.hash, slippageBps, filledBaseQty, filledQuoteUsd };
+          return {
+            txid: receipt.hash,
+            slippageBps,
+            filledBaseQty,
+            filledQuoteUsd,
+            blockNumber: receipt.blockNumber,
+            confirmations: requiredConfirmations,
+          };
         } catch (error) {
           if (attempt >= retries) throw error;
           logger.warn(`BaseSwap BUY retry ${attempt}/${retries} failed: ${error.message}`);
@@ -285,6 +339,7 @@ class BaseSwapExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      const requiredConfirmations = Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2));
 
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         try {
@@ -305,6 +360,7 @@ class BaseSwapExchange {
           );
           const estimatedGas = await this.provider.estimateGas({ ...txRequest, from: this.wallet.address });
 
+          const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
           const tx = await this.router.swapExactTokensForETHSupportingFeeOnTransferTokens(
             rawTokenAmount,
             amountOutMin,
@@ -315,10 +371,15 @@ class BaseSwapExchange {
               gasLimit: (estimatedGas * 120n) / 100n,
               maxFeePerGas: feeData.maxFeePerGas,
               maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+              ...(txNonce !== undefined ? { nonce: txNonce } : {}),
             }
           );
 
-          const receipt = await tx.wait();
+          const receipt = await tx.wait(requiredConfirmations);
+          if (!receipt || receipt.status === 0) {
+            if (this._nonceManager) this._nonceManager.reset();
+            throw new Error(`SELL transaction reverted (hash=${tx.hash})`);
+          }
 
           // Parse actual token debit from wallet via Transfer event (from=wallet) on the token contract.
           // Using swapExactTokensForETHSupportingFeeOnTransferTokens means the router calls
@@ -382,7 +443,14 @@ class BaseSwapExchange {
           }
           const ethPriceUsd = await this.getEthPrice().catch(() => 0);
           const filledQuoteUsd = nativeEthReceived > 0 && ethPriceUsd > 0 ? nativeEthReceived * ethPriceUsd : 0;
-          return { txid: receipt.hash, slippageBps, filledBaseQty, filledQuoteUsd };
+          return {
+            txid: receipt.hash,
+            slippageBps,
+            filledBaseQty,
+            filledQuoteUsd,
+            blockNumber: receipt.blockNumber,
+            confirmations: requiredConfirmations,
+          };
         } catch (error) {
           if (attempt >= retries) throw error;
           logger.warn(`BaseSwap SELL retry ${attempt}/${retries} failed: ${error.message}`);

@@ -119,6 +119,50 @@ class RiskGuardian {
     return Number.isFinite(equity) ? equity : cash;
   }
 
+  getTodayChainPnlUsd(chainKey) {
+    const normalized = this.normalizeChain(chainKey);
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const day = now.getUTCDate();
+
+    return (this.portfolio.trades || []).reduce((sum, trade) => {
+      if (trade?.type !== 'SELL') return sum;
+      if (!Number.isFinite(Number(trade?.pnl))) return sum;
+      const tradeChain = this.normalizeChain(trade?.chainKey || trade?.chain);
+      if (tradeChain !== normalized) return sum;
+      const ts = Date.parse(trade?.timestamp || '');
+      if (!Number.isFinite(ts)) return sum;
+      const dt = new Date(ts);
+      if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month || dt.getUTCDate() !== day) return sum;
+      return sum + Number(trade.pnl);
+    }, 0);
+  }
+
+  checkPerChainDailyLoss(chainKey) {
+    const normalized = this.normalizeChain(chainKey);
+    const limits = config.risk?.maxDailyLossPctByChain || {};
+    const rawLimit = Number(limits?.[normalized]);
+    if (!Number.isFinite(rawLimit) || rawLimit <= 0) {
+      return { allowed: true };
+    }
+
+    const baseline = Number(this.dailyStartBalance || 0);
+    if (!Number.isFinite(baseline) || baseline <= 0) {
+      return { allowed: true };
+    }
+
+    const chainPnlUsd = this.getTodayChainPnlUsd(normalized);
+    const limitUsd = baseline * (Math.abs(rawLimit) / 100);
+    if (chainPnlUsd <= -limitUsd) {
+      return {
+        allowed: false,
+        reason: `${normalized} daily loss ${Math.abs(chainPnlUsd).toFixed(2)} exceeds chain limit ${limitUsd.toFixed(2)} (${rawLimit.toFixed(2)}% of baseline)`,
+      };
+    }
+    return { allowed: true };
+  }
+
   resetDaily() {
     this.dailyStartBalance = this.getEquityBalanceUsd();
     this.haltedToday = false;
@@ -168,12 +212,17 @@ class RiskGuardian {
 
     const closedTrades = Number(stats.closedTrades || 0);
     if (closedTrades >= Math.max(1, minTradesForKpiGate)) {
-      const profitFactor = Number(stats.profitFactor || 0);
-      if (!Number.isFinite(profitFactor) || profitFactor < minProfitFactor) {
-        return {
-          allowed: false,
-          reason: `Profit factor ${Number.isFinite(profitFactor) ? profitFactor.toFixed(2) : '0.00'} below minimum ${minProfitFactor.toFixed(2)}`,
-        };
+      // profitFactor === null means "no losses yet" (all wins so far) — skip the gate; it cannot be failing.
+      // profitFactor === 0 means no closed trades at all — also skip.
+      const rawPf = stats.profitFactor;
+      if (rawPf !== null && rawPf !== undefined) {
+        const profitFactor = Number(rawPf);
+        if (!Number.isFinite(profitFactor) || profitFactor < minProfitFactor) {
+          return {
+            allowed: false,
+            reason: `Profit factor ${Number.isFinite(profitFactor) ? profitFactor.toFixed(2) : '0.00'} below minimum ${minProfitFactor.toFixed(2)}`,
+          };
+        }
       }
     }
 
@@ -221,6 +270,11 @@ class RiskGuardian {
       return { allowed: false, reason: 'Daily drawdown limit triggered' };
     }
 
+    const chainRisk = this.checkPerChainDailyLoss(tokenData.chainKey || tokenData.chain);
+    if (!chainRisk.allowed) {
+      return chainRisk;
+    }
+
     const performanceGate = this.checkPerformanceGate(this.portfolio.stats || {});
     if (!performanceGate.allowed) {
       return performanceGate;
@@ -240,6 +294,13 @@ class RiskGuardian {
         allowed: false,
         reason: `Liquidity $${tokenData.liquidityUsd.toFixed(0)} below minimum $${config.risk.minLiquidityUsd}`,
       };
+    }
+
+    // Market-impact gate: block entries where estimated AMM slippage exceeds the threshold.
+    // Uses the constant-product (x*y=k) approximation: impact = tradeSize / (liquidity + tradeSize).
+    const impactCheck = this.estimateMarketImpact(tokenData, strategyName);
+    if (impactCheck.blocked) {
+      return { allowed: false, reason: impactCheck.reason };
     }
 
     if (String(tokenData.signalSource || '').toLowerCase() === 'ai') {
@@ -332,6 +393,65 @@ class RiskGuardian {
     const equityUsd = this.getEquityBalanceUsd();
     const sizeUsd = equityUsd * pct;
     return Math.min(sizeUsd, this.portfolio.balance * 0.05);
+  }
+
+  /**
+   * Estimate AMM price impact using the constant-product (x*y=k) model.
+   * impact ≈ tradeSize / (poolLiquidity + tradeSize)
+   * Blocks the trade if the estimated impact exceeds MAX_MARKET_IMPACT_PCT.
+   * Returns { blocked: false } or { blocked: true, reason, impactPct }.
+   */
+  estimateMarketImpact(tokenData, strategyName = 'momentum') {
+    const liquidityUsd = Number(tokenData.liquidityUsd || 0);
+    if (liquidityUsd <= 0) return { blocked: false }; // Can't estimate without liquidity data
+
+    const sizeUsd = this.positionSize(tokenData, strategyName);
+    if (sizeUsd <= 0) return { blocked: false };
+
+    // x*y=k approximation: entry impact on a two-sided pool (half-liquidity on each side)
+    const poolSide = liquidityUsd / 2;
+    const impactPct = (sizeUsd / (poolSide + sizeUsd)) * 100;
+
+    const threshold = Number(config.risk?.maxMarketImpactPct ?? 3);
+    if (impactPct > threshold) {
+      const reason = `Estimated market impact ${impactPct.toFixed(1)}% exceeds limit ${threshold}% (size $${sizeUsd.toFixed(0)} / liq $${liquidityUsd.toFixed(0)})`;
+      logger.debug(`Market impact gate blocked: ${reason}`);
+      return { blocked: true, reason, impactPct };
+    }
+
+    // Additional liquidity realism: limit position share of estimated 1h volume.
+    const volume24h = Number(tokenData.volume24h || 0);
+    const estimatedHourlyVolume = volume24h > 0 ? (volume24h / 24) : 0;
+    const maxSharePct = Number(config.risk?.maxTradeShareOfHourlyVolumePct ?? 0.5);
+    if (estimatedHourlyVolume > 0) {
+      const sharePct = (sizeUsd / estimatedHourlyVolume) * 100;
+      if (sharePct > maxSharePct) {
+        const reason = `Trade size ${(sharePct).toFixed(2)}% of estimated 1h volume exceeds cap ${maxSharePct.toFixed(2)}%`;
+        return { blocked: true, reason, impactPct, tradeSharePct: sharePct };
+      }
+    }
+
+    // Cost-vs-edge gate: if estimated execution costs consume the strategy's expected edge, skip trade.
+    const strategyCfg = config.strategies?.[strategyName] || {};
+    const stopLossPct = Number(strategyCfg.stopLossPct || config.risk.stopLossPct || 8);
+    const takeProfitPct = Number(strategyCfg.takeProfitPct || config.risk.takeProfitPct || 25);
+    const winRate = Math.max(0.05, Math.min(0.95, Number(config.risk?.assumedWinRatePct || 42) / 100));
+    const grossExpectedEdgePct = (winRate * takeProfitPct) - ((1 - winRate) * stopLossPct);
+
+    const dexFeeRoundTripPct = Number(config.risk?.estimatedDexFeePctPerSide || 0.3) * 2;
+    const mevTaxPct = Number(config.risk?.estimatedMevTaxPctPerRoundTrip || 0.7);
+    const networkCostPct = Number(config.risk?.estimatedNetworkCostPctPerRoundTrip || 0.2);
+    const impactRoundTripPct = impactPct * 2;
+    const estimatedTotalCostPct = dexFeeRoundTripPct + mevTaxPct + networkCostPct + impactRoundTripPct;
+    const netExpectedEdgePct = grossExpectedEdgePct - estimatedTotalCostPct;
+    const minNetEdgePct = Number(config.risk?.minNetExpectedEdgePct || 0.8);
+
+    if (!Number.isFinite(netExpectedEdgePct) || netExpectedEdgePct < minNetEdgePct) {
+      const reason = `Net expected edge ${Number.isFinite(netExpectedEdgePct) ? netExpectedEdgePct.toFixed(2) : 'NaN'}% below minimum ${minNetEdgePct.toFixed(2)}% after estimated costs ${estimatedTotalCostPct.toFixed(2)}%`;
+      return { blocked: true, reason, impactPct, estimatedTotalCostPct, netExpectedEdgePct };
+    }
+
+    return { blocked: false, impactPct, estimatedTotalCostPct, netExpectedEdgePct };
   }
 
   stopLossPrice(entryPrice, strategyName = 'momentum') {

@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 const cron = require('node-cron');
+const { ethers } = require('ethers');
 const config = require('../config');
 const logger = require('./utils/logger');
 const RiskGuardian = require('./risk/guardian');
@@ -88,12 +89,274 @@ class Cache {
 
 const cache = new Cache();
 
+// Mutex that serialises position entry. Prevents concurrent processToken() calls
+// from both passing the position-count check and both writing to portfolio.positions.
+class AsyncMutex {
+  constructor() { this._queue = Promise.resolve(); }
+  lock() {
+    let release;
+    const releasePromise = new Promise((res) => { release = res; });
+    const prev = this._queue;
+    this._queue = prev.then(() => releasePromise).catch(() => {});
+    return prev.then(() => release);
+  }
+}
+const positionMutex = new AsyncMutex();
+
+/**
+ * Returns true if the current UTC time falls within any configured trading window.
+ * When tradingWindowsEnabled is false, always returns true (24/7 trading).
+ * Windows where startUtcHour >= endUtcHour are ignored (invalid range).
+ */
+function isWithinTradingWindow() {
+  if (!config.tradingWindowsEnabled) return true;
+  const windows = config.tradingWindows;
+  if (!Array.isArray(windows) || windows.length === 0) return true;
+  const hourUtc = new Date().getUTCHours();
+  return windows.some(
+    (w) => Number.isFinite(w.startUtcHour) &&
+           Number.isFinite(w.endUtcHour) &&
+           w.endUtcHour > w.startUtcHour &&
+           hourUtc >= w.startUtcHour &&
+           hourUtc < w.endUtcHour
+  );
+}
+
 const CHAIN_LABELS = {
   solana: 'Solana',
   bsc: 'BSC',
   base: 'Base',
   kucoin: 'KuCoin',
 };
+
+const CHAINLINK_FEED_ABI = [
+  'function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)',
+  'function decimals() view returns (uint8)',
+  'event AnswerUpdated(int256 indexed current, uint256 indexed roundId, uint256 updatedAt)',
+];
+
+const oraclePriceCache = new Map();
+const oracleWsProviders = {
+  bsc: null,
+  base: null,
+};
+const oracleFeedSubscriptions = {
+  bsc: [],
+  base: [],
+};
+
+function getTokenFeedConfig(chainName, tokenAddress, symbol) {
+  const feeds = config.risk?.chainlinkFeedByToken || {};
+  const chain = String(chainName || '').toLowerCase();
+  const addressKey = `${chain}:${String(tokenAddress || '').toLowerCase()}`;
+  const symbolKey = `${chain}:${String(symbol || '').toUpperCase()}`;
+  return feeds[addressKey] || feeds[symbolKey] || null;
+}
+
+async function getChainlinkPriceUsd(chainName, feedAddress) {
+  if (!feedAddress || !exchanges?.[chainName]?.provider) return null;
+  const cacheKey = `${chainName}:${String(feedAddress).toLowerCase()}`;
+  const cached = oraclePriceCache.get(cacheKey);
+  const ttlMs = Math.max(500, Number(config.risk?.oraclePriceCacheMs || 2000));
+  if (cached && (Date.now() - cached.at) < ttlMs) {
+    return cached.value;
+  }
+
+  const provider = exchanges[chainName].provider;
+  const feed = new ethers.Contract(feedAddress, CHAINLINK_FEED_ABI, provider);
+  const [roundData, decimals] = await Promise.all([
+    feed.latestRoundData(),
+    feed.decimals(),
+  ]);
+  const raw = Number(roundData?.[1] || 0);
+  const d = Number(decimals || 8);
+  const price = raw / (10 ** d);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  oraclePriceCache.set(cacheKey, { value: price, at: Date.now() });
+  return price;
+}
+
+async function getPythPriceUsd(feedId) {
+  if (!feedId) return null;
+  const cacheKey = `pyth:${String(feedId).toLowerCase()}`;
+  const cached = oraclePriceCache.get(cacheKey);
+  const ttlMs = Math.max(500, Number(config.risk?.oraclePriceCacheMs || 2000));
+  if (cached && (Date.now() - cached.at) < ttlMs) {
+    return cached.value;
+  }
+
+  const url = `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${encodeURIComponent(feedId)}`;
+  const res = await fetch(url, { method: 'GET' });
+  if (!res.ok) return null;
+  const body = await res.json();
+  const parsed = Array.isArray(body?.parsed) ? body.parsed[0] : null;
+  const p = Number(parsed?.price?.price || 0);
+  const expo = Number(parsed?.price?.expo || 0);
+  const price = p * (10 ** expo);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  oraclePriceCache.set(cacheKey, { value: price, at: Date.now() });
+  return price;
+}
+
+async function getOraclePriceUsdForPosition(position, chainName) {
+  if (config.risk?.oracleStopEnabled !== true) return null;
+  const chain = String(chainName || '').toLowerCase();
+  const tokenAddress = String(position?.address || '').toLowerCase();
+  const symbol = String(position?.symbol || '').toUpperCase();
+
+  if (chain === 'bsc' || chain === 'base') {
+    const feed = getTokenFeedConfig(chain, tokenAddress, symbol);
+    if (!feed) return null;
+    return getChainlinkPriceUsd(chain, feed).catch(() => null);
+  }
+
+  if (chain === 'solana') {
+    const pythFeeds = config.risk?.pythFeedByToken || {};
+    const addressKey = `${chain}:${tokenAddress}`;
+    const symbolKey = `${chain}:${symbol}`;
+    const feedId = pythFeeds[addressKey] || pythFeeds[symbolKey] || null;
+    if (!feedId) return null;
+    return getPythPriceUsd(feedId).catch(() => null);
+  }
+
+  return null;
+}
+
+async function runOracleTriggeredStopsForFeed(chainName, feedAddress, eventPriceUsd = null) {
+  if (portfolio.safeMode) return;
+  const chain = String(chainName || '').toLowerCase();
+  const exchange = exchanges[chain];
+  if (!exchange || !isExchangeAvailable(chain)) return;
+
+  const targetFeed = String(feedAddress || '').toLowerCase();
+  if (!targetFeed) return;
+
+  const positions = Object.values(portfolio.positions || {}).filter((position) => {
+    const posChain = normalizeChainKey(position.chainKey || position.chain);
+    if (posChain !== chain || position.exitInProgress) return false;
+    const feed = getTokenFeedConfig(chain, position.address, position.symbol);
+    return String(feed || '').toLowerCase() === targetFeed;
+  });
+
+  if (!positions.length) return;
+
+  for (const position of positions) {
+    const price = Number(eventPriceUsd || 0) > 0
+      ? Number(eventPriceUsd)
+      : Number(await getOraclePriceUsdForPosition(position, chain).catch(() => null) || 0);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const tokenData = {
+      address: position.address,
+      symbol: position.symbol,
+      chainKey: chain,
+      chain: CHAIN_LABELS[chain],
+      strategyKey: position.strategyKey || buildTokenKey(chain, position.address),
+      price,
+      volume24h: 0,
+      _oracle: true,
+    };
+
+    const strategyName = position.strategy || 'momentum';
+    const strategyCfg = config.strategies?.[strategyName] || {};
+    const trailingStartMultiplier = Number(strategyCfg.trailingActivationMultiplier || config.risk.trailingStopAfterMultiplier || 2);
+    const trailingStopPct = Number(strategyCfg.trailingStopPct || config.risk.trailingStopPct || 15);
+    if (price >= position.entryPrice * trailingStartMultiplier) {
+      position.highestPrice = Math.max(Number(position.highestPrice || 0), price);
+      position.trailingStop = position.highestPrice * (1 - trailingStopPct / 100);
+    }
+
+    if (position.trailingStop && price <= position.trailingStop) {
+      logger.warn(`ORACLE TRAILING STOP (feed event) for ${position.symbol} on ${chain}: ${price.toFixed(8)} <= ${Number(position.trailingStop).toFixed(8)}`);
+      await executeSell(chain, exchange, tokenData, position, 1, 'ORACLE_TRAILING_STOP');
+      continue;
+    }
+
+    if (price <= position.stopLoss) {
+      logger.warn(`ORACLE STOP LOSS (feed event) for ${position.symbol} on ${chain}: ${price.toFixed(8)} <= ${Number(position.stopLoss).toFixed(8)}`);
+      await executeSell(chain, exchange, tokenData, position, 1, 'ORACLE_STOP_LOSS');
+    }
+  }
+}
+
+function stopOracleStopWatchers() {
+  Object.keys(oracleWsProviders).forEach((chain) => {
+    const provider = oracleWsProviders[chain];
+    const subscriptions = Array.isArray(oracleFeedSubscriptions[chain]) ? oracleFeedSubscriptions[chain] : [];
+    subscriptions.forEach(({ contract, listener }) => {
+      try {
+        contract.off('AnswerUpdated', listener);
+      } catch (_) {
+        // ignore listener detach errors
+      }
+    });
+    oracleFeedSubscriptions[chain] = [];
+
+    if (!provider) return;
+    try {
+      provider.removeAllListeners('block');
+      provider.destroy();
+    } catch (_) {
+      // ignore teardown errors
+    }
+    oracleWsProviders[chain] = null;
+  });
+}
+
+function startOracleStopWatchers() {
+  stopOracleStopWatchers();
+  if (config.risk?.oracleStopEnabled !== true) return;
+
+  const wsByChain = {
+    bsc: config.bsc?.wsUrl,
+    base: config.base?.wsUrl,
+  };
+
+  Object.entries(wsByChain).forEach(([chain, wsUrl]) => {
+    if (!wsUrl) return;
+    try {
+      const provider = new ethers.WebSocketProvider(wsUrl);
+      provider.on('block', () => {
+        runRealtimeRiskStopCycle().catch((error) => logger.debug(`Oracle stop WS tick error on ${chain}: ${error.message}`));
+      });
+
+      const configuredFeeds = Object.entries(config.risk?.chainlinkFeedByToken || {})
+        .filter(([key, address]) => {
+          if (!address) return false;
+          const [kChain] = String(key || '').toLowerCase().split(':');
+          return kChain === chain;
+        })
+        .map(([, address]) => String(address).toLowerCase());
+
+      const uniqueFeeds = [...new Set(configuredFeeds)];
+      uniqueFeeds.forEach((feedAddress) => {
+        if (!ethers.isAddress(feedAddress)) return;
+        const contract = new ethers.Contract(feedAddress, CHAINLINK_FEED_ABI, provider);
+        const listener = async (current) => {
+          try {
+            const decimals = await contract.decimals();
+            const raw = Number(current || 0);
+            const price = raw / (10 ** Number(decimals || 8));
+            if (Number.isFinite(price) && price > 0) {
+              const cacheKey = `${chain}:${feedAddress}`;
+              oraclePriceCache.set(cacheKey, { value: price, at: Date.now() });
+            }
+            await runOracleTriggeredStopsForFeed(chain, feedAddress, price);
+          } catch (error) {
+            logger.debug(`Chainlink feed event handling failed on ${chain}: ${error.message}`);
+          }
+        };
+        contract.on('AnswerUpdated', listener);
+        oracleFeedSubscriptions[chain].push({ contract, listener });
+      });
+
+      oracleWsProviders[chain] = provider;
+      logger.info(`Oracle websocket stop watcher enabled on ${chain}`);
+    } catch (error) {
+      logger.warn(`Failed to initialize oracle websocket watcher on ${chain}: ${error.message}`);
+    }
+  });
+}
 
 const portfolio = {
   startingBalance: config.paperTrading ? config.paperBalance : 0,
@@ -108,6 +371,7 @@ const portfolio = {
   },
   balanceDrift: { amountUsd: 0, pct: 0 },
   balanceDriftHalt: false,
+  executionJournal: {},
   positions: {}, // All positions (swing + momentum) tracked by tokenKey
   trades: [], // All trades (swing + momentum)
   
@@ -387,6 +651,7 @@ let momentumScanTimer = null;
 let swingScanTimer = null;
 let momentumExitTimer = null;
 let swingExitTimer = null;
+let realtimeStopTimer = null;
 let swingWatchlistRefreshTimer = null;
 let walletBalanceRefreshTimer = null;
 const loopLocks = {
@@ -394,6 +659,7 @@ const loopLocks = {
   swingScan: false,
   momentumExit: false,
   swingExit: false,
+  realtimeStop: false,
   swingRefresh: false,
 };
 
@@ -404,6 +670,7 @@ const loopLastCompletedAt = {
   swingScan: null,
   momentumExit: null,
   swingExit: null,
+  realtimeStop: null,
   walletBalanceRefresh: null,
 };
 
@@ -875,7 +1142,8 @@ function refreshPerformanceMetrics() {
   if (grossLoss > 0) {
     portfolio.stats.profitFactor = grossProfit / grossLoss;
   } else {
-    portfolio.stats.profitFactor = grossProfit > 0 ? 99 : 0;
+    // null = "no losses yet" (mathematically undefined, not infinite)
+    portfolio.stats.profitFactor = grossProfit > 0 ? null : 0;
   }
 
   const slippageSamples = Number(portfolio.stats.slippageSamples || 0);
@@ -903,7 +1171,8 @@ function refreshPerformanceMetrics() {
     if (strategyGrossLoss > 0) {
       stats.profitFactor = strategyGrossProfit / strategyGrossLoss;
     } else {
-      stats.profitFactor = strategyGrossProfit > 0 ? 99 : 0;
+      // null = "no losses yet" (mathematically undefined, not infinite)
+      stats.profitFactor = strategyGrossProfit > 0 ? null : 0;
     }
 
     const strategySlippageSamples = Number(stats.slippageSamples || 0);
@@ -970,6 +1239,83 @@ function calcDiscrepancyPct(requestedValue, filledValue) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout(promise, timeoutMs, timeoutMessage) {
+  const timeout = Math.max(1000, Number(timeoutMs || 6000));
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(timeoutMessage || `Timed out after ${timeout}ms`)), timeout);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function setExecutionJournalState(txid, patch = {}) {
+  if (!txid) return;
+  portfolio.executionJournal = portfolio.executionJournal || {};
+  const key = String(txid);
+  const current = portfolio.executionJournal[key] || {};
+  portfolio.executionJournal[key] = {
+    ...current,
+    ...patch,
+    txid: key,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function reconcileExecutionJournal() {
+  const journal = portfolio.executionJournal || {};
+  const entries = Object.values(journal).filter((row) => row && row.status === 'confirmed');
+  if (!entries.length) return;
+
+  for (const entry of entries) {
+    const chain = normalizeChainKey(entry.chainKey || entry.chain);
+    if (chain !== 'bsc' && chain !== 'base') continue;
+    const provider = exchanges?.[chain]?.provider;
+    if (!provider) continue;
+
+    try {
+      const receipt = await provider.getTransactionReceipt(entry.txid);
+      if (!receipt) {
+        const ageMs = Date.now() - Date.parse(entry.updatedAt || entry.createdAt || '');
+        if (Number.isFinite(ageMs) && ageMs > 10 * 60 * 1000) {
+          setExecutionJournalState(entry.txid, {
+            status: 'reorg_or_dropped',
+            reason: 'receipt not found after confirmation window',
+          });
+          logger.error('Execution journal detected potential reorg/dropped tx', {
+            txid: entry.txid,
+            chain,
+            reason: 'receipt not found after confirmation window',
+          });
+          portfolio.balanceDriftHalt = true;
+        }
+        continue;
+      }
+
+      const currentBlock = await provider.getBlockNumber();
+      const blockNumber = Number(receipt.blockNumber || entry.blockNumber || 0);
+      if (!Number.isFinite(blockNumber) || blockNumber <= 0) continue;
+      const confirmations = Math.max(0, currentBlock - blockNumber + 1);
+      const required = Math.max(1, Number(entry.requiredConfirmations || 2));
+      setExecutionJournalState(entry.txid, { blockNumber, confirmations });
+
+      if (confirmations >= required) {
+        setExecutionJournalState(entry.txid, {
+          status: 'finalized',
+          finalizedAt: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      logger.debug(`Execution journal reconciliation error (${chain} ${entry.txid}): ${error.message}`);
+    }
+  }
 }
 
 function refreshBrainAvailability() {
@@ -1063,6 +1409,7 @@ function getHealthStatus() {
   const swingScanMs = Math.max(10 * 60_000, Number(config.bot.swingScanIntervalMinutes || 15) * 60_000);
   const momentumExitMs = Math.max(5 * 60_000, Number(config.bot.momentumExitCheckMinutes || 15) * 60_000);
   const swingExitMs = Math.max(30 * 60_000, Number(config.bot.swingExitCheckMinutes || 60) * 60_000);
+  const realtimeStopMs = Math.max(2_000, Number(config.risk?.realtimeStopCheckSeconds || 8) * 1000);
   const walletBalanceMs = Math.max(30_000, Number(config.bot.walletBalanceRefreshSeconds || 60) * 1000);
   const checkStale = (key, intervalMs, multiplier) => {
     const ts = loopLastCompletedAt[key];
@@ -1073,12 +1420,15 @@ function getHealthStatus() {
     swingScan: checkStale('swingScan', swingScanMs, 2),
     momentumExit: checkStale('momentumExit', momentumExitMs, 3),
     swingExit: checkStale('swingExit', swingExitMs, 2),
+    realtimeStop: Boolean(config.risk?.realtimeStopLossEnabled !== false) ? checkStale('realtimeStop', realtimeStopMs, 4) : false,
     walletBalanceRefresh: checkStale('walletBalanceRefresh', walletBalanceMs, 3),
   };
   const anyLoopStale = loopStaleness.walletBalanceRefresh
+    || loopStaleness.realtimeStop
     || (momentumEnabled && (loopStaleness.momentumScan || loopStaleness.momentumExit))
     || (swingEnabled && (loopStaleness.swingScan || loopStaleness.swingExit));
   const loopsTimersActive = Boolean(walletBalanceRefreshTimer)
+    && (config.risk?.realtimeStopLossEnabled === false || Boolean(realtimeStopTimer))
     && (!momentumEnabled || (Boolean(momentumScanTimer) && Boolean(momentumExitTimer)))
     && (!swingEnabled || (Boolean(swingScanTimer) && Boolean(swingExitTimer) && Boolean(swingWatchlistRefreshTimer)));
   const loopsHealthy = loopsTimersActive && !anyLoopStale;
@@ -1533,6 +1883,9 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
     requestedValueUsd: Number.isFinite(Number(executionMeta.requestedValueUsd)) ? round(executionMeta.requestedValueUsd) : null,
     filledValueUsd: Number.isFinite(Number(executionMeta.filledValueUsd)) ? round(executionMeta.filledValueUsd) : null,
     fillDiscrepancyPct: Number.isFinite(Number(executionMeta.fillDiscrepancyPct)) ? round(executionMeta.fillDiscrepancyPct, 4) : null,
+    blockNumber: Number.isFinite(Number(executionMeta.blockNumber)) ? Number(executionMeta.blockNumber) : null,
+    confirmations: Number.isFinite(Number(executionMeta.confirmations)) ? Number(executionMeta.confirmations) : null,
+    privateRouteUsed: Boolean(executionMeta.privateRouteUsed),
     timestamp: new Date().toISOString(),
   };
 
@@ -1896,6 +2249,17 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     }
   }
 
+  if (
+    chainName === 'bsc'
+    && config.execution?.requirePrivateTxForBsc
+    && !config.paperTrading
+    && typeof exchange.hasPrivateTxRoute === 'function'
+    && !exchange.hasPrivateTxRoute()
+  ) {
+    logger.warn(`Skipping ${tokenData.symbol} (bsc): private transaction route required but unavailable`);
+    return;
+  }
+
   const applicability = strategy.determineApplicableStrategies(tokenData);
   const strategyOrder = ['swing', 'momentum'];
   const forced = Array.isArray(options.forcedStrategies) ? options.forcedStrategies : null;
@@ -2039,8 +2403,9 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
   }
 
   // With stale data only evaluate stop-loss and trailing-stop; skip strategy exit and take-profit tiers.
+  let exitSignal = null;
   if (!staleData) {
-    const exitSignal = strategy.evaluateExitForStrategy(position.strategyKey || buildTokenKey(chainName, tokenData.address), strategyName, tokenData, position);
+    exitSignal = strategy.evaluateExitForStrategy(position.strategyKey || buildTokenKey(chainName, tokenData.address), strategyName, tokenData, position);
     if (exitSignal?.shouldExit) {
       logger.info(`STRATEGY EXIT triggered for ${tokenData.symbol} [${strategyName}]: ${exitSignal.reason}`);
       await executeSell(chainName, exchange, tokenData, position, 1, exitSignal.reason);
@@ -2060,11 +2425,32 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
     return;
   }
 
+  const openedAtMs = Date.parse(position.openedAt || position.createdAt || '') || Date.now();
+  const minutesInTrade = Math.max(0, (Date.now() - openedAtMs) / 60000);
+  const maxHoldMinutes = Number(strategyCfg.maxHoldMinutes || config.risk?.maxHoldMinutesGlobal || 4320);
+  if (Number.isFinite(maxHoldMinutes) && maxHoldMinutes > 0 && minutesInTrade >= maxHoldMinutes) {
+    logger.info(`TIME STOP triggered for ${tokenData.symbol}: held ${minutesInTrade.toFixed(0)}m >= ${maxHoldMinutes}m`);
+    await executeSell(chainName, exchange, tokenData, position, 1, 'TIME_STOP');
+    return;
+  }
+
   if (staleData) {
     return;
   }
 
   position.triggeredSellTiers = position.triggeredSellTiers || {};
+  position.tierDelayedAt = position.tierDelayedAt || {};
+
+  const adaptiveTierExit = Boolean(strategyCfg.adaptiveTierExit ?? true);
+  const tierDelayRsiMin = Number(strategyCfg.tierDelayRsiMin || 70);
+  const tierAccelSellRatioPct = Number(strategyCfg.tierAccelSellRatioPct || 60);
+  const tierLocalHighReversalPct = Number(strategyCfg.tierLocalHighReversalPct || 5);
+  const tierExitRsiValue = Number(exitSignal?.details?.rsiValue ?? NaN);
+  const tierSellRatioPct = Number(exitSignal?.details?.sellRatio10mPct ?? 0);
+
+  position.tierLocalHigh = Math.max(Number(position.tierLocalHigh || tokenData.price), Number(tokenData.price));
+  const localHigh = Number(position.tierLocalHigh || tokenData.price);
+  const reversalFromHighPct = localHigh > 0 ? ((localHigh - tokenData.price) / localHigh) * 100 : 0;
 
   for (let tierIndex = 0; tierIndex < strategySellTiers.length; tierIndex += 1) {
     const tier = strategySellTiers[tierIndex];
@@ -2073,8 +2459,38 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
     }
 
     if (currentProfit >= tier.profitMultiplier - 1) {
+      if (adaptiveTierExit) {
+        if (tierSellRatioPct > tierAccelSellRatioPct) {
+          for (let i = tierIndex; i < strategySellTiers.length; i += 1) {
+            position.triggeredSellTiers[i] = true;
+          }
+          delete position.tierDelayedAt[tierIndex];
+          logger.info(`SELL TIER ${tierIndex + 1} ACCELERATED for ${tokenData.symbol}: sell pressure ${tierSellRatioPct.toFixed(1)}% -> full exit`);
+          await executeSell(chainName, exchange, tokenData, position, 1, `SELL_TIER_ACCEL_${tierIndex + 1}`);
+          return;
+        }
+
+        if (reversalFromHighPct >= tierLocalHighReversalPct) {
+          for (let i = tierIndex; i < strategySellTiers.length; i += 1) {
+            position.triggeredSellTiers[i] = true;
+          }
+          delete position.tierDelayedAt[tierIndex];
+          logger.info(`SELL TIER ${tierIndex + 1} ACCELERATED for ${tokenData.symbol}: reversal ${reversalFromHighPct.toFixed(1)}% -> full exit`);
+          await executeSell(chainName, exchange, tokenData, position, 1, `SELL_TIER_REVERSAL_${tierIndex + 1}`);
+          return;
+        }
+
+        const alreadyDelayed = Boolean(position.tierDelayedAt[tierIndex]);
+        if (!alreadyDelayed && Number.isFinite(tierExitRsiValue) && tierExitRsiValue > tierDelayRsiMin && tierSellRatioPct <= tierAccelSellRatioPct) {
+          position.tierDelayedAt[tierIndex] = Date.now();
+          logger.info(`SELL TIER ${tierIndex + 1} DELAYED for ${tokenData.symbol}: RSI ${tierExitRsiValue.toFixed(0)} > ${tierDelayRsiMin}`);
+          return;
+        }
+      }
+
+      delete position.tierDelayedAt[tierIndex];
       position.triggeredSellTiers[tierIndex] = true;
-      logger.info(`SELL TIER triggered for ${tokenData.symbol}: ${(currentProfit * 100).toFixed(1)}% -> selling ${tier.sellPct * 100}%`);
+      logger.info(`SELL TIER ${tierIndex + 1} triggered for ${tokenData.symbol}: ${(currentProfit * 100).toFixed(1)}% -> selling ${(tier.sellPct * 100).toFixed(0)}%`);
       await executeSell(chainName, exchange, tokenData, position, tier.sellPct, `SELL_TIER_${tierIndex + 1}`);
       return;
     }
@@ -2093,9 +2509,25 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
     return;
   }
 
-  logger.info(`Executing BUY: ${tokenData.symbol} @ $${tokenData.price} | size $${sizeUsd.toFixed(2)}`);
-
+  // Acquire mutex before any position-count check or portfolio write to prevent
+  // concurrent BUY paths from both passing the limit and both writing positions.
+  const release = await positionMutex.lock();
   try {
+    const globalPositions = Object.keys(portfolio.positions).length;
+    if (globalPositions >= config.risk.maxConcurrentPositions) {
+      logger.debug(`Global position limit reached at buy time for ${tokenData.symbol}, skipping`);
+      return;
+    }
+    const strategyPositionCount = Object.values(portfolio.positions).filter((p) => p.strategy === strategyName).length;
+    const strategyLimit = Number(config.strategies?.[strategyName]?.maxConcurrentPositions || 3);
+    if (strategyPositionCount >= strategyLimit) {
+      logger.debug(`Strategy position limit reached for ${strategyName} at buy time on ${tokenData.symbol}, skipping`);
+      return;
+    }
+
+    logger.info(`Executing BUY: ${tokenData.symbol} @ $${tokenData.price} | size $${sizeUsd.toFixed(2)}`);
+
+    try {
     let txResult;
     const expectedEntryPrice = Number(tokenData.price);
 
@@ -2133,6 +2565,24 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
       }
       const nativeAmount = sizeUsd / nativePrice;
       txResult = await exchange.executeBuy(tokenData.address, nativeAmount);
+    }
+
+    if (txResult?.txid) {
+      const requiredConfirmations = chainName === 'bsc'
+        ? Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2))
+        : (chainName === 'base' ? Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2)) : 1);
+      setExecutionJournalState(txResult.txid, {
+        status: 'confirmed',
+        type: 'BUY',
+        chain: chainName,
+        chainKey: chainName,
+        symbol: tokenData.symbol,
+        address: tokenData.address,
+        blockNumber: Number(txResult?.blockNumber || 0) || null,
+        confirmations: Number(txResult?.confirmations || 0) || null,
+        requiredConfirmations,
+        createdAt: new Date().toISOString(),
+      });
     }
 
     const realizedEntryPrice = extractExecutionPriceUsd(txResult, expectedEntryPrice);
@@ -2202,6 +2652,9 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
       takeProfit: risk.takeProfitPrice(realizedEntryPrice, strategyName),
       openedAt: new Date().toISOString(),
       txid: txResult.txid,
+      entryBlockNumber: Number.isFinite(Number(txResult?.blockNumber)) ? Number(txResult.blockNumber) : null,
+      entryConfirmations: Number.isFinite(Number(txResult?.confirmations)) ? Number(txResult.confirmations) : null,
+      entryPrivateRouteUsed: Boolean(txResult?.privateRouteUsed),
       signalSource: tokenData.signalSource || 'technical',
       triggerTimeframe: tokenData.entryTriggerTimeframe || null,
       aiReason: tokenData.aiReason || '',
@@ -2217,8 +2670,11 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
       entryHolderCount: Number(tokenData.holderCount || 0),
       highestPrice: realizedEntryPrice,
       trailingStop: null,
+      tierLocalHigh: realizedEntryPrice,
       triggeredSellTiers: {},
+      tierDelayedAt: {},
       partialFillRetry: false,
+      exitInProgress: false,
       realizedPnlByTier: {},
       realizedPnl: 0,
     };
@@ -2237,6 +2693,9 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
       requestedValueUsd: requestedQuoteUsd,
       filledValueUsd: filledQuoteUsd,
       fillDiscrepancyPct,
+      blockNumber: txResult?.blockNumber,
+      confirmations: txResult?.confirmations,
+      privateRouteUsed: txResult?.privateRouteUsed,
     }, strategyName);
     await sendTradeAlert('BUY', tokenData, filledQuoteUsd);
     await saveState();
@@ -2245,9 +2704,18 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
     logger.error(`BUY execution failed for ${tokenData.symbol}: ${error.message}`);
     await sendErrorAlert(`BUY failed for ${tokenData.symbol}: ${error.message}`);
   }
+  } finally {
+    release();
+  }
 }
 
 async function executeSell(chainName, exchange, tokenData, position, sellPct = 1, reason = 'EXIT') {
+  if (position?.exitInProgress) {
+    logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol || position?.address}: exit already in progress`);
+    return;
+  }
+
+  position.exitInProgress = true;
   const strategyName = position.strategy || 'momentum';
   const fraction = Math.max(0.01, Math.min(Number(sellPct || 1), 1));
   const positionQuantityBefore = Number(position.quantity || 0);
@@ -2261,6 +2729,24 @@ async function executeSell(chainName, exchange, tokenData, position, sellPct = 1
 
     // All chains use the same executeSell interface
     txResult = await exchange.executeSell(tokenData.address, quantityToSell);
+
+    if (txResult?.txid) {
+      const requiredConfirmations = chainName === 'bsc'
+        ? Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2))
+        : (chainName === 'base' ? Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2)) : 1);
+      setExecutionJournalState(txResult.txid, {
+        status: 'confirmed',
+        type: 'SELL',
+        chain: chainName,
+        chainKey: chainName,
+        symbol: tokenData.symbol,
+        address: tokenData.address,
+        blockNumber: Number(txResult?.blockNumber || 0) || null,
+        confirmations: Number(txResult?.confirmations || 0) || null,
+        requiredConfirmations,
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     const realizedExitPrice = extractExecutionPriceUsd(txResult, expectedExitPrice);
     const hasExchangeFilledData = [
@@ -2396,6 +2882,9 @@ async function executeSell(chainName, exchange, tokenData, position, sellPct = 1
       requestedValueUsd: quantityToSell * realizedExitPrice,
       filledValueUsd: proceedsUsd,
       fillDiscrepancyPct,
+      blockNumber: txResult?.blockNumber,
+      confirmations: txResult?.confirmations,
+      privateRouteUsed: txResult?.privateRouteUsed,
     }, strategyName);
     await sendTradeAlert('SELL', tokenData, proceedsUsd, pnl);
     await saveState();
@@ -2403,6 +2892,10 @@ async function executeSell(chainName, exchange, tokenData, position, sellPct = 1
     recordExchangeFailure(chainName, error.message);
     logger.error(`SELL execution failed for ${tokenData.symbol}: ${error.message}`);
     await sendErrorAlert(`SELL failed for ${tokenData.symbol}: ${error.message}`);
+  } finally {
+    if (position && typeof position === 'object') {
+      position.exitInProgress = false;
+    }
   }
 }
 
@@ -2443,6 +2936,13 @@ async function runBacktestRequest(payload) {
     startingBalance: Number(payload.startingBalance || config.paperBalance || 10000),
     tradePct: Number(payload.tradePct || 0.05),
     riskSettings: config.risk,
+    entrySlippagePct: Number(payload.entrySlippagePct ?? 0.8),
+    exitSlippagePct: Number(payload.exitSlippagePct ?? 1.2),
+    entryFeePct: Number(payload.entryFeePct ?? 0.15),
+    exitFeePct: Number(payload.exitFeePct ?? 0.15),
+    outageChancePct: Number(payload.outageChancePct ?? 0.5),
+    monteCarloRuns: Number(payload.monteCarloRuns ?? 2000),
+    seed: Number(payload.seed || 1337),
   });
 
   if (!result) {
@@ -2577,12 +3077,14 @@ function onConfigUpdated() {
 }
 
 function clearLoopSchedulers() {
+  stopOracleStopWatchers();
   [
     scanTimer,
     momentumScanTimer,
     swingScanTimer,
     momentumExitTimer,
     swingExitTimer,
+    realtimeStopTimer,
     swingWatchlistRefreshTimer,
     walletBalanceRefreshTimer,
   ].forEach((timer) => {
@@ -2594,6 +3096,7 @@ function clearLoopSchedulers() {
   swingScanTimer = null;
   momentumExitTimer = null;
   swingExitTimer = null;
+  realtimeStopTimer = null;
   swingWatchlistRefreshTimer = null;
   walletBalanceRefreshTimer = null;
 }
@@ -2601,6 +3104,13 @@ function clearLoopSchedulers() {
 async function runStrategyScanCycle(strategyName) {
   const lockKey = strategyName === 'swing' ? 'swingScan' : 'momentumScan';
   if (loopLocks[lockKey]) {
+    return;
+  }
+
+  // Item 9: skip new-entry scans outside configured UTC trading windows.
+  // Exit checks (runStrategyExitCycle) run independently and are unaffected.
+  if (!isWithinTradingWindow()) {
+    logger.debug(`[${strategyName}] Outside trading window — skipping entry scan`);
     return;
   }
 
@@ -2706,6 +3216,8 @@ async function runStrategyExitCycle(strategyName) {
         tokenData.chain = CHAIN_LABELS[chainName];
         tokenData.strategyKey = position.strategyKey || buildTokenKey(chainName, tokenData.address);
 
+        await strategy.refreshHistoryFromCandles(tokenData.strategyKey, tokenData, strategyName);
+
         strategy.recordTick(tokenData.strategyKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
 
         if (position.partialFillRetry) {
@@ -2736,6 +3248,126 @@ async function runStrategyExitCycle(strategyName) {
     logger.error(`${strategyName} exit cycle failed: ${error.message}`);
   } finally {
     loopLocks[lockKey] = false;
+  }
+}
+
+async function runRealtimeRiskStopCycle() {
+  if (loopLocks.realtimeStop) {
+    return;
+  }
+
+  loopLocks.realtimeStop = true;
+  try {
+    if (portfolio.safeMode || config.risk?.realtimeStopLossEnabled === false) {
+      return;
+    }
+
+    const positions = Object.values(portfolio.positions || {});
+    if (!positions.length) {
+      loopLastCompletedAt.realtimeStop = Date.now();
+      return;
+    }
+
+    const chainsInBook = [...new Set(positions.map((p) => normalizeChainKey(p.chainKey || p.chain)))];
+    for (const chainName of chainsInBook) {
+      const chainRisk = risk.checkPerChainDailyLoss(chainName);
+      if (!chainRisk.allowed) {
+        logger.warn(`CHAIN DAILY LOSS HALT on ${chainName}: ${chainRisk.reason}`);
+        const chainPositions = positions.filter((p) => normalizeChainKey(p.chainKey || p.chain) === chainName);
+        for (const position of chainPositions) {
+          if (position.exitInProgress) continue;
+          const exchange = exchanges[chainName];
+          if (!exchange || !isExchangeAvailable(chainName)) continue;
+          const fallbackToken = {
+            address: position.address,
+            symbol: position.symbol,
+            chainKey: chainName,
+            chain: CHAIN_LABELS[chainName],
+            strategyKey: position.strategyKey || buildTokenKey(chainName, position.address),
+            price: Number(position.currentPrice || position.entryPrice || 0),
+            volume24h: 0,
+          };
+          await executeSell(chainName, exchange, fallbackToken, position, 1, 'CHAIN_DAILY_LOSS_HALT');
+        }
+      }
+    }
+
+    const fetchTimeoutMs = Math.max(1000, Number(config.risk?.realtimeStopFetchTimeoutMs || 6000));
+
+    await Promise.allSettled(positions.map(async (position) => {
+      try {
+        if (!position || position.exitInProgress) {
+          return;
+        }
+
+        const chainName = normalizeChainKey(position.chainKey || position.chain);
+        const exchange = exchanges[chainName];
+        if (!exchange || !isExchangeAvailable(chainName)) {
+          return;
+        }
+
+        const oraclePriceUsd = await getOraclePriceUsdForPosition(position, chainName).catch(() => null);
+        let tokenData = null;
+
+        if (Number.isFinite(Number(oraclePriceUsd)) && Number(oraclePriceUsd) > 0) {
+          tokenData = {
+            address: position.address,
+            symbol: position.symbol,
+            chainKey: chainName,
+            chain: CHAIN_LABELS[chainName],
+            strategyKey: position.strategyKey || buildTokenKey(chainName, position.address),
+            price: Number(oraclePriceUsd),
+            volume24h: 0,
+            _oracle: true,
+          };
+        } else {
+          tokenData = await withTimeout(
+            exchange.getTokenData(position.address),
+            fetchTimeoutMs,
+            `Realtime stop price fetch timed out for ${position.address}`
+          ).catch(() => null);
+
+          if (!tokenData || !Number.isFinite(Number(tokenData.price)) || Number(tokenData.price) <= 0) {
+            return;
+          }
+
+          tokenData.address = tokenData.address || position.address;
+          tokenData.chainKey = chainName;
+          tokenData.chain = CHAIN_LABELS[chainName];
+          tokenData.strategyKey = position.strategyKey || buildTokenKey(chainName, tokenData.address);
+        }
+
+        strategy.recordTick(tokenData.strategyKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
+
+        const strategyName = position.strategy || 'momentum';
+        const strategyCfg = config.strategies?.[strategyName] || {};
+        const trailingStartMultiplier = Number(strategyCfg.trailingActivationMultiplier || config.risk.trailingStopAfterMultiplier || 2);
+        const trailingStopPct = Number(strategyCfg.trailingStopPct || config.risk.trailingStopPct || 15);
+        if (tokenData.price >= position.entryPrice * trailingStartMultiplier) {
+          position.highestPrice = Math.max(Number(position.highestPrice || 0), Number(tokenData.price));
+          position.trailingStop = position.highestPrice * (1 - trailingStopPct / 100);
+        }
+
+        if (position.trailingStop && tokenData.price <= position.trailingStop) {
+          logger.warn(`FAST TRAILING STOP triggered for ${tokenData.symbol}: price ${Number(tokenData.price).toFixed(8)} <= stop ${Number(position.trailingStop).toFixed(8)}${tokenData._oracle ? ' (oracle)' : ''}`);
+          await executeSell(chainName, exchange, tokenData, position, 1, tokenData._oracle ? 'ORACLE_TRAILING_STOP' : 'FAST_TRAILING_STOP');
+          return;
+        }
+
+        if (tokenData.price <= position.stopLoss) {
+          logger.warn(`FAST STOP LOSS triggered for ${tokenData.symbol}: price ${Number(tokenData.price).toFixed(8)} <= stop ${Number(position.stopLoss).toFixed(8)}${tokenData._oracle ? ' (oracle)' : ''}`);
+          await executeSell(chainName, exchange, tokenData, position, 1, tokenData._oracle ? 'ORACLE_STOP_LOSS' : 'FAST_STOP_LOSS');
+        }
+      } catch (error) {
+        logger.debug(`Realtime stop check error: ${error.message}`);
+      }
+    }));
+
+    loopLastCompletedAt.realtimeStop = Date.now();
+  } catch (error) {
+    logger.error(`Realtime stop cycle failed: ${error.message}`);
+  } finally {
+    loopLocks.realtimeStop = false;
   }
 }
 
@@ -2813,6 +3445,7 @@ function restartLoopSchedulers() {
   const momentumExitMs = Math.max(5 * 60_000, Number(config.bot.momentumExitCheckMinutes || 15) * 60_000);
   const swingExitMs = Math.max(30 * 60_000, Number(config.bot.swingExitCheckMinutes || 60) * 60_000);
   const swingRefreshMs = Math.max(6 * 60 * 60_000, Number(config.bot.swingWatchlistRefreshHours || 24) * 60 * 60_000);
+  const realtimeStopMs = Math.max(2_000, Number(config.risk?.realtimeStopCheckSeconds || 8) * 1000);
 
   // Keep a handle in scanTimer for backward compatibility with state/debug expectations.
   scanTimer = momentumScanTimer = setInterval(() => {
@@ -2831,6 +3464,12 @@ function restartLoopSchedulers() {
     runStrategyExitCycle('swing').catch((error) => logger.error(`Swing exit loop error: ${error.message}`));
   }, swingExitMs);
 
+  if (config.risk?.realtimeStopLossEnabled !== false) {
+    realtimeStopTimer = setInterval(() => {
+      runRealtimeRiskStopCycle().catch((error) => logger.error(`Realtime stop loop error: ${error.message}`));
+    }, realtimeStopMs);
+  }
+
   swingWatchlistRefreshTimer = setInterval(() => {
     refreshSwingWatchlists().catch((error) => logger.error(`Swing watchlist refresh loop error: ${error.message}`));
   }, swingRefreshMs);
@@ -2845,6 +3484,11 @@ function restartLoopSchedulers() {
   runStrategyScanCycle('swing').catch((error) => logger.error(`Initial swing scan failed: ${error.message}`));
   runStrategyExitCycle('momentum').catch((error) => logger.error(`Initial momentum exit check failed: ${error.message}`));
   runStrategyExitCycle('swing').catch((error) => logger.error(`Initial swing exit check failed: ${error.message}`));
+  if (config.risk?.realtimeStopLossEnabled !== false) {
+    runRealtimeRiskStopCycle().catch((error) => logger.error(`Initial realtime stop check failed: ${error.message}`));
+  }
+
+  startOracleStopWatchers();
 }
 
 async function updateWalletBalance() {
@@ -2961,6 +3605,7 @@ async function main() {
   logger.info(`  Swing Scan Interval: ${config.bot.swingScanIntervalMinutes || 15}m`);
   logger.info(`  Momentum Exit Checks: every ${config.bot.momentumExitCheckMinutes || 15}m`);
   logger.info(`  Swing Exit Checks: every ${config.bot.swingExitCheckMinutes || 60}m`);
+  logger.info(`  Realtime Stop Monitor: ${config.risk?.realtimeStopLossEnabled !== false ? `enabled (${config.risk?.realtimeStopCheckSeconds || 8}s)` : 'disabled'}`);
   logger.info(`  Swing Watchlist Refresh: every ${config.bot.swingWatchlistRefreshHours || 24}h`);
   logger.info(`  AI Brain: ${config.anthropic.enabled ? config.anthropic.model : 'disabled'}`);
   
@@ -3024,6 +3669,7 @@ async function main() {
   });
 
   restartLoopSchedulers();
+  await reconcileExecutionJournal().catch((error) => logger.error(`Initial execution journal reconciliation failed: ${error.message}`));
 
   setInterval(() => {
     refreshDependencyHealth().catch((error) => logger.error(`Dependency health refresh failed: ${error.message}`));
@@ -3032,6 +3678,10 @@ async function main() {
   setInterval(() => {
     walletMonitor.monitor().catch((error) => logger.error(`Wallet monitor error: ${error.message}`));
   }, 5 * 60 * 1000);
+
+  setInterval(() => {
+    reconcileExecutionJournal().catch((error) => logger.error(`Execution journal reconciliation error: ${error.message}`));
+  }, 60 * 1000);
 
   setInterval(() => {
     sendHeartbeat().catch((error) => logger.error(`Heartbeat error: ${error.message}`));

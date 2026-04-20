@@ -2,11 +2,18 @@
 const config = require('../../config');
 const { momentumSignal, ema, rsi } = require('../utils/indicators');
 const { getNetBuyFlowUsd } = require('../utils/onchain/buyflow');
+const { getOhlcvSeries } = require('../utils/candles');
+
+const DEFAULT_CANDLE_INTERVAL = {
+  swing: '1h',
+  momentum: '15m',
+};
 
 class MomentumStrategy {
   constructor() {
     this.priceHistory = {};
     this.volumeHistory = {};
+    this.historySource = {};
     this.refreshSettings();
   }
 
@@ -21,6 +28,11 @@ class MomentumStrategy {
   }
 
   recordTick(tokenAddress, price, volume) {
+    // When candle-backed history is active for a token, avoid mixing tick snapshots into it.
+    if (this.historySource[tokenAddress] === 'candles') {
+      return;
+    }
+
     if (!this.priceHistory[tokenAddress]) {
       this.priceHistory[tokenAddress] = [];
       this.volumeHistory[tokenAddress] = [];
@@ -38,6 +50,35 @@ class MomentumStrategy {
   clearHistory(tokenAddress) {
     delete this.priceHistory[tokenAddress];
     delete this.volumeHistory[tokenAddress];
+    delete this.historySource[tokenAddress];
+  }
+
+  async refreshHistoryFromCandles(historyKey, tokenMeta = {}, strategyName = 'momentum') {
+    const strategyCfg = config.strategies?.[strategyName] || {};
+    const interval = String(strategyCfg.candleInterval || DEFAULT_CANDLE_INTERVAL[strategyName] || '15m');
+    const minBars = Math.max(Number(strategyCfg.emaSlow || 21) + 5, 30);
+    const lookbackBars = Math.max(minBars, Number(strategyCfg.candleLookbackBars || 120));
+
+    try {
+      const series = await getOhlcvSeries({
+        chainKey: tokenMeta.chainKey || tokenMeta.chain,
+        address: tokenMeta.address,
+        pairAddress: tokenMeta.pairAddress,
+        interval,
+        limit: lookbackBars,
+      });
+
+      if (!series || !Array.isArray(series.closes) || series.closes.length < minBars) {
+        return false;
+      }
+
+      this.priceHistory[historyKey] = series.closes.slice(-lookbackBars);
+      this.volumeHistory[historyKey] = (Array.isArray(series.volumes) ? series.volumes : []).slice(-lookbackBars);
+      this.historySource[historyKey] = 'candles';
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   isExcludedAsset(tokenMeta = {}) {
@@ -138,12 +179,17 @@ class MomentumStrategy {
       return { signal: 'HOLD', details: { error: `No config for strategy ${strategyName}` } };
     }
 
-    const historyKey = String(tokenMeta.strategyKey || tokenAddress || '');
-    const prices = this.priceHistory[historyKey] || [];
-    const volumes = this.volumeHistory[historyKey] || [];
     const rawAddress = String(tokenMeta.address || tokenAddress || '').includes(':')
       ? String(tokenMeta.address || tokenAddress).split(':').pop()
       : String(tokenMeta.address || tokenAddress || '');
+    const historyKey = String(tokenMeta.strategyKey || tokenAddress || '');
+    await this.refreshHistoryFromCandles(historyKey, {
+      ...tokenMeta,
+      address: rawAddress,
+    }, strategyName);
+
+    const prices = this.priceHistory[historyKey] || [];
+    const volumes = this.volumeHistory[historyKey] || [];
     const externalReasons = [];
 
     // Use strategy-specific history requirement
