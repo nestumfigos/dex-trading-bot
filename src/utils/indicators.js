@@ -46,7 +46,9 @@ function momentumSignal(priceHistory, volumeHistory, cfg) {
   const rsiVal = rsi(priceHistory, rsiPeriod);
   const spike = volumeSpike(volumeHistory);
 
-  if (!fastEma || !slowEma || !rsiVal) return { signal: 'INSUFFICIENT_DATA', details: {} };
+  if (fastEma === null || slowEma === null || rsiVal === null) {
+    return { signal: 'INSUFFICIENT_DATA', details: {} };
+  }
 
   const emaCrossUp = prevFastEma < prevSlowEma && fastEma > slowEma;
   const emaCrossDown = prevFastEma > prevSlowEma && fastEma < slowEma;

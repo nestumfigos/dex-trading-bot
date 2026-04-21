@@ -156,6 +156,17 @@ function formatCompact(value) {
   });
 }
 
+function formatDurationShort(secondsInput) {
+  const totalSeconds = Math.max(0, Math.round(Number(secondsInput || 0)));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 function formatAgo(iso) {
   if (!iso) {
     return 'never';
@@ -387,7 +398,9 @@ function renderHero(status) {
     brainChip.className = brainClass;
   }
 
-  setText('#uptime-chip', `Uptime ${Math.round(status.uptimeSeconds / 60)}m`);
+  const uptimeLabel = formatDurationShort(status.uptimeSeconds);
+  const totalRuntimeLabel = formatDurationShort(status.totalRuntimeSeconds || status.uptimeSeconds || 0);
+  setText('#uptime-chip', `Uptime ${uptimeLabel} | Total ${totalRuntimeLabel}`);
   setText('#last-refresh', new Date(status.timestamp).toLocaleTimeString());
 
   setText('#metric-equity', formatMoney(portfolio.equity));

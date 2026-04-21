@@ -483,6 +483,42 @@ const filterStatsState = {
 };
 
 const pollingFallbackLastWarnAt = {};
+const processStartedAtMs = Date.now();
+
+function ensureRuntimeStateShape() {
+  if (!portfolio.runtime || typeof portfolio.runtime !== 'object') {
+    portfolio.runtime = {
+      totalSeconds: 0,
+      lastTickMs: processStartedAtMs,
+    };
+    return;
+  }
+
+  if (!Number.isFinite(Number(portfolio.runtime.totalSeconds)) || Number(portfolio.runtime.totalSeconds) < 0) {
+    portfolio.runtime.totalSeconds = 0;
+  }
+
+  if (!Number.isFinite(Number(portfolio.runtime.lastTickMs)) || Number(portfolio.runtime.lastTickMs) <= 0) {
+    portfolio.runtime.lastTickMs = processStartedAtMs;
+  }
+}
+
+function recordRuntimeDelta() {
+  ensureRuntimeStateShape();
+  const nowMs = Date.now();
+  const lastTickMs = Number(portfolio.runtime.lastTickMs || nowMs);
+  const deltaSeconds = Math.max(0, (nowMs - lastTickMs) / 1000);
+  portfolio.runtime.totalSeconds = Number(portfolio.runtime.totalSeconds || 0) + deltaSeconds;
+  portfolio.runtime.lastTickMs = nowMs;
+}
+
+function getRuntimeSnapshot() {
+  recordRuntimeDelta();
+  return {
+    uptimeSeconds: Math.round(process.uptime()),
+    totalRuntimeSeconds: Math.round(Number(portfolio.runtime.totalSeconds || 0)),
+  };
+}
 
 function startFilterCycle(strategyName) {
   if (!['momentum', 'swing'].includes(strategyName)) return;
@@ -907,6 +943,7 @@ async function refreshDependencyHealth() {
 
 async function saveState() {
   try {
+    recordRuntimeDelta();
     const state = {
       portfolio,
       marketState,
@@ -989,6 +1026,8 @@ async function loadState() {
 
     if (saved.portfolio) Object.assign(portfolio, saved.portfolio);
     if (saved.marketState) Object.assign(marketState, saved.marketState);
+    ensureRuntimeStateShape();
+    portfolio.runtime.lastTickMs = Date.now();
     if (saved.strategyState?.priceHistory && typeof saved.strategyState.priceHistory === 'object') {
       strategy.priceHistory = saved.strategyState.priceHistory;
     }
@@ -1340,6 +1379,7 @@ function refreshBrainAvailability() {
 }
 
 function getHealthStatus() {
+  const runtime = getRuntimeSnapshot();
   const degradedReasons = [];
   const unhealthyReasons = [];
   const dependencies = Object.keys(exchangeCircuit).map((chainKey) => {
@@ -1496,7 +1536,8 @@ function getHealthStatus() {
     degradedReasons,
     unhealthyReasons,
     timestamp: new Date().toISOString(),
-    uptimeSeconds: Math.round(process.uptime()),
+    uptimeSeconds: runtime.uptimeSeconds,
+    totalRuntimeSeconds: runtime.totalRuntimeSeconds,
     scanInFlight,
     momentumScanActive: Boolean(loopLocks.momentumScan),
     swingScanActive: Boolean(loopLocks.swingScan),
@@ -1777,10 +1818,10 @@ function updateTrackedToken(chainName, tokenData, evaluation) {
     aiConfidence: evaluation.aiConfidence || 0,
     riskFlags: evaluation.riskFlags || [],
     indicators: {
-      fastEma: evaluation.details.fastEma || null,
-      slowEma: evaluation.details.slowEma || null,
-      rsi: evaluation.details.rsi || null,
-      volumeSpike: evaluation.details.volumeSpike || null,
+      fastEma: evaluation.details.fastEma ?? null,
+      slowEma: evaluation.details.slowEma ?? null,
+      rsi: evaluation.details.rsi ?? null,
+      volumeSpike: evaluation.details.volumeSpike ?? null,
       shortSignal: evaluation.details.short?.signal || null,
       mediumSignal: evaluation.details.medium?.signal || null,
       longSignal: evaluation.details.long?.signal || null,
@@ -1907,12 +1948,14 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
 }
 
 function buildDashboardState() {
+  const runtime = getRuntimeSnapshot();
   const trackedTokens = getTrackedTokens();
   const performanceGate = risk.checkPerformanceGate(portfolio.stats || {});
 
   return {
     timestamp: new Date().toISOString(),
-    uptimeSeconds: Math.round(process.uptime()),
+    uptimeSeconds: runtime.uptimeSeconds,
+    totalRuntimeSeconds: runtime.totalRuntimeSeconds,
     mode: config.paperTrading ? 'paper' : 'live',
     portfolio: getPortfolioSnapshot(),
     performanceGate,
@@ -2076,7 +2119,12 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
   // In hybrid mode, race polling against a short timeout so same-cycle polling candidates are included when available.
   if (!forcePollingOnly && wsTokens.length > 0) {
     if (mode === 'hybrid') {
-      const hybridPollTimeoutMs = Math.max(50, Number(config.discovery?.hybridPollTimeoutMs || 300));
+      const defaultHybridTimeoutMs = Math.max(50, Number(config.discovery?.hybridPollTimeoutMs || 300));
+      // KuCoin REST polling can be slower due market/depth calls; allow a longer wait so the
+      // momentum universe is not starved by websocket-only fallbacks.
+      const hybridPollTimeoutMs = chainName === 'kucoin'
+        ? Math.max(defaultHybridTimeoutMs, 6000)
+        : defaultHybridTimeoutMs;
       const raceResult = await Promise.race([
         pollingPromise,
         new Promise((resolve) => setTimeout(() => resolve(null), hybridPollTimeoutMs)),
@@ -2100,7 +2148,10 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
     return [...new Set(wsTokens)];
   }
 
-  const pollTimeoutMs = Math.max(250, Number(config.discovery?.pollTimeoutMs || 4000));
+  const defaultPollTimeoutMs = Math.max(250, Number(config.discovery?.pollTimeoutMs || 4000));
+  const pollTimeoutMs = chainName === 'kucoin'
+    ? Math.max(defaultPollTimeoutMs, 10000)
+    : defaultPollTimeoutMs;
   const timedPollingResult = await Promise.race([
     pollingPromise,
     new Promise((resolve) => setTimeout(() => resolve(null), pollTimeoutMs)),

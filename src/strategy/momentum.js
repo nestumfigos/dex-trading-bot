@@ -125,6 +125,8 @@ class MomentumStrategy {
     const listingAgeDays = Number(tokenMeta.listingAgeDays || 0);
     const liquidity = Number(tokenMeta.liquidityUsd || 0);
     const volume24h = Number(tokenMeta.volume24h || 0);
+    const priceChange24h = Number(tokenMeta.priceChange24h || 0);
+    const chainKey = String(tokenMeta.chainKey || tokenMeta.chain || '').toLowerCase();
 
     const swingCfg = config.strategies?.swing || {};
     const momentumCfg = config.strategies?.momentum || {};
@@ -142,22 +144,37 @@ class MomentumStrategy {
       }
     }
 
-    // Strategy B: Momentum Trading (new launches)
+    // Strategy B: Momentum Trading supports both lanes:
+    // - New-launch momentum (age + flow checks)
+    // - KuCoin universal momentum (age-agnostic CEX momentum)
     if (momentumCfg.enabled !== false) {
-      const minLiq = momentumCfg.minLiquidityUsd || 10000;
+      const launchMinLiq = chainKey === 'kucoin'
+        ? Number(momentumCfg.kucoinLaunchMinLiquidityUsd || 10000)
+        : Number(momentumCfg.minLiquidityUsd || 10000);
       const maxLiq = momentumCfg.maxLiquidityUsd || 500000;
       const maxAge = momentumCfg.maxTokenAgeDays || 0.25; // 6 hours
       const buySell = this.getBuySellStats(tokenMeta);
       const minTxCountFirstHour = Number(momentumCfg.minTxCountFirstHour || 50);
       const minBuyRatioPct10m = Number(momentumCfg.minBuyRatioPct10m || 60);
+      const kucoinUniversalEnabled = chainKey === 'kucoin' && momentumCfg.kucoinUniversalEnabled !== false;
+      const kucoinMinLiq = Number(momentumCfg.kucoinUniversalMinLiquidityUsd || 100000);
+      const kucoinMinVol24h = Number(momentumCfg.kucoinUniversalMin24hVolumeUsd || 1000000);
+      const kucoinMinAbsChange24h = Number(momentumCfg.kucoinUniversalMinAbsPriceChange24hPct || 4);
 
-      if (
+      const launchLaneApplicable = (
         listingAgeDays <= maxAge
-        && liquidity >= minLiq
+        && liquidity >= launchMinLiq
         && liquidity <= maxLiq
         && buySell.txCountFirstHour >= minTxCountFirstHour
         && buySell.buyRatio10mPct >= minBuyRatioPct10m
-      ) {
+      );
+
+      const kucoinUniversalApplicable = kucoinUniversalEnabled
+        && liquidity >= kucoinMinLiq
+        && volume24h >= kucoinMinVol24h
+        && Math.abs(priceChange24h) >= kucoinMinAbsChange24h;
+
+      if (launchLaneApplicable || kucoinUniversalApplicable) {
         applicable.momentum = true;
       }
     }
@@ -191,10 +208,20 @@ class MomentumStrategy {
     const prices = this.priceHistory[historyKey] || [];
     const volumes = this.volumeHistory[historyKey] || [];
     const externalReasons = [];
+    const priceChange24hPct = Number(tokenMeta.priceChange24h || 0);
+    const volume24h = Number(tokenMeta.volume24h || 0);
+    const liquidityUsd = Number(tokenMeta.liquidityUsd || 0);
+
+    const extremeMoveCandidate = strategyName === 'momentum'
+      && strategyCfg.extremeMoveEnabled !== false
+      && Math.abs(priceChange24hPct) >= Number(strategyCfg.extremeMoveMinAbsPriceChange24hPct || 200)
+      && volume24h >= Number(strategyCfg.extremeMoveMin24hVolumeUsd || 50000)
+      && liquidityUsd >= Number(strategyCfg.extremeMoveMinLiquidityUsd || 30000);
 
     // Use strategy-specific history requirement
     const historyNeeded = Math.max(strategyCfg.emaSlow + 5, 30);
-    if (prices.length < historyNeeded) {
+    const hasFullHistory = prices.length >= historyNeeded;
+    if (!hasFullHistory && !extremeMoveCandidate) {
       return { signal: 'INSUFFICIENT_DATA', details: { bars: prices.length, required: historyNeeded, strategy: strategyName } };
     }
 
@@ -211,49 +238,64 @@ class MomentumStrategy {
       breakoutBufferPct: strategyCfg.breakoutBufferPct,
     };
 
-    // Calculate volatility
-    const recentPrices = prices.slice(-20);
-    const returns = recentPrices.slice(1).map((p, i) => {
-      const prev = recentPrices[i] || 0;
-      return prev > 0 ? (p - prev) / prev : 0;
-    });
-    const mean = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
-    const variance = returns.length
-      ? returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / returns.length
-      : 0;
-    const realizedVolPct = Math.sqrt(variance) * 100;
-    const marketRegime = realizedVolPct > 4 ? 'high_volatility' : 'normal';
-    const dynamicVolumeSpikeMultiplier = marketRegime === 'high_volatility'
-      ? (strategyParams.highVolVolumeSpikeMultiplier || strategyParams.volumeSpikeMultiplier)
-      : (strategyParams.lowVolVolumeSpikeMultiplier || strategyParams.volumeSpikeMultiplier);
-
-    // Evaluate each timeframe with strategy-specific parameters
-    const signals = {};
-    const dynamicStrategy = { ...strategyParams, volumeSpikeMultiplier: dynamicVolumeSpikeMultiplier };
-    
-    const timeframes = {
-      short: Math.max(10, strategyParams.emaFast + 5),
-      medium: Math.max(20, strategyParams.emaSlow + 5),
-      long: Math.max(40, strategyParams.emaSlow + 10),
+    let realizedVolPct = 0;
+    let marketRegime = 'normal';
+    let dynamicVolumeSpikeMultiplier = Number(
+      strategyParams.lowVolVolumeSpikeMultiplier || strategyParams.volumeSpikeMultiplier || 1
+    );
+    const signals = {
+      short: { signal: 'HOLD', details: {} },
+      medium: { signal: 'HOLD', details: {} },
+      long: { signal: 'HOLD', details: {} },
     };
 
-    Object.entries(timeframes).forEach(([tf, length]) => {
-      const tfPrices = prices.slice(-length);
-      const tfVolumes = volumes.slice(-length);
-      signals[tf] = momentumSignal(tfPrices, tfVolumes, dynamicStrategy);
-    });
+    if (hasFullHistory) {
+      // Calculate volatility
+      const recentPrices = prices.slice(-20);
+      const returns = recentPrices.slice(1).map((p, i) => {
+        const prev = recentPrices[i] || 0;
+        return prev > 0 ? (p - prev) / prev : 0;
+      });
+      const mean = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+      const variance = returns.length
+        ? returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / returns.length
+        : 0;
+      realizedVolPct = Math.sqrt(variance) * 100;
+      marketRegime = realizedVolPct > 4 ? 'high_volatility' : 'normal';
+      dynamicVolumeSpikeMultiplier = marketRegime === 'high_volatility'
+        ? (strategyParams.highVolVolumeSpikeMultiplier || strategyParams.volumeSpikeMultiplier)
+        : (strategyParams.lowVolVolumeSpikeMultiplier || strategyParams.volumeSpikeMultiplier);
+
+      // Evaluate each timeframe with strategy-specific parameters
+      const dynamicStrategy = { ...strategyParams, volumeSpikeMultiplier: dynamicVolumeSpikeMultiplier };
+
+      // Each timeframe must have at least emaSlow+5 bars, otherwise momentumSignal
+      // will always return INSUFFICIENT_DATA (slow EMA cannot be computed).
+      const baseBars = Math.max(Number(strategyParams.emaSlow || 21) + 5, 30);
+      const timeframes = {
+        short: baseBars,
+        medium: baseBars + 10,
+        long: baseBars + 20,
+      };
+
+      Object.entries(timeframes).forEach(([tf, length]) => {
+        const tfPrices = prices.slice(-length);
+        const tfVolumes = volumes.slice(-length);
+        signals[tf] = momentumSignal(tfPrices, tfVolumes, dynamicStrategy);
+      });
+    }
 
     const shortSignal = signals.short.signal;
     const mediumSignal = signals.medium.signal;
     const longSignal = signals.long.signal;
-    const shortRsi = Number(signals.short?.details?.rsi || 0);
-    const shortVolumeSpike = Number(signals.short?.details?.volumeSpike || 0);
-    const mediumRsi = Number(signals.medium?.details?.rsi || 0);
+    const shortRsi = Number(signals.short?.details?.rsi || Number.NaN);
+    const shortVolumeSpike = Number(signals.short?.details?.volumeSpike || Number.NaN);
+    const mediumRsi = Number(signals.medium?.details?.rsi || Number.NaN);
 
     const rsiBuyMin = Number(strategyCfg.rsiBuyThreshold || 45);
     const rsiBuyMax = Number(strategyCfg.rsiBuyMaxThreshold || 65);
-    const inRsiBuyZone = shortRsi >= rsiBuyMin && shortRsi <= rsiBuyMax;
-    const hasVolumeSpike = shortVolumeSpike >= dynamicVolumeSpikeMultiplier;
+    const inRsiBuyZone = Number.isFinite(shortRsi) && shortRsi >= rsiBuyMin && shortRsi <= rsiBuyMax;
+    const hasVolumeSpike = Number.isFinite(shortVolumeSpike) && shortVolumeSpike >= dynamicVolumeSpikeMultiplier;
 
     const breakoutWindow = prices.slice(-(strategyParams.breakoutLookback + 1));
     const latestPrice = Number(prices[prices.length - 1] || 0);
@@ -268,7 +310,6 @@ class MomentumStrategy {
 
     const buySell = this.getBuySellStats(tokenMeta);
     const topHoldersPct = Number(tokenMeta.topHoldersPct || 0);
-    const liquidityUsd = Number(tokenMeta.liquidityUsd || 0);
     const liquidityChange24hPct = Number(tokenMeta.liquidityChange24hPct || 0);
     const chainKey = String(tokenMeta.chainKey || tokenMeta.chain || '').toLowerCase();
     const strictSolanaOnchainChecks = chainKey === 'solana' && strategyCfg.strictSolanaOnchainChecks !== false;
@@ -301,29 +342,57 @@ class MomentumStrategy {
     } else {
       // Momentum: fast setup on very new launches.
       if (topHoldersPct > Number(strategyCfg.maxTopHoldersPct || 60)) externalReasons.push(`Top holders ${topHoldersPct.toFixed(1)}% > ${strategyCfg.maxTopHoldersPct}%`);
-      if (buySell.txCountFirstHour < Number(strategyCfg.minTxCountFirstHour || 50)) externalReasons.push(`Transactions first hour ${buySell.txCountFirstHour} < ${strategyCfg.minTxCountFirstHour}`);
-      if (buySell.buyRatio10mPct < Number(strategyCfg.minBuyRatioPct10m || 60)) externalReasons.push(`Buy ratio 10m ${buySell.buyRatio10mPct.toFixed(1)}% < ${strategyCfg.minBuyRatioPct10m}%`);
+      const bypassMicrostructureChecks = Boolean(extremeMoveCandidate && strategyCfg.extremeMoveBypassMicrostructureChecks !== false);
+
+      if (!bypassMicrostructureChecks && buySell.txCountFirstHour < Number(strategyCfg.minTxCountFirstHour || 50)) {
+        externalReasons.push(`Transactions first hour ${buySell.txCountFirstHour} < ${strategyCfg.minTxCountFirstHour}`);
+      }
+      if (!bypassMicrostructureChecks && buySell.buyRatio10mPct < Number(strategyCfg.minBuyRatioPct10m || 60)) {
+        externalReasons.push(`Buy ratio 10m ${buySell.buyRatio10mPct.toFixed(1)}% < ${strategyCfg.minBuyRatioPct10m}%`);
+      }
       const hasUniqueBuyerData = tokenMeta.uniqueBuyers10m !== undefined && tokenMeta.uniqueBuyers10m !== null && tokenMeta.uniqueBuyers10m !== '';
-      if (!hasUniqueBuyerData && strictSolanaOnchainChecks) {
+      if (!bypassMicrostructureChecks && !hasUniqueBuyerData && strictSolanaOnchainChecks) {
         externalReasons.push('Unique buyers 10m unavailable (strict Solana momentum mode)');
-      } else if (hasUniqueBuyerData && buySell.uniqueBuyers10m < Number(strategyCfg.minUniqueBuyers10m || 20)) {
+      } else if (!bypassMicrostructureChecks && hasUniqueBuyerData && buySell.uniqueBuyers10m < Number(strategyCfg.minUniqueBuyers10m || 20)) {
         externalReasons.push(`Unique buyers 10m ${buySell.uniqueBuyers10m} < ${strategyCfg.minUniqueBuyers10m}`);
       }
       if (Boolean(tokenMeta.isHoneypot)) externalReasons.push('GoPlus flagged token');
 
-      netBuyFlowUsd10m = await getNetBuyFlowUsd(rawAddress, tokenMeta.chainKey || tokenMeta.chain);
-      const minNetBuyFlowUsd = Number(strategyCfg.minNetBuyFlowUsd || 15000);
-      if (!Number.isFinite(netBuyFlowUsd10m) && strictSolanaOnchainChecks) {
-        externalReasons.push('Net buy flow 10m unavailable (strict Solana momentum mode)');
-      } else if (Number.isFinite(netBuyFlowUsd10m) && netBuyFlowUsd10m < minNetBuyFlowUsd) {
-        externalReasons.push(`Net buy flow $${Math.round(netBuyFlowUsd10m)} < $${Math.round(minNetBuyFlowUsd)}`);
+      if (!bypassMicrostructureChecks) {
+        netBuyFlowUsd10m = await getNetBuyFlowUsd(rawAddress, tokenMeta.chainKey || tokenMeta.chain);
+        const minNetBuyFlowUsd = Number(strategyCfg.minNetBuyFlowUsd || 15000);
+        if (!Number.isFinite(netBuyFlowUsd10m) && strictSolanaOnchainChecks) {
+          externalReasons.push('Net buy flow 10m unavailable (strict Solana momentum mode)');
+        } else if (Number.isFinite(netBuyFlowUsd10m) && netBuyFlowUsd10m < minNetBuyFlowUsd) {
+          externalReasons.push(`Net buy flow $${Math.round(netBuyFlowUsd10m)} < $${Math.round(minNetBuyFlowUsd)}`);
+        }
       }
 
       const buySetup = longSignal === 'BUY' && mediumSignal === 'BUY' && shortSignal === 'BUY' && inRsiBuyZone && hasVolumeSpike;
-      if (buySetup && externalReasons.length === 0) {
+      const extremeMinBars = Math.max(3, Number(strategyCfg.extremeMoveMinHistoryBars || 8));
+      const recentStartIndex = Math.max(0, prices.length - extremeMinBars);
+      const recentStartPrice = Number(prices[recentStartIndex] || 0);
+      const recentMovePct = recentStartPrice > 0 && Number.isFinite(latestPrice)
+        ? ((latestPrice - recentStartPrice) / recentStartPrice) * 100
+        : 0;
+
+      const extremeVolumeSpike = (() => {
+        if (volumes.length < 2) return Number.NaN;
+        const prev = volumes.slice(0, -1);
+        const avg = prev.reduce((sum, v) => sum + Number(v || 0), 0) / prev.length;
+        if (!Number.isFinite(avg) || avg <= 0) return Number.NaN;
+        return Number(volumes[volumes.length - 1] || 0) / avg;
+      })();
+
+      const extremeBuySetup = extremeMoveCandidate
+        && prices.length >= extremeMinBars
+        && recentMovePct >= Number(strategyCfg.extremeMoveMinRecentPct || 8)
+        && (!Number.isFinite(extremeVolumeSpike) || extremeVolumeSpike >= Number(strategyCfg.extremeMoveMinVolumeSpike || 1.1));
+
+      if ((buySetup || extremeBuySetup) && externalReasons.length === 0) {
         finalSignal = 'BUY';
-        confidence = 1.0;
-        triggerTimeframe = 'momentum_breakout';
+        confidence = extremeBuySetup && !buySetup ? 0.85 : 1.0;
+        triggerTimeframe = extremeBuySetup && !buySetup ? 'extreme_24h_momentum' : 'momentum_breakout';
       } else if (shortSignal === 'SELL' || mediumSignal === 'SELL') {
         finalSignal = 'SELL';
         confidence = 0.75;
@@ -356,6 +425,8 @@ class MomentumStrategy {
         uniqueBuyers10m: buySell.uniqueBuyers10m,
         topHoldersPct,
         liquidityChange24hPct,
+        priceChange24hPct,
+        extremeMoveCandidate,
         externalReasons,
         technicalBlocked,
         marketRegime,
