@@ -2,6 +2,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('../config');
 const logger = require('./utils/logger');
+const { nvidiaExplainTrade, nvidiaChat } = require('./utils/nvidia-ai');
 
 let bot = null;
 if (config.telegram.token && config.telegram.chatId) {
@@ -45,4 +46,16 @@ async function sendErrorAlert(error) {
   await sendAlert(`❌ Error: ${error}`);
 }
 
+async function sendNvidiaTradeExplanation(trade) {
+  const explanation = await nvidiaExplainTrade(trade);
+  await sendAlert(`AI Explanation: ${explanation.choices?.[0]?.message?.content || 'N/A'}`);
+}
+
+async function handleNvidiaChat(userQuestion) {
+  const response = await nvidiaChat(userQuestion);
+  await sendAlert(`AI: ${response.choices?.[0]?.message?.content || 'N/A'}`);
+}
+
 module.exports = { sendAlert, sendHeartbeat, sendTradeAlert, sendErrorAlert };
+module.exports.sendNvidiaTradeExplanation = sendNvidiaTradeExplanation;
+module.exports.handleNvidiaChat = handleNvidiaChat;

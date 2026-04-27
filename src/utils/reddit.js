@@ -1,5 +1,6 @@
 // Reddit API utility for free crypto sentiment/news (no auth required)
 const axios = require('axios');
+const { nvidiaAnalyzeBatch } = require('./nvidia-ai');
 
 // Fetch latest posts from a crypto subreddit (e.g., 'CryptoCurrency')
 async function getRedditPosts(subreddit = 'CryptoCurrency', limit = 10) {
@@ -16,4 +17,9 @@ async function getRedditPosts(subreddit = 'CryptoCurrency', limit = 10) {
   }));
 }
 
-module.exports = { getRedditPosts };
+async function analyzeRedditSentiment(posts) {
+  // posts: array of strings (titles)
+  return nvidiaAnalyzeBatch(posts, 'Analyze this for crypto sentiment (bullish/bearish/neutral)');
+}
+
+module.exports = { getRedditPosts, analyzeRedditSentiment };

@@ -89,6 +89,50 @@ function validateConfigPayloadSchema(payload = {}) {
 
 function startDashboard(portfolio, ctx) {
   const app = express();
+
+  // --- AI API Quota Endpoint (must be before static serving) ---
+  // This must be registered BEFORE app.use(express.static(...))
+  app.get('/api/ai-quota', (req, res) => {
+    try {
+      // Debug log for config values
+      console.log('[AI-QUOTA DEBUG]', {
+        anthropic: config.anthropic,
+        groq: config.groq,
+        gemini: config.gemini,
+      });
+      // Dynamically require to avoid circular deps
+      const { getQuotaStats } = require('./ai/ensemble');
+      const stats = getQuotaStats ? getQuotaStats() : {};
+      res.json({
+        nvidia: { status: 'Online', remaining: 'Unlimited (free tier)' },
+        anthropic: {
+          status: config.anthropic.enabled && config.anthropic.apiKey ? 'Online' : 'Offline',
+          remaining: config.anthropic.enabled && config.anthropic.apiKey ? 'N/A' : '0',
+        },
+        groq: stats.groq ? {
+          status: 'Online',
+          remaining: `${stats.groq.limit - stats.groq.count} / ${stats.groq.limit}`,
+          resetsAt: stats.groq.resetsAt,
+          backoffUntil: stats.backoffUntil?.groq,
+        } : { status: 'Offline', remaining: '0' },
+        gemini: stats.gemini ? {
+          status: 'Online',
+          remaining: `${stats.gemini.limit - stats.gemini.count} / ${stats.gemini.limit}`,
+          resetsAt: stats.gemini.resetsAt,
+          backoffUntil: stats.backoffUntil?.gemini,
+        } : { status: 'Offline', remaining: '0' },
+        openai: { status: 'Offline', remaining: '0' },
+      });
+    } catch (e) {
+      res.json({
+        nvidia: { status: 'Online', remaining: 'Unlimited (free tier)' },
+        anthropic: { status: 'Unknown', remaining: 'N/A' },
+        groq: { status: 'Unknown', remaining: 'N/A' },
+        gemini: { status: 'Unknown', remaining: 'N/A' },
+        openai: { status: 'Offline', remaining: '0' },
+      });
+    }
+  });
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server });
   const publicDir = path.join(__dirname, 'public');
@@ -173,10 +217,20 @@ function startDashboard(portfolio, ctx) {
     next();
   });
 
-  app.use(express.static(publicDir));
+  app.use(express.static(publicDir, {
+    etag: false,
+    setHeaders(res, filePath) {
+      if (/\.(?:html|js|css)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      }
+    },
+  }));
 
   app.get('/api/status', (req, res) => {
-    res.json(ctx.getDashboardState());
+    res.json(ctx.getDashboardState({ compact: true }));
   });
 
   app.get('/health', (req, res) => {
@@ -185,6 +239,25 @@ function startDashboard(portfolio, ctx) {
       : { ok: true, timestamp: new Date().toISOString() };
 
     return res.status(health.ok ? 200 : 503).json(health);
+  });
+
+  app.get('/api/health-lite', (req, res) => {
+    const health = typeof ctx.getHealthStatus === 'function'
+      ? ctx.getHealthStatus()
+      : { ok: true, timestamp: new Date().toISOString() };
+
+    const lite = {
+      ok: health.ok,
+      degraded: Boolean(health.degraded),
+      degradedReasons: Array.isArray(health.degradedReasons) ? health.degradedReasons : [],
+      unhealthyReasons: Array.isArray(health.unhealthyReasons) ? health.unhealthyReasons : [],
+      timestamp: health.timestamp,
+      uptimeSeconds: Number(health.uptimeSeconds || 0),
+      totalRuntimeSeconds: Number(health.totalRuntimeSeconds || 0),
+      scanInFlight: Boolean(health.scanInFlight),
+    };
+
+    return res.status(lite.ok ? 200 : 503).json(lite);
   });
 
   app.get('/api/config', (req, res) => {
@@ -360,6 +433,10 @@ function startDashboard(portfolio, ctx) {
       const { buildCorrelationMatrix } = require('./utils/correlation');
       let priceHistories = ctx.strategy?.priceHistory || {};
       let source = 'memory';
+      const requestedLimitRaw = Number(req.query?.limit);
+      const requestedLimit = Number.isFinite(requestedLimitRaw) && requestedLimitRaw > 0
+        ? Math.max(10, Math.min(5000, requestedLimitRaw))
+        : null;
 
       if (!priceHistories || Object.keys(priceHistories).length === 0) {
         try {
@@ -376,11 +453,29 @@ function startDashboard(portfolio, ctx) {
         }
       }
 
+      const allKeys = Object.keys(priceHistories || {});
+      if (requestedLimit && allKeys.length > requestedLimit) {
+        const ranked = allKeys
+          .map((key) => {
+            const bars = Array.isArray(priceHistories[key]) ? priceHistories[key].length : 0;
+            return { key, bars };
+          })
+          .sort((a, b) => b.bars - a.bars)
+          .slice(0, requestedLimit);
+
+        const limited = {};
+        ranked.forEach(({ key }) => {
+          limited[key] = priceHistories[key];
+        });
+        priceHistories = limited;
+      }
+
       const matrix = buildCorrelationMatrix(priceHistories);
       res.json({
         ...matrix,
         source,
         historyCount: Object.keys(priceHistories || {}).length,
+        limitApplied: requestedLimit,
       });
     } catch (error) {
       logger.error(`Correlation endpoint failed: ${error.message}`);
@@ -397,6 +492,23 @@ function startDashboard(portfolio, ctx) {
       return res.json(result);
     } catch (error) {
       logger.error(`Backtest request failed: ${error.message}`);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/backtest/seed-data', requireWriteAccess, async (req, res) => {
+    try {
+      const { priceHistory, volumeHistory, tokenAddress, chain } = req.body || {};
+      if (!priceHistory || !volumeHistory || !tokenAddress || !chain) {
+        return res.status(400).json({ error: 'Missing required fields: priceHistory, volumeHistory, tokenAddress, chain' });
+      }
+      const result = await ctx.seedBacktestData(priceHistory, volumeHistory, tokenAddress, chain);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      return res.json(result);
+    } catch (error) {
+      logger.error(`Seed backtest data failed: ${error.message}`);
       return res.status(500).json({ error: error.message });
     }
   });
@@ -464,6 +576,23 @@ function startDashboard(portfolio, ctx) {
     }
   });
 
+  app.get('/api/admin/scan-counter-mismatches', requireAdminToken, (req, res) => {
+    try {
+      const mismatches = typeof ctx.getScanCounterMismatches === 'function'
+        ? ctx.getScanCounterMismatches()
+        : [];
+
+      return res.json({
+        success: true,
+        count: Array.isArray(mismatches) ? mismatches.length : 0,
+        mismatches: Array.isArray(mismatches) ? mismatches : [],
+      });
+    } catch (error) {
+      logger.error(`Scan counter mismatches endpoint failed: ${error.message}`);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get('*', (req, res) => {
     res.sendFile(path.join(publicDir, 'index.html'));
   });
@@ -473,42 +602,108 @@ function startDashboard(portfolio, ctx) {
 
     const pushState = () => {
       if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: 'state', payload: ctx.getDashboardState() }));
+        if (Number(socket.bufferedAmount || 0) > 256 * 1024) {
+          return;
+        }
+        socket.send(JSON.stringify({ type: 'state', payload: ctx.getDashboardState({ compact: true }) }));
       }
     };
 
     pushState();
-    const interval = setInterval(pushState, 4000);
+    const interval = setInterval(pushState, 10000);
     socket.on('close', () => clearInterval(interval));
   });
 
   const bindHost = config.dashboard?.bindHost || '127.0.0.1';
-  server.listen(config.bot.port, bindHost, () => {
-    const networkIP = getNetworkIP();
-    logger.info(`Dashboard live at http://localhost:${config.bot.port}`);
-    if (bindHost === '0.0.0.0') {
-      logger.info(`Network access: http://${networkIP}:${config.bot.port}`);
+  
+  // Exponential backoff for port binding - handles TIME_WAIT after process restart
+  let retryCount = 0;
+  const maxRetries = 15;
+  let bindRetryTimer = null;
+  let bindInProgress = false;
+  
+  const clearBindRetryTimer = () => {
+    if (bindRetryTimer) {
+      clearTimeout(bindRetryTimer);
+      bindRetryTimer = null;
+    }
+  };
+  
+  const handleBindError = (err) => {
+    bindInProgress = false;
+
+    // Ignore stale retry errors once the dashboard is already listening.
+    if (server.listening) {
+      clearBindRetryTimer();
+      return;
     }
 
-    // Bug 8: warn when write endpoints are reachable without token auth.
-    if (!adminToken) {
-      if (bindHost === '0.0.0.0') {
-        // Exposed to the network AND no token — this is a remote-execution risk.
-        logger.warn(
-          '[SECURITY] Dashboard is bound to 0.0.0.0 without DASHBOARD_ADMIN_TOKEN. ' +
-          'Write endpoints (/api/config, /api/backtest, etc.) are accessible to anyone ' +
-          'on the network. Set DASHBOARD_ADMIN_TOKEN in your .env immediately.'
-        );
-      } else {
-        // Localhost only but no token — lower risk, still worth a notice.
-        logger.warn(
-          '[SECURITY] DASHBOARD_ADMIN_TOKEN is not set. Write endpoints are protected by ' +
-          'localhost-only access, but any process on this machine can modify bot configuration. ' +
-          'Set DASHBOARD_ADMIN_TOKEN in your .env for stronger protection.'
-        );
-      }
+    if (err.code === 'EADDRINUSE' && retryCount < maxRetries) {
+      retryCount++;
+      // Longer exponential backoff to let OS release the port from TIME_WAIT state
+      const delayMs = 200 + (retryCount * 200); // 400ms, 600ms, 800ms, ..., 3200ms
+      logger.warn(`Port ${config.bot.port} in use (EADDRINUSE), attempt ${retryCount}/${maxRetries}, retrying in ${delayMs}ms...`);
+      
+      clearBindRetryTimer();
+      bindRetryTimer = setTimeout(() => {
+        bindRetryTimer = null;
+        server.removeAllListeners('error');
+        server.once('error', handleBindError);
+        startListening();
+      }, delayMs);
+    } else if (err.code === 'EADDRINUSE') {
+      logger.error(`Port ${config.bot.port} still in use after ${maxRetries} attempts. This usually means:`);
+      logger.error('  1. A previous process is still holding the port');
+      logger.error('  2. The OS needs more time to release the port from TIME_WAIT');
+      logger.error('  Try: netstat -an | findstr :3002 (Windows) or lsof -i :3002 (Mac/Linux)');
+      logger.error('Forcing process exit - PM2 will restart.');
+      process.exit(1);
+    } else {
+      logger.error('Server bind error:', err);
     }
-  });
+  };
+
+  const startListening = () => {
+    if (server.listening || bindInProgress) {
+      return;
+    }
+
+    bindInProgress = true;
+    server.listen(config.bot.port, bindHost, () => {
+      bindInProgress = false;
+      retryCount = 0; // Reset on successful bind
+      clearBindRetryTimer();
+      const networkIP = getNetworkIP();
+      logger.info(`Dashboard live at http://localhost:${config.bot.port}`);
+      if (bindHost === '0.0.0.0') {
+        logger.info(`Network access: http://${networkIP}:${config.bot.port}`);
+      }
+
+      // Bug 8: warn when write endpoints are reachable without token auth.
+      if (!adminToken) {
+        if (bindHost === '0.0.0.0') {
+          // Exposed to the network AND no token — this is a remote-execution risk.
+          logger.warn(
+            '[SECURITY] Dashboard is bound to 0.0.0.0 without DASHBOARD_ADMIN_TOKEN. ' +
+            'Write endpoints (/api/config, /api/backtest, etc.) are accessible to anyone ' +
+            'on the network. Set DASHBOARD_ADMIN_TOKEN in your .env immediately.'
+          );
+        } else {
+          // Localhost only but no token — lower risk, still worth a notice.
+          logger.warn(
+            '[SECURITY] DASHBOARD_ADMIN_TOKEN is not set. Write endpoints are protected by ' +
+            'localhost-only access, but any process on this machine can modify bot configuration. ' +
+            'Set DASHBOARD_ADMIN_TOKEN in your .env for stronger protection.'
+          );
+        }
+      }
+    });
+  };
+
+  server.once('error', handleBindError);
+  startListening();
+
+  return { server, wss };
 }
 
 module.exports = { startDashboard };

@@ -165,8 +165,19 @@ class BaseSwapExchange {
 
       const liqBase = parseFloat(pair.liquidity?.base || 0);
       const liqQuote = parseFloat(pair.liquidity?.quote || 0);
+      const totalLiquidityUsd = Number(result.liquidityUsd || 0);
+      const basePriceUsd = Number(result.price || 0);
       if (liqBase > 0 && liqQuote > 0) {
-        const reserveRatio = Math.max(liqBase, liqQuote) / Math.min(liqBase, liqQuote);
+        let reserveRatio = 0;
+        const baseReserveUsd = liqBase * basePriceUsd;
+        const quoteReserveUsd = Math.max(0, totalLiquidityUsd - baseReserveUsd);
+
+        if (baseReserveUsd > 0 && quoteReserveUsd > 0) {
+          reserveRatio = Math.max(baseReserveUsd, quoteReserveUsd) / Math.min(baseReserveUsd, quoteReserveUsd);
+        } else {
+          reserveRatio = Math.max(liqBase, liqQuote) / Math.min(liqBase, liqQuote);
+        }
+
         if (reserveRatio > Number(config.risk?.maxReserveImbalanceRatio ?? 1000)) {
           result.reserveImbalanced = true;
           result.reserveRatio = reserveRatio;
@@ -311,6 +322,7 @@ class BaseSwapExchange {
             slippageBps,
             filledBaseQty,
             filledQuoteUsd,
+            hasExchangeFilledData: Boolean(filledBaseQty > 0 && filledQuoteUsd > 0),
             blockNumber: receipt.blockNumber,
             confirmations: requiredConfirmations,
           };
@@ -448,6 +460,7 @@ class BaseSwapExchange {
             slippageBps,
             filledBaseQty,
             filledQuoteUsd,
+            hasExchangeFilledData: Boolean(filledBaseQty > 0 && filledQuoteUsd > 0),
             blockNumber: receipt.blockNumber,
             confirmations: requiredConfirmations,
           };

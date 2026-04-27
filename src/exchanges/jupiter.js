@@ -171,7 +171,6 @@ class JupiterExchange {
         Promise.allSettled([
           getTokenHolders(mintAddress, 10),
           getTokenInfo(mintAddress),
-          getTokenTVL(mintAddress, 'solana'),
         ]),
       ]);
 
@@ -203,7 +202,17 @@ class JupiterExchange {
       // Extract onchain results (all allSettled, so always safe)
       const holders = onchainResults[0].status === 'fulfilled' ? onchainResults[0].value : null;
       const tokenInfo = onchainResults[1].status === 'fulfilled' ? onchainResults[1].value : null;
-      const tvl = onchainResults[2].status === 'fulfilled' ? onchainResults[2].value : null;
+
+      const listingAgeDays = dexPair?.pairCreatedAt ? (Date.now() - dexPair.pairCreatedAt) / 86400000 : 30;
+      let tvl = null;
+      const shouldTryDefiLlama = config.filters?.defillama?.enabled !== false && listingAgeDays >= 1;
+      if (shouldTryDefiLlama) {
+        const tvlTimeoutMs = Math.max(400, Number(config.risk?.defillamaLookupTimeoutMs || 1200));
+        tvl = await Promise.race([
+          getTokenTVL(mintAddress, 'solana').catch(() => null),
+          new Promise((resolve) => setTimeout(() => resolve(null), tvlTimeoutMs)),
+        ]).catch(() => null);
+      }
 
       // Whale tracking: % held by top 10 holders
       let topHoldersPct = 0;
@@ -238,7 +247,7 @@ class JupiterExchange {
         topHoldersPct,
         holderCount: Number(tokenInfo?.holder || tokenInfo?.holderCount || 0),
         teamWalletUnlocked: false,
-        listingAgeDays: dexPair?.pairCreatedAt ? (Date.now() - dexPair.pairCreatedAt) / 86400000 : 30,
+        listingAgeDays,
         listingDate: dexPair?.pairCreatedAt ? new Date(dexPair.pairCreatedAt).toISOString() : null,
         chain: 'Solana',
         pairAddress: dexPair?.pairAddress,
@@ -366,7 +375,89 @@ class JupiterExchange {
       `${sideLabel} confirmed: https://solscan.io/tx/${txid} ` +
       `(slippage=${slippageBps}bps, priorityFee=${priorityFeeLamports})`
     );
-    return { txid, slippageBps };
+
+    const fill = await this.extractFillFromParsedTransaction(txid, quote).catch(() => ({}));
+    return {
+      txid,
+      slippageBps,
+      quotedPriceImpactPct: Number(quote?.priceImpactPct || 0) * 100,
+      ...fill,
+    };
+  }
+
+  async extractFillFromParsedTransaction(txid, quote) {
+    const walletAddress = this.wallet?.publicKey?.toString();
+    if (!walletAddress) return { hasExchangeFilledData: false };
+
+    let parsed = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      parsed = await this.connection.getParsedTransaction(txid, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      }).catch(() => null);
+      if (parsed?.meta) break;
+      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+    }
+    if (!parsed?.meta) {
+      return { hasExchangeFilledData: false };
+    }
+
+    const pre = Array.isArray(parsed.meta.preTokenBalances) ? parsed.meta.preTokenBalances : [];
+    const post = Array.isArray(parsed.meta.postTokenBalances) ? parsed.meta.postTokenBalances : [];
+    const inputMint = String(quote?.inputMint || '');
+    const outputMint = String(quote?.outputMint || '');
+
+    const sumMintByOwner = (rows, mint) => rows
+      .filter((row) => String(row?.mint || '') === mint && String(row?.owner || '') === walletAddress)
+      .reduce((sum, row) => {
+        const amount = Number(row?.uiTokenAmount?.uiAmountString ?? row?.uiTokenAmount?.uiAmount ?? 0);
+        return sum + (Number.isFinite(amount) ? amount : 0);
+      }, 0);
+
+    const findMintDecimals = (mint) => {
+      const candidate = [...post, ...pre].find((row) => String(row?.mint || '') === mint);
+      const decimals = Number(candidate?.uiTokenAmount?.decimals);
+      return Number.isFinite(decimals) ? decimals : null;
+    };
+
+    const preIn = sumMintByOwner(pre, inputMint);
+    const postIn = sumMintByOwner(post, inputMint);
+    const preOut = sumMintByOwner(pre, outputMint);
+    const postOut = sumMintByOwner(post, outputMint);
+
+    const inputSpent = Math.max(0, preIn - postIn);
+    const outputReceived = Math.max(0, postOut - preOut);
+    let filledQuoteUsd = 0;
+    let filledBaseQty = 0;
+
+    if (inputMint === USDC_MINT) {
+      filledQuoteUsd = inputSpent;
+      filledBaseQty = outputReceived;
+    } else if (outputMint === USDC_MINT) {
+      filledQuoteUsd = outputReceived;
+      filledBaseQty = inputSpent;
+    }
+
+    if (!(filledQuoteUsd > 0 && filledBaseQty > 0)) {
+      return { hasExchangeFilledData: false };
+    }
+
+    const outDecimals = findMintDecimals(outputMint);
+    const expectedOutRaw = Number(quote?.outAmount || 0);
+    const expectedOutQty = Number.isFinite(outDecimals) && Number.isFinite(expectedOutRaw) && expectedOutRaw > 0
+      ? (expectedOutRaw / (10 ** outDecimals))
+      : 0;
+    const realizedVsQuoteSlippagePct = expectedOutQty > 0
+      ? ((expectedOutQty - filledBaseQty) / expectedOutQty) * 100
+      : null;
+
+    return {
+      hasExchangeFilledData: true,
+      filledQuoteUsd,
+      filledBaseQty,
+      executedPriceUsd: filledBaseQty > 0 ? (filledQuoteUsd / filledBaseQty) : null,
+      realizedVsQuoteSlippagePct,
+    };
   }
 
   async executeBuy(tokenMint, usdcAmount) {

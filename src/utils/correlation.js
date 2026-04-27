@@ -1,13 +1,18 @@
 // Portfolio correlation matrix utility
 
 /**
- * Calculate returns for a price array
+ * Calculate log returns for a price array
  */
 function calcReturns(prices) {
   if (!Array.isArray(prices) || prices.length < 2) return [];
   const returns = [];
   for (let i = 1; i < prices.length; i++) {
-    returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+    const prev = Number(prices[i - 1]);
+    const next = Number(prices[i]);
+    if (!Number.isFinite(prev) || !Number.isFinite(next) || prev <= 0 || next <= 0) {
+      continue;
+    }
+    returns.push(Math.log(next / prev));
   }
   return returns;
 }
@@ -37,7 +42,7 @@ function pearson(a, b) {
  */
 function buildCorrelationMatrix(priceHistories) {
   const tokens = Object.keys(priceHistories);
-  const returns = tokens.map(t => calcReturns(priceHistories[t]));
+  const returns = tokens.map((t) => calcReturns(priceHistories[t]));
   const matrix = tokens.map((_, i) =>
     tokens.map((_, j) => pearson(returns[i], returns[j]))
   );
