@@ -2,6 +2,15 @@
 
 const config = require('../config');
 const { momentumSignal } = require('./utils/indicators');
+const {
+  walkForwardSplit,
+  classifyRegimes,
+  createChainCostTracker,
+  runRegimeAwareMonteCarlo,
+  generateCorrelatedPrices,
+  runPortfolioBacktest,
+} = require('./utils/backtest-utils');
+const { nvidiaSummarizeBacktest } = require('./utils/nvidia-ai');
 
 function round(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
@@ -31,12 +40,17 @@ function createRng(seed = 0x9e3779b9) {
   };
 }
 
-function runMonteCarloTradePnl(startingBalance, tradePnls, iterations = 2000) {
+function runMonteCarloTradePnl(startingBalance, tradePnls, iterations = 2000, ruinDrawdownLimitPct = config.backtest?.monteCarloRuinThresholdPct) {
   if (!Array.isArray(tradePnls) || tradePnls.length < 2) {
     return null;
   }
 
   const sims = Math.max(200, Math.min(Number(iterations || 2000), 20000));
+  const configuredRuinDrawdownPct = Number(ruinDrawdownLimitPct);
+  const normalizedRuinDrawdownPct = Number.isFinite(configuredRuinDrawdownPct)
+    ? Math.min(Math.max(configuredRuinDrawdownPct, 0), 99)
+    : Number(config.backtest?.monteCarloRuinThresholdPct || 15);
+  const ruinBalanceFloor = Number(startingBalance || 0) * (1 - (normalizedRuinDrawdownPct / 100));
   const rng = createRng(tradePnls.length * 97 + sims);
   const finalBalances = [];
   let ruinCount = 0;
@@ -47,7 +61,7 @@ function runMonteCarloTradePnl(startingBalance, tradePnls, iterations = 2000) {
     for (let j = 0; j < sampleCount; j += 1) {
       const pick = tradePnls[Math.floor(rng() * tradePnls.length)];
       bal += Number(pick || 0);
-      if (bal <= startingBalance * 0.7) {
+      if (bal <= ruinBalanceFloor) {
         ruinCount += 1;
         break;
       }
@@ -62,7 +76,7 @@ function runMonteCarloTradePnl(startingBalance, tradePnls, iterations = 2000) {
 
   return {
     iterations: sims,
-    ruinThresholdPct: 30,
+    ruinThresholdPct: round(normalizedRuinDrawdownPct, 2),
     ruinProbabilityPct: round((ruinCount / sims) * 100, 2),
     p10EndingBalance: round(p10),
     p50EndingBalance: round(p50),
@@ -97,6 +111,11 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
   const executions = [];
   const completedTrades = [];
   const equityCurve = [];
+  
+  // Regime classification and cost tracking
+  const regimes = options.regimeLabels || [];
+  const chainCosts = createChainCostTracker(options.chainKey || 'solana');
+  let regimeStats = { uptrend: 0, downtrend: 0, ranging: 0, high_volatility: 0, insufficient_data: 0 };
 
   function updateDrawdown(price, index) {
     const point = buildEquityPoint(index, price, cash, position, startingBalance);
@@ -119,6 +138,11 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
     const grossProceeds = qtyToSell * slippedPrice;
     const proceeds = grossProceeds * (1 - exitFeePct / 100);
     const pnl = proceeds - costBasis;
+    
+    // Track per-chain costs
+    const exitSlippageValue = qtyToSell * Math.max(0, price - slippedPrice);
+    const exitFeeValue = grossProceeds * (exitFeePct / 100);
+    chainCosts.addTrade(0, exitFeeValue, 0, exitSlippageValue);
 
     cash += proceeds;
     position.quantity -= qtyToSell;
@@ -136,6 +160,7 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
       value: round(proceeds),
       pnl: round(pnl),
       remainingQuantity: round(position.quantity, 6),
+      regime: regimes[index] || 'unknown',
     });
 
     if (position.quantity <= 0.000001 || fraction >= 0.999999) {
@@ -150,6 +175,8 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
         returnPct: round((position.realizedPnl / position.investedUsd) * 100),
         holdingBars: index - position.entryIndex,
         reasons: position.reasons.concat(reason),
+        entryRegime: regimes[position.entryIndex] || 'unknown',
+        exitRegime: regimes[index] || 'unknown',
       });
       position = null;
     }
@@ -162,6 +189,12 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
     const volumes = volumeHistory.slice(0, i + 1);
     const result = momentumSignal(prices, volumes, strategySettings);
     const signal = result.signal;
+    const currentRegime = regimes[i] || 'unknown';
+    
+    // Track regime stats
+    if (regimeStats.hasOwnProperty(currentRegime)) {
+      regimeStats[currentRegime] += 1;
+    }
 
     if (position && !outageActive) {
       const profitPct = (price - position.entryPrice) / position.entryPrice;
@@ -200,12 +233,19 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
       if (sizeUsd > 0) {
         const slippedEntryPrice = price * (1 + entrySlippagePct / 100);
         const netAfterFeesUsd = sizeUsd * (1 - entryFeePct / 100);
+        const entryFeeValue = sizeUsd * (entryFeePct / 100);
+        const entryQuantity = netAfterFeesUsd / slippedEntryPrice;
+        const entrySlippageValue = entryQuantity * Math.max(0, slippedEntryPrice - price);
+        
+        // Track entry costs
+        chainCosts.addTrade(entryFeeValue, 0, entrySlippageValue, 0);
+        
         cash -= sizeUsd;
         position = {
           entryIndex: i,
           entryPrice: slippedEntryPrice,
           investedUsd: sizeUsd,
-          quantity: netAfterFeesUsd / slippedEntryPrice,
+          quantity: entryQuantity,
           remainingCost: sizeUsd,
           realizedPnl: 0,
           realizedValue: 0,
@@ -223,6 +263,7 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
           slippedPrice: round(slippedEntryPrice, 6),
           quantity: round(position.quantity, 6),
           value: round(sizeUsd),
+          regime: currentRegime,
         });
       }
     }
@@ -241,7 +282,19 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
   const winCount = completedTrades.filter((trade) => trade.pnl > 0).length;
   const lossCount = completedTrades.filter((trade) => trade.pnl <= 0).length;
   const winRate = completedTrades.length ? (winCount / completedTrades.length) * 100 : null;
-  const monteCarlo = runMonteCarloTradePnl(startingBalance, completedTrades.map((t) => Number(t.pnl || 0)), Number(options.monteCarloRuns || 2000));
+  const ruinDrawdownLimitPct = Number(options.ruinDrawdownLimitPct ?? config.backtest?.monteCarloRuinThresholdPct ?? riskSettings.dailyDrawdownLimitPct ?? 15);
+  
+  // Use regime-aware Monte Carlo (accounts for clustering)
+  const monteCarlo = runRegimeAwareMonteCarlo(
+    startingBalance,
+    completedTrades,
+    regimes,
+    Number(options.monteCarloRuns || 2000),
+    ruinDrawdownLimitPct
+  );
+  
+  // Per-chain cost summary
+  const chainCostSummary = chainCosts.summary();
 
   return {
     startingBalance: round(startingBalance),
@@ -259,8 +312,11 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
       entryFeePct: round(entryFeePct, 3),
       exitFeePct: round(exitFeePct, 3),
       outageChancePct: round(outageChancePct, 3),
+      ruinDrawdownLimitPct: round(ruinDrawdownLimitPct, 2),
     },
     monteCarlo,
+    chainCosts: chainCostSummary,
+    regimeStats,
     openPosition: Boolean(position),
     trades: completedTrades,
     executions,
@@ -268,4 +324,138 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
   };
 }
 
-module.exports = { runBacktest };
+/**
+ * Run backtest on all price history with regime classification.
+ * Automatically classifies price history into market regimes and includes stats.
+ */
+function runBacktestWithRegimes(priceHistory, volumeHistory, strategySettings, options = {}) {
+  // Classify regimes
+  const regimeLabels = classifyRegimes(priceHistory, options.regimeWindowBars || 20);
+  
+  // Run standard backtest with regime labels
+  const result = runBacktest(priceHistory, volumeHistory, strategySettings, {
+    ...options,
+    regimeLabels,
+  });
+  
+  return result;
+}
+
+/**
+ * Walk-forward backtest: Split data into train/validate/test and optimize on train, validate on validate, report on test.
+ * Returns results from all three windows plus optimization summary.
+ */
+function runWalkForwardBacktest(priceHistory, volumeHistory, strategySettings, options = {}) {
+  const trainPct = Number(options.trainPct || 0.7);
+  const validatePct = Number(options.validatePct || 0.15);
+  
+  const split = walkForwardSplit(priceHistory, volumeHistory, trainPct, validatePct);
+  
+  // Run on each window
+  const trainResult = runBacktest(split.train.priceHistory, split.train.volumeHistory, strategySettings, {
+    ...options,
+    window: 'training',
+  });
+  
+  const validateResult = runBacktest(split.validate.priceHistory, split.validate.volumeHistory, strategySettings, {
+    ...options,
+    window: 'validation',
+  });
+  
+  const testResult = runBacktest(split.test.priceHistory, split.test.volumeHistory, strategySettings, {
+    ...options,
+    window: 'test',
+  });
+  
+  // Assess overfitting: training return much higher than test = overfitted
+  const trainingReturn = trainResult?.totalReturn || 0;
+  const testReturn = testResult?.totalReturn || 0;
+  const overfitRatio = trainingReturn > 0 ? testReturn / trainingReturn : null;
+  const overfitSuspicious = overfitRatio !== null && overfitRatio < 0.3; // test < 30% of train
+  
+  return {
+    method: 'walk_forward',
+    split: {
+      trainDataPoints: split.train.priceHistory.length,
+      validateDataPoints: split.validate.priceHistory.length,
+      testDataPoints: split.test.priceHistory.length,
+    },
+    train: trainResult,
+    validate: validateResult,
+    test: testResult,
+    overfitAnalysis: {
+      trainingReturn: Number((trainingReturn || 0).toFixed(2)),
+      testReturn: Number((testReturn || 0).toFixed(2)),
+      overfitRatio: overfitRatio !== null ? Number(overfitRatio.toFixed(2)) : null,
+      overfitSuspicious,
+      assessment: overfitSuspicious ? 'LIKELY OVERFITTED — parameters tuned to historical data' : 'Reasonable out-of-sample performance',
+    },
+  };
+}
+
+/**
+ * Regime-specific backtest: Run backtest only on candles matching a specific regime.
+ * Allows assessment of strategy performance in trending vs ranging markets.
+ */
+function runRegimeSpecificBacktest(priceHistory, volumeHistory, strategySettings, options = {}) {
+  const targetRegime = String(options.targetRegime || 'uptrend').toLowerCase();
+  const regimeLabels = classifyRegimes(priceHistory, options.regimeWindowBars || 20);
+  
+  // Filter to only candles in target regime
+  const regimeIndices = [];
+  for (let i = 0; i < regimeLabels.length; i++) {
+    if (regimeLabels[i].toLowerCase() === targetRegime) {
+      regimeIndices.push(i);
+    }
+  }
+  
+  if (regimeIndices.length < strategySettings.emaSlow + 5) {
+    return null; // Not enough data in this regime
+  }
+  
+  // Slice to contiguous blocks in target regime, run on longest block
+  let longestBlock = { start: 0, length: 0 };
+  let currentBlock = { start: regimeIndices[0], length: 1 };
+  
+  for (let i = 1; i < regimeIndices.length; i++) {
+    if (regimeIndices[i] === regimeIndices[i - 1] + 1) {
+      currentBlock.length += 1;
+    } else {
+      if (currentBlock.length > longestBlock.length) {
+        longestBlock = { ...currentBlock };
+      }
+      currentBlock = { start: regimeIndices[i], length: 1 };
+    }
+  }
+  if (currentBlock.length > longestBlock.length) {
+    longestBlock = { ...currentBlock };
+  }
+  
+  const slicedPrices = priceHistory.slice(longestBlock.start, longestBlock.start + longestBlock.length);
+  const slicedVolumes = volumeHistory.slice(longestBlock.start, longestBlock.start + longestBlock.length);
+  
+  const result = runBacktest(slicedPrices, slicedVolumes, strategySettings, {
+    ...options,
+    window: `${targetRegime}_regime`,
+  });
+  
+  if (result) {
+    result.regimeFilter = {
+      targetRegime,
+      matchingCandles: longestBlock.length,
+      totalCandles: priceHistory.length,
+      matchPercentage: Number(((longestBlock.length / priceHistory.length) * 100).toFixed(1)),
+    };
+  }
+  
+  return result;
+}
+
+module.exports = { runBacktest, runBacktestWithRegimes, runWalkForwardBacktest, runRegimeSpecificBacktest, runPortfolioBacktest };
+
+async function sendNvidiaBacktestSummary(backtestResults) {
+  const summary = await nvidiaSummarizeBacktest(backtestResults);
+  console.log('AI Backtest Summary:', summary.choices?.[0]?.message?.content || summary);
+}
+
+module.exports.sendNvidiaBacktestSummary = sendNvidiaBacktestSummary;

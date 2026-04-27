@@ -34,6 +34,21 @@ function parseInterval(interval) {
   return { resolution: 'minute', aggregate: value, cacheTtlMs: 45_000 };
 }
 
+function intervalToMs(intervalSpec) {
+  const aggregate = Math.max(1, Number(intervalSpec?.aggregate || 1));
+  const resolution = String(intervalSpec?.resolution || 'minute').toLowerCase();
+  if (resolution === 'hour') return aggregate * 60 * 60 * 1000;
+  if (resolution === 'day') return aggregate * 24 * 60 * 60 * 1000;
+  return aggregate * 60 * 1000;
+}
+
+function normalizeTimestampMs(timestamp) {
+  const ts = Number(timestamp || 0);
+  if (!Number.isFinite(ts) || ts <= 0) return 0;
+  // GeckoTerminal timestamps are typically epoch seconds.
+  return ts < 1e12 ? ts * 1000 : ts;
+}
+
 function parseRows(payload) {
   const rows = payload?.data?.attributes?.ohlcv_list
     || payload?.data?.attributes?.ohlcvList
@@ -101,10 +116,19 @@ async function getOhlcvSeries({ chainKey, address, pairAddress, interval = '15m'
       const rows = await fetchGeckoOhlcv(url, params);
       if (!rows.length) continue;
 
+      const nowMs = Date.now();
+      const candleDurationMs = intervalToMs(intervalSpec);
+      const closedRows = rows.filter((row) => {
+        const openMs = normalizeTimestampMs(row.timestamp);
+        if (!openMs) return false;
+        return (openMs + candleDurationMs) <= nowMs;
+      });
+      if (!closedRows.length) continue;
+
       const value = {
-        candles: rows,
-        closes: rows.map((row) => row.close),
-        volumes: rows.map((row) => row.volume),
+        candles: closedRows,
+        closes: closedRows.map((row) => row.close),
+        volumes: closedRows.map((row) => row.volume),
         source: 'geckoterminal',
       };
 

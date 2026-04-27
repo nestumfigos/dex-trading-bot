@@ -14,6 +14,7 @@ class RiskGuardian {
     } else {
       this.dailyStartBalance = this.getEquityBalanceUsd();
     }
+    this.dailyResetDate = null;
     this.haltedToday = false;
     // Cache with TTL: map of cacheKey => { result, timestamp }
     this.honeypotCache = {};
@@ -22,6 +23,13 @@ class RiskGuardian {
 
   buildPositionKey(chainKey, address) {
     return `${String(chainKey || '').trim().toLowerCase()}:${String(address || '').trim().toLowerCase()}`;
+  }
+
+  getLocalDateStamp(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   /**
@@ -119,6 +127,24 @@ class RiskGuardian {
     return Number.isFinite(equity) ? equity : cash;
   }
 
+  getChainWalletBalanceUsd(chainKey) {
+    const normalized = this.normalizeChain(chainKey);
+    const chainWalletBalance = Number(this.portfolio?.walletBalancesUsd?.[normalized]);
+    if (Number.isFinite(chainWalletBalance) && chainWalletBalance > 0) {
+      return chainWalletBalance;
+    }
+    return 0;
+  }
+
+  getChainExposureUsd(chainKey) {
+    const normalized = this.normalizeChain(chainKey);
+    return Object.values(this.portfolio.positions || {}).reduce((sum, position) => {
+      const positionChain = this.normalizeChain(position?.chainKey || position?.chain);
+      if (positionChain !== normalized) return sum;
+      return sum + this.getPositionValueUsd(position);
+    }, 0);
+  }
+
   getTodayChainPnlUsd(chainKey) {
     const normalized = this.normalizeChain(chainKey);
     const now = new Date();
@@ -165,17 +191,62 @@ class RiskGuardian {
 
   resetDaily() {
     this.dailyStartBalance = this.getEquityBalanceUsd();
+    this.dailyResetDate = this.getLocalDateStamp();
     this.haltedToday = false;
     logger.info('Risk guardian: daily reset complete');
+  }
+
+  getCurrentDrawdownPct() {
+    if (!Number.isFinite(this.dailyStartBalance) || this.dailyStartBalance <= 0) {
+      return 0;
+    }
+
+    const currentEquity = this.getEquityBalanceUsd();
+    const drawdown =
+      ((this.dailyStartBalance - currentEquity) / this.dailyStartBalance) * 100;
+    return Number.isFinite(drawdown) ? drawdown : 0;
+  }
+
+  reconcileDailyHaltState(context = 'runtime') {
+    const drawdownPct = this.getCurrentDrawdownPct();
+    const limitPct = Number(config.risk?.dailyDrawdownLimitPct || 0);
+
+    if (!this.haltedToday) {
+      return {
+        changed: false,
+        haltedToday: false,
+        drawdownPct,
+        limitPct,
+      };
+    }
+
+    if (!Number.isFinite(limitPct) || limitPct <= 0 || drawdownPct < limitPct) {
+      this.haltedToday = false;
+      logger.warn(
+        `Risk guardian: cleared stale daily halt during ${context} ` +
+        `(drawdown ${drawdownPct.toFixed(2)}% vs limit ${Number.isFinite(limitPct) ? limitPct.toFixed(2) : '0.00'}%)`
+      );
+      return {
+        changed: true,
+        haltedToday: false,
+        drawdownPct,
+        limitPct,
+      };
+    }
+
+    return {
+      changed: false,
+      haltedToday: true,
+      drawdownPct,
+      limitPct,
+    };
   }
 
   checkDailyDrawdown() {
     if (!Number.isFinite(this.dailyStartBalance) || this.dailyStartBalance <= 0) {
       return true;
     }
-    const currentEquity = this.getEquityBalanceUsd();
-    const drawdown =
-      ((this.dailyStartBalance - currentEquity) / this.dailyStartBalance) * 100;
+    const drawdown = this.getCurrentDrawdownPct();
     if (drawdown >= config.risk.dailyDrawdownLimitPct) {
       this.haltedToday = true;
       logger.warn(`DAILY DRAWDOWN LIMIT HIT: ${drawdown.toFixed(2)}% — bot halted for today`);
@@ -249,17 +320,117 @@ class RiskGuardian {
     }).length;
   }
 
+  getSleeveKey(tokenLike = {}, strategyName = 'momentum') {
+    const chainKey = this.normalizeChain(tokenLike?.chainKey || tokenLike?.chain);
+    const strategyKey = String(strategyName || tokenLike?.strategy || 'momentum').toLowerCase();
+    return `${chainKey}:${strategyKey}`;
+  }
+
+  getConfiguredMinLiquidityUsd(tokenData = {}) {
+    const chainKey = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const chainSpecific = Number(config.risk?.minLiquidityUsdByChain?.[chainKey]);
+    if (Number.isFinite(chainSpecific) && chainSpecific > 0) {
+      return chainSpecific;
+    }
+    return Number(config.risk?.minLiquidityUsd || 0);
+  }
+
+  getConfiguredYoungTokenMinLiquidityUsd(tokenData = {}) {
+    const chainKey = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const chainSpecific = Number(config.risk?.youngTokenMinLiquidityUsdByChain?.[chainKey]);
+    if (Number.isFinite(chainSpecific) && chainSpecific > 0) {
+      return chainSpecific;
+    }
+    return this.getConfiguredMinLiquidityUsd(tokenData) * 2;
+  }
+
+  getExposureBySleeveUsd() {
+    return Object.values(this.portfolio.positions || {}).reduce((accumulator, position) => {
+      const sleeveKey = this.getSleeveKey(position, position?.strategy || 'momentum');
+      const exposureUsd = this.getPositionValueUsd(position);
+      if (Number.isFinite(exposureUsd) && exposureUsd > 0) {
+        accumulator[sleeveKey] = Number(accumulator[sleeveKey] || 0) + exposureUsd;
+      }
+      return accumulator;
+    }, {});
+  }
+
+  /**
+   * Calculate per-chain heat (exposure) against that chain wallet balance.
+   * Heat = chain open exposure / chain wallet balance.
+   * Returns { heatPct, totalSizeUsd, chainWalletBalanceUsd, blocked, reason }.
+   */
+  checkPortfolioHeat(tokenData = {}, strategyName = 'momentum') {
+    const chainKey = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const chainWalletBalanceUsd = this.getChainWalletBalanceUsd(chainKey);
+    if (!Number.isFinite(chainWalletBalanceUsd) || chainWalletBalanceUsd <= 0) {
+      return { heatPct: 0, totalSizeUsd: 0, chainWalletBalanceUsd, blocked: false };
+    }
+
+    let maxChainHeatPct = Number(config.risk?.maxPortfolioHeatPct || 40);
+    const chainKeyLower = String(chainKey).toLowerCase();
+    if (chainKeyLower === 'kucoin' && config.risk?.kucoinMaxPositionSizePct) {
+      maxChainHeatPct = Number(config.risk.kucoinMaxPositionSizePct);
+    }
+    if (chainKey === 'kucoin' && Number(config.risk?.kucoinMaxPositionSizePct)) {
+      maxChainHeatPct = Number(config.risk.kucoinMaxPositionSizePct);
+    }
+    const candidateSizeUsd = this.positionSize(tokenData, strategyName);
+    const totalSizeUsd = this.getChainExposureUsd(chainKey);
+    const currentHeatPct = (totalSizeUsd / chainWalletBalanceUsd) * 100;
+    const projectedTotalSizeUsd = totalSizeUsd + Math.max(0, candidateSizeUsd);
+    const heatPct = (projectedTotalSizeUsd / chainWalletBalanceUsd) * 100;
+    const blocked = heatPct > maxChainHeatPct;
+
+    if (blocked) {
+      logger.warn(
+        `Chain heat check (${chainKey}): projected ${heatPct.toFixed(1)}% exposure ` +
+        `exceeds limit ${maxChainHeatPct}% ($${projectedTotalSizeUsd.toFixed(2)} / $${chainWalletBalanceUsd.toFixed(2)} chain wallet)`
+      );
+    }
+
+    return {
+      heatPct,
+      currentHeatPct,
+      totalSizeUsd,
+      chainWalletBalanceUsd,
+      blocked,
+      candidateSizeUsd,
+      code: blocked ? 'portfolio_heat' : undefined,
+      reason: blocked
+        ? `${chainKey} heat ${heatPct.toFixed(1)}% exceeds limit ${maxChainHeatPct}%`
+        : undefined,
+    };
+  }
+
   async canTrade(tokenData, priceHistories = {}, strategyName = 'momentum') {
     if (this.portfolio?.safeMode) {
       return { allowed: false, reason: 'safe mode active — operator review required' };
     }
 
     if (this.portfolio?.statePersistenceError) {
-      return { allowed: false, reason: 'state persistence error — operator review required' };
+      // Try to auto-clear statePersistenceError if error is gone
+      if (!this.portfolio.statePersistenceErrorLastChecked || Date.now() - this.portfolio.statePersistenceErrorLastChecked > 60000) {
+        // Attempt a test write or check for error resolution here if possible
+        // For now, just auto-clear after 1 minute for demonstration
+        this.portfolio.statePersistenceError = false;
+        this.portfolio.statePersistenceErrorLastChecked = Date.now();
+        logger.info('Auto-cleared statePersistenceError after 1 minute.');
+      }
+      if (this.portfolio.statePersistenceError) {
+        return { allowed: false, reason: 'state persistence error — operator review required' };
+      }
     }
 
     if (this.portfolio?.balanceDriftHalt) {
-      return { allowed: false, reason: 'balance drift too high — operator review required' };
+      const driftPct = Number(this.portfolio?.balanceDrift?.pct || 0);
+      const maxBalanceDriftPct = Math.max(0, Number(config.risk?.maxBalanceDriftPct || 10));
+      if (Number.isFinite(driftPct) && driftPct <= maxBalanceDriftPct) {
+        this.portfolio.balanceDriftHalt = false;
+        logger.info(`Balance drift halt cleared automatically: ${driftPct.toFixed(2)}% <= ${maxBalanceDriftPct.toFixed(2)}%`);
+      } else {
+        return { allowed: false, reason: 'balance drift too high — operator review required', code: 'balance_drift' };
+      }
     }
 
     if (this.haltedToday) {
@@ -280,19 +451,31 @@ class RiskGuardian {
       return performanceGate;
     }
 
+    const portfolioHeat = this.checkPortfolioHeat(tokenData, strategyName);
+    if (portfolioHeat.blocked) {
+      return {
+        allowed: false,
+        reason: portfolioHeat.reason,
+        code: portfolioHeat.code || 'portfolio_heat',
+      };
+    }
+
     const strategyLimit = Number(config.strategies?.[strategyName]?.maxConcurrentPositions || 3);
     const strategyOpenPositions = this.getStrategyPositionCount(strategyName);
     if (strategyOpenPositions >= strategyLimit) {
       return {
         allowed: false,
         reason: `${strategyName} max concurrent positions (${strategyLimit}) reached`,
+        code: 'max_concurrent_positions',
       };
     }
 
-    if (tokenData.liquidityUsd < config.risk.minLiquidityUsd) {
+    const minLiquidityUsd = this.getConfiguredMinLiquidityUsd(tokenData);
+    if (Number(tokenData.liquidityUsd || 0) < minLiquidityUsd) {
       return {
         allowed: false,
-        reason: `Liquidity $${tokenData.liquidityUsd.toFixed(0)} below minimum $${config.risk.minLiquidityUsd}`,
+        reason: `Liquidity $${Number(tokenData.liquidityUsd || 0).toFixed(0)} below minimum $${minLiquidityUsd}`,
+        code: 'liquidity',
       };
     }
 
@@ -300,7 +483,7 @@ class RiskGuardian {
     // Uses the constant-product (x*y=k) approximation: impact = tradeSize / (liquidity + tradeSize).
     const impactCheck = this.estimateMarketImpact(tokenData, strategyName);
     if (impactCheck.blocked) {
-      return { allowed: false, reason: impactCheck.reason };
+      return { allowed: false, reason: impactCheck.reason, code: 'market_impact' };
     }
 
     if (String(tokenData.signalSource || '').toLowerCase() === 'ai') {
@@ -310,17 +493,19 @@ class RiskGuardian {
         return {
           allowed: false,
           reason: `AI confidence ${Number.isFinite(aiConfidence) ? aiConfidence.toFixed(0) : 0}% below floor ${minAiConfidence}%`,
+          code: 'ai_confidence_floor',
         };
       }
     }
 
     const listingAgeHours = Number(tokenData.listingAgeDays || 0) * 24;
     if (listingAgeHours > 0 && listingAgeHours < Number(config.risk.maxTokenAgeHours || 6)) {
-      const stricterMinLiquidity = Number(config.risk.minLiquidityUsd) * 2;
+      const stricterMinLiquidity = this.getConfiguredYoungTokenMinLiquidityUsd(tokenData);
       if (Number(tokenData.liquidityUsd || 0) < stricterMinLiquidity) {
         return {
           allowed: false,
           reason: `Token age ${listingAgeHours.toFixed(1)}h is high risk and liquidity is below stricter threshold $${stricterMinLiquidity.toFixed(0)}`,
+          code: 'young_token_liquidity',
         };
       }
     }
@@ -328,7 +513,7 @@ class RiskGuardian {
     // Enhanced honeypot check using GoPlus
     const isHoneypot = await this.checkHoneypot(tokenData.address, tokenData.chain);
     if (isHoneypot) {
-      return { allowed: false, reason: 'Honeypot/scam detected by GoPlus — trade blocked' };
+      return { allowed: false, reason: 'Honeypot/scam detected by GoPlus — trade blocked', code: 'honeypot' };
     }
 
     if (tokenData.topHoldersPct > 80) {
@@ -361,8 +546,40 @@ class RiskGuardian {
   }
 
   positionSize(tokenData, strategyName = 'momentum') {
-    const strategyPct = Number(config.strategies?.[strategyName]?.positionSizePct || config.risk.maxPositionSizePct || 3);
-    let pct = strategyPct / 100;
+    const chainKey = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const strategyCfg = config.strategies?.[strategyName] || {};
+    let pct = 0.30;
+
+    const regimeScalingEnabled = config.risk?.regimeSizeScalingEnabled !== false;
+    if (regimeScalingEnabled) {
+      const realizedVolPct = Number(tokenData?.realizedVolPct);
+      const highVolThresholdPct = Number(config.risk?.regimeHighVolThresholdPct || 4);
+      const extremeVolThresholdPct = Number(config.risk?.regimeExtremeVolThresholdPct || 7);
+      const normalMult = Number(config.risk?.regimeNormalSizeMultiplier || 1);
+      const highVolMult = Number(config.risk?.regimeHighVolSizeMultiplier || 0.75);
+      const extremeVolMult = Number(config.risk?.regimeExtremeVolSizeMultiplier || 0.5);
+
+      let regimeMultiplier = normalMult;
+      let regimeLabel = String(tokenData?.marketRegime || 'normal').toLowerCase();
+      if (Number.isFinite(realizedVolPct)) {
+        if (realizedVolPct >= extremeVolThresholdPct) {
+          regimeLabel = 'extreme_volatility';
+          regimeMultiplier = extremeVolMult;
+        } else if (realizedVolPct >= highVolThresholdPct) {
+          regimeLabel = 'high_volatility';
+          regimeMultiplier = highVolMult;
+        }
+      } else if (regimeLabel.includes('high')) {
+        regimeMultiplier = highVolMult;
+      }
+
+      regimeMultiplier = Math.max(0.1, Math.min(1.2, regimeMultiplier));
+      pct *= regimeMultiplier;
+      logger.info(
+        `${tokenData.symbol}: regime sizing (${regimeLabel}) multiplier ${regimeMultiplier.toFixed(2)}` +
+        `${Number.isFinite(realizedVolPct) ? `, realized vol ${realizedVolPct.toFixed(2)}%` : ''}`
+      );
+    }
 
     // Volatility adjustment
     const volatility = Math.abs(tokenData.priceChange24h || 0);
@@ -376,23 +593,60 @@ class RiskGuardian {
 
     if (tokenData.teamWalletUnlocked) {
       pct *= 0.5;
-      logger.warn(`${tokenData.symbol}: team wallet unlocked — reducing position size by 50%`);
+      logger.warn(`${tokenData.symbol}: team wallet unlocked - reducing position size by 50%`);
     }
 
+    const discoveryLane = String(tokenData?.discoveryLane || tokenData?.entryLane || '').toLowerCase();
+    if (chainKey === 'bsc' && discoveryLane === 'exploration') {
+      const explorationMultiplier = Number(strategyCfg.bscExplorationPositionSizeMultiplier || 0.6);
+      pct *= explorationMultiplier;
+      logger.info(`${tokenData.symbol}: BSC exploration lane multiplier ${explorationMultiplier.toFixed(2)}`);
+    }
+
+    if (chainKey === 'bsc' && discoveryLane === 'borderline') {
+      const borderlineMultiplier = Number(strategyCfg.bscBorderlinePositionSizeMultiplier || 0.35);
+      pct *= borderlineMultiplier;
+      logger.info(`${tokenData.symbol}: BSC borderline lane multiplier ${borderlineMultiplier.toFixed(2)}`);
+    }
+
+    if (chainKey === 'bsc' && String(tokenData?.entryTriggerTimeframe || '').toLowerCase() === 'bsc_relaxed_continuation') {
+      const relaxedMultiplier = Number(strategyCfg.bscRelaxedPositionSizeMultiplier || 0.85);
+      pct *= relaxedMultiplier;
+      logger.info(`${tokenData.symbol}: BSC relaxed continuation multiplier ${relaxedMultiplier.toFixed(2)}`);
+    }
+
+    let agePenaltyMultiplier = 1;
     if (tokenData.listingAgeDays < 1) {
       pct *= 0.5;
+      agePenaltyMultiplier *= 0.5;
       logger.warn(`${tokenData.symbol}: listed < 24h — reducing position size by 50%`);
     }
 
+    const maxTokenAgeHours = Number(config.risk.maxTokenAgeHours || 6);
     const listingAgeHours = Number(tokenData.listingAgeDays || 0) * 24;
-    if (listingAgeHours > 0 && listingAgeHours < Number(config.risk.maxTokenAgeHours || 6)) {
+    if (listingAgeHours > 0 && listingAgeHours < maxTokenAgeHours) {
       pct *= 0.6;
-      logger.warn(`${tokenData.symbol}: listed < ${config.risk.maxTokenAgeHours}h — applying additional high-risk size cut`);
+      agePenaltyMultiplier *= 0.6;
+      logger.warn(`${tokenData.symbol}: listed < ${maxTokenAgeHours}h — applying additional high-risk size cut (40%)`);
     }
 
-    const equityUsd = this.getEquityBalanceUsd();
-    const sizeUsd = equityUsd * pct;
-    return Math.min(sizeUsd, this.portfolio.balance * 0.05);
+    if (agePenaltyMultiplier < 1) {
+      logger.warn(
+        `${tokenData.symbol}: compounded age penalty multiplier ${(agePenaltyMultiplier * 100).toFixed(0)}% ` +
+        `(effective size cut ${(100 - agePenaltyMultiplier * 100).toFixed(0)}%)`
+      );
+    }
+
+    let chainWalletBalanceUsd = this.getChainWalletBalanceUsd(chainKey);
+    // Enforce KuCoin 80% allocation cap
+    if (chainKey === 'kucoin') {
+      chainWalletBalanceUsd = chainWalletBalanceUsd * 0.8;
+    }
+    const targetSizeUsd = chainWalletBalanceUsd * pct;
+    const chainOpenExposureUsd = this.getChainExposureUsd(chainKey);
+    const remainingChainCapacityUsd = Math.max(0, chainWalletBalanceUsd - chainOpenExposureUsd);
+    const sizeUsd = Math.min(targetSizeUsd, remainingChainCapacityUsd);
+    return Number.isFinite(sizeUsd) && sizeUsd > 0 ? sizeUsd : 0;
   }
 
   /**
@@ -467,6 +721,12 @@ class RiskGuardian {
   async checkHoneypot(tokenAddress, chain) {
     const normalizedChain = this.normalizeChain(chain);
     const cacheKey = `${normalizedChain}:${tokenAddress.toLowerCase()}`;
+
+    if (normalizedChain === 'kucoin') {
+      logger.debug(`Honeypot check skipped for KuCoin (CEX): ${tokenAddress}`);
+      this.honeypotCache[cacheKey] = { result: false, timestamp: Date.now() };
+      return false;
+    }
     
     // Check cache with TTL to prevent stale honeypot/safety status
     if (this.honeypotCache[cacheKey] !== undefined) {

@@ -212,4 +212,10 @@ async function fetchCryptoNews(symbol = '', limit = 10) {
   return [];
 }
 
+async function analyzeNewsSentiment(headlines) {
+  // headlines: array of strings
+  return nvidiaAnalyzeBatch(headlines, 'Analyze this for crypto sentiment (bullish/bearish/neutral)');
+}
+
 module.exports = { fetchCryptoNews };
+module.exports.analyzeNewsSentiment = analyzeNewsSentiment;

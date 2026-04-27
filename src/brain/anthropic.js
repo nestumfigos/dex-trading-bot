@@ -59,6 +59,31 @@ function parseAiResponse(text) {
   }
 }
 
+function buildWalletClusteringContext(tokenData, technicalDetails) {
+  const topHoldersPct = Number(tokenData.topHoldersPct || 0);
+  const holderCount = Number(tokenData.holderCount || 0);
+  const uniqueBuyers10m = Number(technicalDetails.uniqueBuyers10m || tokenData.uniqueBuyers10m || 0);
+  const buyerToHolderRatioPct = holderCount > 0 ? (uniqueBuyers10m / holderCount) * 100 : null;
+
+  let clusterRiskScore = 0;
+  if (topHoldersPct >= 80) clusterRiskScore += 60;
+  else if (topHoldersPct >= 65) clusterRiskScore += 40;
+  else if (topHoldersPct >= 50) clusterRiskScore += 20;
+  if (holderCount > 0 && holderCount < 150) clusterRiskScore += 20;
+  if (uniqueBuyers10m > 0 && uniqueBuyers10m < 15) clusterRiskScore += 20;
+  if (Number.isFinite(buyerToHolderRatioPct) && buyerToHolderRatioPct < 5) clusterRiskScore += 10;
+  clusterRiskScore = clamp(clusterRiskScore, 0, 100);
+
+  return {
+    holderCount,
+    uniqueBuyers10m,
+    topHoldersPct,
+    buyerToHolderRatioPct: Number.isFinite(buyerToHolderRatioPct) ? Number(buyerToHolderRatioPct.toFixed(2)) : null,
+    clusterRiskScore,
+    clusterRiskLabel: clusterRiskScore >= 70 ? 'high' : (clusterRiskScore >= 40 ? 'medium' : 'low'),
+  };
+}
+
 function buildPrompt(tokenData, technicalDetails) {
   // Compose dynamic market context
   const context = {
@@ -86,6 +111,7 @@ function buildPrompt(tokenData, technicalDetails) {
     mlMASignal: technicalDetails.ml?.maSignal || 0,
     marketRegime: technicalDetails.marketRegime || null,
     dynamicVolumeSpikeMultiplier: technicalDetails.dynamicVolumeSpikeMultiplier || null,
+    walletClustering: buildWalletClusteringContext(tokenData, technicalDetails),
   };
   const technical = {
     signal: technicalDetails.signal || 'HOLD',

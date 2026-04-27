@@ -53,6 +53,20 @@ class WebSocketDiscovery extends EventEmitter {
     };
   }
 
+  getConfiguredTargets(exchanges = this.startupExchanges || {}) {
+    const solCfg = config.discovery?.solana || {};
+    const bscCfg = config.discovery?.bsc || {};
+    const baseCfg = config.discovery?.base || {};
+    const solanaProgramIds = Array.isArray(solCfg.programIds) ? solCfg.programIds : [];
+
+    return {
+      solana: solCfg.enabled !== false && Boolean(exchanges?.solana?.connection) && solanaProgramIds.length > 0,
+      bsc: bscCfg.enabled !== false && Boolean(config.bsc?.wsUrl) && Boolean(config.bsc?.pancakeFactoryV2),
+      base: baseCfg.enabled !== false && Boolean(config.base?.wsUrl) && Boolean(config.base?.baseswapFactory),
+      kucoin: false,
+    };
+  }
+
   clearReconnectTimer(chainKey) {
     const state = this.reconnectState[chainKey];
     if (!state?.timer) return;
@@ -221,6 +235,10 @@ class WebSocketDiscovery extends EventEmitter {
 
   getStatus() {
     const quietHoursActive = this.isQuietHoursActive();
+    const configuredTargets = this.getConfiguredTargets();
+    const configuredChains = Object.entries(configuredTargets)
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([chainKey]) => chainKey);
     const chainStatus = ['solana', 'bsc', 'base', 'kucoin'].reduce((acc, chainKey) => {
       const state = this.status[chainKey] || {};
       const connected = Boolean(state.connected);
@@ -238,6 +256,8 @@ class WebSocketDiscovery extends EventEmitter {
       ...this.status,
       ...chainStatus,
       enabled: config.discovery?.websocketEnabled !== false,
+      anyConfigured: configuredChains.length > 0,
+      configuredChains,
       bootstrapFailed: this.bootstrapFailed,
       pollingFallbackActive: this.pollingFallbackActive,
       bootstrapRetryAttempts: this.bootstrapRetry.attempts,
@@ -258,8 +278,20 @@ class WebSocketDiscovery extends EventEmitter {
       return;
     }
 
-    this.starting = true;
     this.startupExchanges = exchanges || {};
+    const configuredTargets = this.getConfiguredTargets(this.startupExchanges);
+    const configuredCount = Object.values(configuredTargets).filter(Boolean).length;
+    if (configuredCount === 0) {
+      this.clearBootstrapRetryTimer();
+      this.bootstrapRetry.attempts = 0;
+      this.bootstrapFailed = false;
+      this.pollingFallbackActive = false;
+      this.status.startedAt = null;
+      logger.info('WebSocket discovery not configured; using polling discovery only');
+      return;
+    }
+
+    this.starting = true;
     this.bootstrapFailed = false;
     this.pollingFallbackActive = false;
 

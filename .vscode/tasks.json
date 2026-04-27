@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "bot: pm2 start",
+      "type": "shell",
+      "command": "pm2 start ecosystem.config.js --env production",
+      "problemMatcher": []
+    },
+    {
+      "label": "bot: pm2 stop",
+      "type": "shell",
+      "command": "pm2 stop dex-bot",
+      "problemMatcher": []
+    },
+    {
+      "label": "bot: pm2 restart",
+      "type": "shell",
+      "command": "pm2 restart dex-bot --update-env",
+      "problemMatcher": []
+    },
+    {
+      "label": "bot: pm2 logs",
+      "type": "shell",
+      "command": "pm2 logs dex-bot",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "bot: pm2 status",
+      "type": "shell",
+      "command": "pm2 list",
+      "problemMatcher": []
+    }
+  ]
+}

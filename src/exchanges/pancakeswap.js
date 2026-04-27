@@ -62,7 +62,34 @@ const DISCOVERY_FEEDS = [
   'https://api.dexscreener.com/token-boosts/top/v1',
 ];
 const GECKO_BASE_URL = 'https://api.geckoterminal.com/api/v2';
+const GECKO_DISCOVERY_REQUESTS = [
+  { path: '/networks/bsc/new_pools', page: 1 },
+  { path: '/networks/bsc/new_pools', page: 2 },
+  { path: '/networks/bsc/trending_pools', page: 1 },
+  { path: '/networks/bsc/trending_pools', page: 2 },
+  { path: '/networks/bsc/pools', page: 1 },
+  { path: '/networks/bsc/pools', page: 2 },
+  { path: '/networks/bsc/pools', page: 3 },
+];
 const DISCOVERY_CACHE_MS = 5 * 60 * 1000;
+const MIN_ACCEPTED_DISCOVERY_CANDIDATES = Math.max(1, Number(process.env.BSC_DISCOVERY_MIN_ACCEPTED_CANDIDATES || 25));
+
+function getRecentTxWindowMetrics(pair = {}) {
+  const txns = pair?.txns || {};
+  const recentWindow = txns?.m10 ? { windowMinutes: 10, rows: txns.m10 } : { windowMinutes: 5, rows: txns.m5 || {} };
+  const buyTxRecent = Number(recentWindow.rows?.buys || 0);
+  const sellTxRecent = Number(recentWindow.rows?.sells || 0);
+  const totalRecent = buyTxRecent + sellTxRecent;
+
+  return {
+    buyTxRecent,
+    sellTxRecent,
+    recentTxWindowMinutes: recentWindow.windowMinutes,
+    buyRatioRecentPct: totalRecent > 0 ? (buyTxRecent / totalRecent) * 100 : 0,
+    sellRatioRecentPct: totalRecent > 0 ? (sellTxRecent / totalRecent) * 100 : 0,
+    uniqueBuyersRecent: buyTxRecent,
+  };
+}
 
 async function getWorkingProvider(rpcs, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
@@ -116,20 +143,56 @@ class PancakeSwapExchange {
     this.provider = await getWorkingProvider(BSC_RPCS);
     this.wallet = config.bsc.privateKey ? new ethers.Wallet(config.bsc.privateKey, this.provider) : null;
     this.router = new ethers.Contract(config.bsc.pancakeRouterV2, ROUTER_ABI, this.wallet || this.provider);
-    if (config.execution?.bscPrivateTxRpcUrl && config.bsc.privateKey) {
-      try {
-        this.privateProvider = new ethers.JsonRpcProvider(config.execution.bscPrivateTxRpcUrl);
-        await this.privateProvider.getBlockNumber();
-        this.privateWallet = new ethers.Wallet(config.bsc.privateKey, this.privateProvider);
-        this.privateRouter = new ethers.Contract(config.bsc.pancakeRouterV2, ROUTER_ABI, this.privateWallet);
-        logger.info('PancakeSwap private transaction route enabled');
-      } catch (error) {
-        this.privateProvider = null;
-        this.privateWallet = null;
-        this.privateRouter = null;
-        logger.warn(`PancakeSwap private transaction route unavailable: ${error.message}`);
+    this.mevProtectionMethod = 'public'; // Track which MEV protection method is active
+    
+    if (config.bsc.privateKey) {
+      // Try user-provided private RPC first
+      if (config.execution?.bscPrivateTxRpcUrl) {
+        try {
+          this.privateProvider = new ethers.JsonRpcProvider(config.execution.bscPrivateTxRpcUrl);
+          await this.privateProvider.getBlockNumber();
+          this.privateWallet = new ethers.Wallet(config.bsc.privateKey, this.privateProvider);
+          this.privateRouter = new ethers.Contract(config.bsc.pancakeRouterV2, ROUTER_ABI, this.privateWallet);
+          this.mevProtectionMethod = 'custom_private_rpc';
+          logger.info('PancakeSwap MEV protection: Custom private RPC enabled');
+        } catch (error) {
+          logger.warn(`PancakeSwap custom private RPC failed: ${error.message}, trying fallbacks...`);
+        }
+      }
+      
+      // If not ready yet, try fallback MEV protection endpoints
+      if (!this.privateRouter && config.execution?.mevGuardEnabled !== false) {
+        const fallbacks = [
+          { url: config.execution.bscMevBlockerUrl, name: 'BSC MEV Blocker' },
+          { url: config.execution.bscFlashbotsUrl, name: 'Flashbots Protect' },
+        ];
+        
+        for (const fallback of fallbacks) {
+          try {
+            const testProvider = new ethers.JsonRpcProvider(fallback.url);
+            await testProvider.getBlockNumber();
+            this.privateProvider = testProvider;
+            this.privateWallet = new ethers.Wallet(config.bsc.privateKey, this.privateProvider);
+            this.privateRouter = new ethers.Contract(config.bsc.pancakeRouterV2, ROUTER_ABI, this.privateWallet);
+            this.mevProtectionMethod = fallback.name.toLowerCase().replace(' ', '_');
+            logger.info(`PancakeSwap MEV protection: ${fallback.name} enabled (automatic fallback)`);
+            break;
+          } catch (error) {
+            logger.debug(`${fallback.name} unavailable: ${error.message}`);
+          }
+        }
+      }
+      
+      // Enforce MEV protection if configured
+      if (config.execution?.mevGuardEnabled && !this.privateRouter && config.execution?.requirePrivateTxForBsc !== false) {
+        throw new Error(
+          'MEV protection required for BSC but no private RPC available. ' +
+          'Set BSC_PRIVATE_TX_RPC_URL or BSC_MEV_BLOCKER_URL, or disable MEV_GUARD_ENABLED. ' +
+          'Recommended: Use BSC MEV Blocker (free) - https://mevblocker.io or Flashbots Protect - https://flashbots.net'
+        );
       }
     }
+    
     if (this.wallet) {
       this._nonceManager = new NonceManager(this.privateProvider || this.provider, this.wallet.address);
     }
@@ -155,7 +218,12 @@ class PancakeSwapExchange {
       if (!pair) return null;
 
       const honeypot = honeypotRes.status === 'fulfilled' ? honeypotRes.value.data : null;
-      const metrics = await getTokenMetrics(tokenAddress, 'bsc', pair.baseToken?.symbol, pair.baseToken?.name);
+      const metricsTimeoutMs = Math.max(1000, Number(process.env.BSC_TOKEN_METRICS_TIMEOUT_MS || 5000));
+      const metrics = await Promise.race([
+        getTokenMetrics(tokenAddress, 'bsc', pair.baseToken?.symbol, pair.baseToken?.name).catch(() => ({})),
+        new Promise((resolve) => setTimeout(() => resolve({}), metricsTimeoutMs)),
+      ]);
+      const recentTx = getRecentTxWindowMetrics(pair);
 
       const result = {
         address: tokenAddress,
@@ -167,16 +235,26 @@ class PancakeSwapExchange {
         volume24h: parseFloat(pair.volume?.h24 || 0),
         priceChange24h: parseFloat(pair.priceChange?.h24 || 0),
         priceChange7d: parseFloat(pair.priceChange?.h7d || 0),
+        buyTxRecent: recentTx.buyTxRecent,
+        sellTxRecent: recentTx.sellTxRecent,
+        recentTxWindowMinutes: recentTx.recentTxWindowMinutes,
+        buyRatioRecentPct: recentTx.buyRatioRecentPct,
+        sellRatioRecentPct: recentTx.sellRatioRecentPct,
+        uniqueBuyersRecent: recentTx.uniqueBuyersRecent,
+        buyTx5m: Number(pair.txns?.m5?.buys || 0),
+        sellTx5m: Number(pair.txns?.m5?.sells || 0),
         buyTx10m: Number(pair.txns?.m5?.buys || 0),
         sellTx10m: Number(pair.txns?.m5?.sells || 0),
         buyTx1h: Number(pair.txns?.h1?.buys || 0),
         sellTx1h: Number(pair.txns?.h1?.sells || 0),
         txCountFirstHour: Number((pair.txns?.h1?.buys || 0) + (pair.txns?.h1?.sells || 0)),
-        uniqueBuyers10m: 0,
+        uniqueBuyers5m: Number(pair.txns?.m5?.buys || 0),
+        uniqueBuyers10m: Number(pair.txns?.m5?.buys || 0), // DexScreener doesn't provide unique wallets; buy-tx-count in 5m is used as proxy
         isHoneypot: honeypot?.isHoneypot || false,
         honeypotReason: honeypot?.honeypotReason || '',
-        buyTax: honeypot?.simulationResult?.buyTax || 0,
-        sellTax: honeypot?.simulationResult?.sellTax || 0,
+        taxDataAvailable: Boolean(honeypot?.simulationResult),
+        buyTax: honeypot?.simulationResult?.buyTax ?? null,
+        sellTax: honeypot?.simulationResult?.sellTax ?? null,
         topHoldersPct: 0,
         teamWalletUnlocked: false,
         listingAgeDays: pair.pairCreatedAt ? (Date.now() - pair.pairCreatedAt) / 86400000 : 30,
@@ -190,8 +268,19 @@ class PancakeSwapExchange {
 
       const liqBase = parseFloat(pair.liquidity?.base || 0);
       const liqQuote = parseFloat(pair.liquidity?.quote || 0);
+      const totalLiquidityUsd = Number(result.liquidityUsd || 0);
+      const basePriceUsd = Number(result.price || 0);
       if (liqBase > 0 && liqQuote > 0) {
-        const reserveRatio = Math.max(liqBase, liqQuote) / Math.min(liqBase, liqQuote);
+        let reserveRatio = 0;
+        const baseReserveUsd = liqBase * basePriceUsd;
+        const quoteReserveUsd = Math.max(0, totalLiquidityUsd - baseReserveUsd);
+
+        if (baseReserveUsd > 0 && quoteReserveUsd > 0) {
+          reserveRatio = Math.max(baseReserveUsd, quoteReserveUsd) / Math.min(baseReserveUsd, quoteReserveUsd);
+        } else {
+          reserveRatio = Math.max(liqBase, liqQuote) / Math.min(liqBase, liqQuote);
+        }
+
         if (reserveRatio > Number(config.risk?.maxReserveImbalanceRatio ?? 1000)) {
           result.reserveImbalanced = true;
           result.reserveRatio = reserveRatio;
@@ -261,7 +350,7 @@ class PancakeSwapExchange {
 
   async executeBuy(tokenAddress, bnbAmount) {
     if (config.paperTrading) {
-      logger.info(`[PAPER] PancakeSwap BUY ${tokenAddress} with ${bnbAmount} BNB`);
+      logger.info(`[PAPER] PancakeSwap BUY ${tokenAddress} with ${bnbAmount} BNB (MEV protection: ${this.mevProtectionMethod})`);
       return { txid: `paper_tx_${Date.now()}`, simulated: true };
     }
 
@@ -270,9 +359,20 @@ class PancakeSwapExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      
+      // Enforce MEV protection for BUY if enabled
+      if (config.execution?.mevGuardEnabled && config.execution?.requirePrivateTxForBsc !== false && !this.privateRouter) {
+        throw new Error(
+          'MEV protection (mevGuardEnabled=true) requires a private transaction route. ' +
+          'BSC buy order cannot proceed. ' +
+          'Configure BSC_PRIVATE_TX_RPC_URL, BSC_MEV_BLOCKER_URL, or disable MEV_GUARD_ENABLED.'
+        );
+      }
+      
       const activeRouter = (config.execution?.mevGuardEnabled !== false && this.privateRouter) ? this.privateRouter : this.router;
       const activeProvider = activeRouter?.runner?.provider || this.privateProvider || this.provider;
       const requiredConfirmations = Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2));
+      const maxGasCostPctOfTrade = Math.max(0, Number(config.execution?.bscMaxGasCostPctOfTrade || 0));
 
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         try {
@@ -290,6 +390,17 @@ class PancakeSwapExchange {
             { value: amountIn }
           );
           const estimatedGas = await activeProvider.estimateGas({ ...txRequest, from: this.wallet.address, value: amountIn });
+          const gasLimit = (estimatedGas * 120n) / 100n;
+          const feeData = await activeProvider.getFeeData();
+          const gasPrice = feeData?.gasPrice || await activeProvider.getGasPrice();
+
+          if (maxGasCostPctOfTrade > 0 && gasPrice && gasPrice > 0n && amountIn > 0n) {
+            const estimatedGasCostWei = gasLimit * gasPrice;
+            const estimatedGasCostPct = Number((estimatedGasCostWei * 10000n) / amountIn) / 100;
+            if (estimatedGasCostPct > maxGasCostPctOfTrade) {
+              throw new Error(`estimated gas cost ${estimatedGasCostPct.toFixed(2)}% exceeds limit ${maxGasCostPctOfTrade.toFixed(2)}%`);
+            }
+          }
 
           const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
           const tx = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
@@ -297,7 +408,7 @@ class PancakeSwapExchange {
             [config.bsc.wbnb, tokenAddress],
             this.wallet.address,
             deadline,
-            { value: amountIn, gasLimit: (estimatedGas * 120n) / 100n, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
+            { value: amountIn, gasLimit, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
           );
 
           const receipt = await tx.wait(requiredConfirmations);
@@ -332,13 +443,15 @@ class PancakeSwapExchange {
             slippageBps,
             filledBaseQty,
             filledQuoteUsd,
+            hasExchangeFilledData: Boolean(filledBaseQty > 0 && filledQuoteUsd > 0),
             blockNumber: receipt.blockNumber,
             confirmations: requiredConfirmations,
             privateRouteUsed: Boolean(activeRouter === this.privateRouter),
+            mevProtectionMethod: this.mevProtectionMethod,
           };
         } catch (error) {
           if (attempt >= retries) throw error;
-          logger.warn(`PancakeSwap BUY retry ${attempt}/${retries} failed: ${error.message}`);
+          logger.warn(`PancakeSwap BUY retry ${attempt}/${retries} (${this.mevProtectionMethod}): ${error.message}`);
           await new Promise((resolve) => setTimeout(resolve, Number(config.execution.retryDelayMs || 1200) * attempt));
         }
       }
@@ -352,7 +465,7 @@ class PancakeSwapExchange {
 
   async executeSell(tokenAddress, tokenAmount) {
     if (config.paperTrading) {
-      logger.info(`[PAPER] PancakeSwap SELL ${tokenAmount} of ${tokenAddress}`);
+      logger.info(`[PAPER] PancakeSwap SELL ${tokenAmount} of ${tokenAddress} (MEV protection: ${this.mevProtectionMethod})`);
       return { txid: `paper_tx_${Date.now()}`, simulated: true };
     }
 
@@ -361,6 +474,16 @@ class PancakeSwapExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      
+      // Enforce MEV protection for SELL if enabled
+      if (config.execution?.mevGuardEnabled && config.execution?.requirePrivateTxForBsc !== false && !this.privateRouter) {
+        throw new Error(
+          'MEV protection (mevGuardEnabled=true) requires a private transaction route. ' +
+          'BSC sell order cannot proceed. ' +
+          'Configure BSC_PRIVATE_TX_RPC_URL, BSC_MEV_BLOCKER_URL, or disable MEV_GUARD_ENABLED.'
+        );
+      }
+      
       const activeRouter = (config.execution?.mevGuardEnabled !== false && this.privateRouter) ? this.privateRouter : this.router;
       const activeProvider = activeRouter?.runner?.provider || this.privateProvider || this.provider;
       const requiredConfirmations = Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2));
@@ -466,13 +589,15 @@ class PancakeSwapExchange {
             slippageBps,
             filledBaseQty,
             filledQuoteUsd,
+            hasExchangeFilledData: Boolean(filledBaseQty > 0 && filledQuoteUsd > 0),
             blockNumber: receipt.blockNumber,
             confirmations: requiredConfirmations,
             privateRouteUsed: Boolean(activeRouter === this.privateRouter),
+            mevProtectionMethod: this.mevProtectionMethod,
           };
         } catch (error) {
           if (attempt >= retries) throw error;
-          logger.warn(`PancakeSwap SELL retry ${attempt}/${retries} failed: ${error.message}`);
+          logger.warn(`PancakeSwap SELL retry ${attempt}/${retries} (${this.mevProtectionMethod}): ${error.message}`);
           await new Promise((resolve) => setTimeout(resolve, Number(config.execution.retryDelayMs || 1200) * attempt));
         }
       }
@@ -514,28 +639,13 @@ class PancakeSwapExchange {
       });
     };
 
-    await Promise.allSettled([
-      axios.get(`${GECKO_BASE_URL}/networks/bsc/new_pools`, {
-        params: { include: 'base_token', page: 1 },
+    await Promise.allSettled(
+      GECKO_DISCOVERY_REQUESTS.map(({ path, page }) => axios.get(`${GECKO_BASE_URL}${path}`, {
+        params: { include: 'base_token', page },
         headers: { accept: 'application/json' },
         timeout: 12000,
-      }).then((res) => parseGeckoResponse(res.data)),
-      axios.get(`${GECKO_BASE_URL}/networks/bsc/new_pools`, {
-        params: { include: 'base_token', page: 2 },
-        headers: { accept: 'application/json' },
-        timeout: 12000,
-      }).then((res) => parseGeckoResponse(res.data)),
-      axios.get(`${GECKO_BASE_URL}/networks/bsc/trending_pools`, {
-        params: { include: 'base_token', page: 1 },
-        headers: { accept: 'application/json' },
-        timeout: 12000,
-      }).then((res) => parseGeckoResponse(res.data)),
-      axios.get(`${GECKO_BASE_URL}/networks/bsc/trending_pools`, {
-        params: { include: 'base_token', page: 2 },
-        headers: { accept: 'application/json' },
-        timeout: 12000,
-      }).then((res) => parseGeckoResponse(res.data)),
-    ]);
+      }).then((res) => parseGeckoResponse(res.data)))
+    );
 
     await Promise.allSettled(
       DISCOVERY_FEEDS.map(async (url) => {
@@ -548,6 +658,21 @@ class PancakeSwapExchange {
     );
 
     const tokens = Array.from(addresses);
+    const previousTokens = Array.isArray(this.discoveryCache.tokens) ? this.discoveryCache.tokens : [];
+    if (
+      tokens.length < MIN_ACCEPTED_DISCOVERY_CANDIDATES
+      && previousTokens.length >= MIN_ACCEPTED_DISCOVERY_CANDIDATES
+      && previousTokens.length > tokens.length
+    ) {
+      logger.warn(
+        `PancakeSwap BSC discovery returned only ${tokens.length} candidates; ` +
+        `reusing previous healthy cache of ${previousTokens.length}`
+      );
+      this.discoveryCache = { tokens: previousTokens, fetchedAt: Date.now() };
+      return previousTokens;
+    }
+
+    logger.info(`PancakeSwap BSC discovery seeded ${tokens.length} unique candidates`);
     this.discoveryCache = { tokens, fetchedAt: Date.now() };
     return tokens;
   }
