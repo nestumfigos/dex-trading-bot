@@ -1,0 +1,43 @@
+{
+  "summary": "Auto-unblock adaptation: relax entry thresholds and require gate diagnostics",
+  "reason": "Detected technical-entry starvation (high technicalBlocked, zero passed)",
+  "generatedAt": "2026-05-02T04:28:17.451Z",
+  "changes": [
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "rsiBuyThreshold: parseFloat\\(process\\.env\\.MOMENTUM_RSI_BUY_THRESHOLD \\|\\| '[0-9.]+'\\),",
+      "replacement": "rsiBuyThreshold: parseFloat(process.env.MOMENTUM_RSI_BUY_THRESHOLD || '40'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "rsiBuyMaxThreshold: parseFloat\\(process\\.env\\.MOMENTUM_RSI_BUY_MAX_THRESHOLD \\|\\| '[0-9.]+'\\),",
+      "replacement": "rsiBuyMaxThreshold: parseFloat(process.env.MOMENTUM_RSI_BUY_MAX_THRESHOLD || '75'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "volumeSpikeMultiplier: parseFloat\\(process\\.env\\.MOMENTUM_VOLUME_SPIKE_MULTIPLIER \\|\\| '[0-9.]+'\\),",
+      "replacement": "volumeSpikeMultiplier: parseFloat(process.env.MOMENTUM_VOLUME_SPIKE_MULTIPLIER || '1.35'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "minPriceChange24hPctAll: parseFloat\\(process\\.env\\.MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_ALL \\|\\| '[0-9.]+'\\),",
+      "replacement": "minPriceChange24hPctAll: parseFloat(process.env.MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_ALL || '1.5'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "rsiBuyThreshold: parseFloat\\(process\\.env\\.SWING_RSI_BUY_THRESHOLD \\|\\| '[0-9.]+'\\),",
+      "replacement": "rsiBuyThreshold: parseFloat(process.env.SWING_RSI_BUY_THRESHOLD || '35'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "volumeSpikeMultiplier: parseFloat\\(process\\.env\\.SWING_VOLUME_SPIKE_MULTIPLIER \\|\\| '[0-9.]+'\\),",
+      "replacement": "volumeSpikeMultiplier: parseFloat(process.env.SWING_VOLUME_SPIKE_MULTIPLIER || '1.05'),"
+    }
+  ]
+}

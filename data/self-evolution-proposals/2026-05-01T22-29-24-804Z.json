@@ -1,0 +1,25 @@
+{
+  "summary": "Defensive adaptation to reduce downside and bad fills",
+  "reason": "Defensive adaptation (profitFactor=0.17, winRate=37.5%)",
+  "generatedAt": "2026-05-01T22:29:24.803Z",
+  "changes": [
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "bscMinFillPctOfExpected: parseFloat\\(process\\.env\\.BSC_MIN_FILL_PCT_OF_EXPECTED \\|\\| '[0-9.]+'\\),",
+      "replacement": "bscMinFillPctOfExpected: parseFloat(process.env.BSC_MIN_FILL_PCT_OF_EXPECTED || '97'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "bscExplorationPositionSizeMultiplier: parseFloat\\(process\\.env\\.BSC_EXPLORATION_POSITION_SIZE_MULTIPLIER \\|\\| '[0-9.]+'\\),",
+      "replacement": "bscExplorationPositionSizeMultiplier: parseFloat(process.env.BSC_EXPLORATION_POSITION_SIZE_MULTIPLIER || '0.75'),"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "src/index.js",
+      "pattern": "if \\(calculatedSizeUsd < [0-9.]+\\) \\{",
+      "replacement": "if (calculatedSizeUsd < 6) {"
+    }
+  ]
+}

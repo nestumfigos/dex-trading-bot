@@ -10,8 +10,9 @@ const state = {
   visible: {
     positions: 12,
     tracked: Number.MAX_SAFE_INTEGER,
-    signals: Number.MAX_SAFE_INTEGER,
+    signals: 12,
     trades: 12,
+    agentActions: 14,
   },
   cache: {
     kpi: '',
@@ -20,7 +21,9 @@ const state = {
     tracked: '',
     signals: '',
     trades: '',
+    agentActions: '',
     correlation: '',
+    researchJobs: '',
   },
   correlationLoaded: false,
   trackedFilters: {
@@ -29,6 +32,8 @@ const state = {
     sortBy: '',
     sortAsc: true,
   },
+  researchJobs: [],
+  researchSchedule: null,
 };
 
 function $(selector) {
@@ -147,31 +152,127 @@ function setText(id, value) {
   if (node.textContent !== next) node.textContent = next;
 }
 
-function renderCatalystBanner(status) {
-  const target = $('#catalyst-banner');
-  if (!target) return;
+function getStoredAdminToken() {
+  try {
+    return String(window.localStorage.getItem('dashboardAdminToken') || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
 
-  const pairs = Array.isArray(status?.market?.catalystPairs)
-    ? status.market.catalystPairs
-    : [];
-  const display = pairs.slice(0, 8);
+function storeAdminToken(token) {
+  try {
+    if (token) window.localStorage.setItem('dashboardAdminToken', token);
+  } catch (_) {
+    // ignore storage failures
+  }
+}
 
-  if (!display.length) {
-    target.classList.remove('hidden');
-    target.textContent = 'Catalyst cache: none';
+async function openSqlReport(reportName) {
+  const report = String(reportName || '').trim().toLowerCase();
+  if (!report) return;
+
+  const reportWindow = window.open('', '_blank');
+  if (!reportWindow) {
+    window.alert('Popup blocked. Allow popups for this dashboard to open SQL reports.');
     return;
   }
 
-  target.classList.remove('hidden');
-  target.textContent = `Catalyst cache: ${display.join(', ')}`;
+  reportWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL Report - ${report}</title>
+  <style>
+    body { margin: 0; background: #0b1220; color: #e7edf7; font-family: Consolas, Monaco, monospace; }
+    header { padding: 14px 16px; border-bottom: 1px solid #1e2a44; background: #111a2b; }
+    h1 { margin: 0; font-size: 18px; }
+    p { margin: 6px 0 0; color: #98a7c2; font-family: "Segoe UI", Tahoma, sans-serif; }
+    pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SQL Report: ${report}</h1>
+    <p>Loading...</p>
+  </header>
+  <pre>Loading report...</pre>
+</body>
+</html>`);
+  reportWindow.document.close();
+
+  let token = getStoredAdminToken();
+  if (!token) {
+    token = String(window.prompt('Enter DASHBOARD_ADMIN_TOKEN to open SQL reports:') || '').trim();
+    if (!token) {
+      reportWindow.close();
+      return;
+    }
+    storeAdminToken(token);
+  }
+
+  let payload;
+  try {
+    const res = await fetch(`/api/sql-report?report=${encodeURIComponent(report)}`, {
+      cache: 'no-store',
+      headers: { 'X-Admin-Token': token },
+    });
+    payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401) {
+        try {
+          window.localStorage.removeItem('dashboardAdminToken');
+        } catch (_) {
+          // ignore storage failures
+        }
+        throw new Error('Unauthorized. Check DASHBOARD_ADMIN_TOKEN.');
+      }
+      throw new Error(payload?.error || `Request failed (${res.status})`);
+    }
+  } catch (error) {
+    reportWindow.document.body.innerHTML = `<header style="padding:14px 16px;border-bottom:1px solid #1e2a44;background:#111a2b;"><h1 style="margin:0;font-size:18px;">SQL Report: ${report}</h1><p style="margin:6px 0 0;color:#98a7c2;font-family:'Segoe UI',Tahoma,sans-serif;">Load failed</p></header><pre style="margin:0;padding:16px;white-space:pre-wrap;word-break:break-word;">Failed to open SQL report: ${String(error.message || error).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+    window.alert(`Failed to open SQL report: ${error.message}`);
+    return;
+  }
+
+  const pretty = JSON.stringify(payload, null, 2)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  reportWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL Report - ${report}</title>
+  <style>
+    body { margin: 0; background: #0b1220; color: #e7edf7; font-family: Consolas, Monaco, monospace; }
+    header { padding: 14px 16px; border-bottom: 1px solid #1e2a44; background: #111a2b; }
+    h1 { margin: 0; font-size: 18px; }
+    p { margin: 6px 0 0; color: #98a7c2; font-family: "Segoe UI", Tahoma, sans-serif; }
+    pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SQL Report: ${report}</h1>
+    <p>Source: /api/sql-report?report=${report}</p>
+  </header>
+  <pre>${pretty}</pre>
+</body>
+</html>`);
+  reportWindow.document.close();
 }
 
 async function fetchJson(url, timeoutMs = 7000, options = {}) {
   const allowNonOk = options?.allowNonOk === true;
+  const headers = options?.headers || {};
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+    const res = await fetch(url, { signal: controller.signal, cache: 'no-store', headers, method: options?.method || 'GET', body: options?.body });
     let body = null;
     try {
       body = await res.json();
@@ -195,6 +296,27 @@ async function fetchJson(url, timeoutMs = 7000, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function getAdminHeaders(includeJson = false) {
+  const token = getStoredAdminToken();
+  const headers = token ? { 'X-Admin-Token': token } : {};
+  if (includeJson) headers['Content-Type'] = 'application/json';
+  return headers;
+}
+
+async function fetchResearchJobs() {
+  const payload = await fetchJson('/api/jobs?limit=12', 7000, {
+    headers: getAdminHeaders(),
+    allowNonOk: true,
+  });
+  if (payload.__httpStatus === 401) {
+    return { jobs: [], scheduled: null, unauthorized: true };
+  }
+  state.researchJobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+  state.researchSchedule = payload.scheduled || null;
+  renderResearchJobs();
+  return payload;
 }
 
 function isUserInteracting() {
@@ -230,6 +352,21 @@ function buildSignature(status, health) {
     Number(p.untrackedWalletPositionValueUsd || 0),
     summarizeItems(p.positions, (position) => `${position.address}:${position.currentPrice}:${position.unrealizedPnl}`),
     summarizeItems(p.untrackedWalletPositions, (position) => `${position.chainKey || position.chain}:${position.address}:${position.quantity}:${position.valueUsd}`),
+    summarizeItems(m.chainSummary, (chain) => [
+      chain.chainKey,
+      chain.status,
+      chain.tokensScanned,
+      chain.discoveredTokens,
+      chain.evaluatedTokens,
+      chain.lastUpdate,
+      chain.currentToken,
+      chain.strategies?.momentum?.discoveredTokens,
+      chain.strategies?.momentum?.evaluatedTokens,
+      chain.strategies?.swing?.discoveredTokens,
+      chain.strategies?.swing?.evaluatedTokens,
+      chain.strategies?.momentum?.lastUpdate,
+      chain.strategies?.swing?.lastUpdate,
+    ].join(':')),
     (m.trackedTokens || []).length,
     summarizeItems(m.recentSignals, (signal) => `${signal.timestamp}:${signal.symbol}:${signal.finalSignal}`),
     summarizeItems(p.recentTrades, (trade) => `${trade.txid || trade.timestamp}:${trade.type}:${trade.symbol}:${trade.valueUsd}`),
@@ -245,6 +382,25 @@ function applyPendingIfReady() {
   state.pendingStatus = null;
   state.pendingHealth = null;
   renderAll();
+}
+
+function renderCatalystBanner(status) {
+  const target = $('#catalyst-banner');
+  if (!target) return;
+
+  const pairs = Array.isArray(status?.market?.catalystPairs)
+    ? status.market.catalystPairs
+    : [];
+  const display = pairs.slice(0, 8);
+
+  if (!display.length) {
+    target.classList.remove('hidden');
+    target.textContent = 'Catalyst cache: none';
+    return;
+  }
+
+  target.classList.remove('hidden');
+  target.textContent = `Catalyst cache: ${display.join(', ')}`;
 }
 
 function renderKpis(status, health) {
@@ -291,9 +447,13 @@ function renderKpis(status, health) {
       : hasDegraded
         ? 'DEGRADED'
         : (health.ok ? 'OK' : 'ERROR');
+  const sql = health?.sql || null;
+  const sqlText = sql?.enabled
+    ? ` | SQL ${sql.healthy ? 'OK' : 'ERROR'}${sql.databaseName ? ` (${sql.databaseName})` : ''}`
+    : '';
 
   const line = health
-    ? `Health ${healthLabel}${reasonText ? ` (${reasonText})` : ''} | Updated ${formatAge(status.timestamp)}`
+    ? `Health ${healthLabel}${reasonText ? ` (${reasonText})` : ''}${sqlText} | Updated ${formatAge(status.timestamp)}`
     : `Updated ${formatAge(status.timestamp)}`;
   setText('#status-line', line);
 
@@ -427,7 +587,7 @@ function renderPositions(status) {
       <td>${formatMoney(p.entryPrice)}</td>
       <td>${formatMoney(p.currentPrice)}</td>
       <td>${formatMoney(p.positionValueUsd)}</td>
-      <td class="${Number(p.unrealizedPnl) >= 0 ? 'good' : 'bad'}">${formatMoney(p.unrealizedPnl)} (${formatPct(p.unrealizedPnlPct)})</td>
+      <td class="${Number(p.unrealizedPnl) >= 0 ? 'good' : 'bad'}">${formatMoney(p.unrealizedPnl)} (${formatPct(p.unrealizedPnlPct)})<div class="inline-actions"><button class="btn secondary small position-research-btn" type="button" data-address="${p.address}" data-chain="${p.chainKey || p.chain}" data-strategy="${p.strategy || 'momentum'}">Research</button></div></td>
     </tr>`).join('');
   }
 
@@ -482,6 +642,7 @@ function renderTracked(status) {
       <td class="signal-cell">${renderSignalBadge(t.finalSignal)}</td>
       <td>${t.indicators?.rsi ?? '-'}</td>
       <td>${getNotBoughtReason(t)}</td>
+      <td>${formatAge(t.lastScannedAt)}</td>
     </tr>`).join('');
   }
 
@@ -491,7 +652,7 @@ function renderTracked(status) {
 
 function renderSignals(status) {
   const all = Array.isArray(status.market?.recentSignals) ? status.market.recentSignals : [];
-  const rows = all;
+  const rows = all.slice(0, state.visible.signals);
   const first = rows[0];
   const last = rows[rows.length - 1];
   const sig = `${rows.length}|${first?.timestamp || ''}:${first?.address || first?.symbol || ''}:${first?.finalSignal || ''}|${last?.timestamp || ''}:${last?.address || last?.symbol || ''}:${last?.finalSignal || ''}`;
@@ -514,7 +675,7 @@ function renderSignals(status) {
   }
 
   const btn = $('#signals-more');
-  if (btn) btn.style.display = 'none';
+  if (btn) btn.style.display = all.length > state.visible.signals ? 'inline-block' : 'none';
 }
 
 function renderTrades(status) {
@@ -543,6 +704,91 @@ function renderTrades(status) {
 
   const btn = $('#trades-more');
   if (btn) btn.style.display = all.length > state.visible.trades ? 'inline-block' : 'none';
+}
+
+function renderResearchJobs() {
+  const sig = JSON.stringify({
+    jobs: (state.researchJobs || []).map((job) => [job.id, job.type, job.status, job.createdAt, job.finishedAt, job.error]),
+    scheduled: state.researchSchedule,
+  });
+  if (state.cache.researchJobs === sig) return;
+  state.cache.researchJobs = sig;
+
+  const list = $('#research-jobs-list');
+  const meta = $('#research-status-line');
+  if (!list || !meta) return;
+
+  const schedule = state.researchSchedule || {};
+  const scheduleText = schedule.enabled
+    ? `Nightly research: ${String(schedule.nightlyHourUtc || 0).padStart(2, '0')}:${String(schedule.nightlyMinuteUtc || 0).padStart(2, '0')} UTC`
+    : 'Nightly research disabled';
+  const last = schedule.lastTriggeredAt ? ` | last run ${formatAge(schedule.lastTriggeredAt)}` : '';
+  meta.textContent = `${scheduleText}${last}`;
+
+  const jobs = Array.isArray(state.researchJobs) ? state.researchJobs : [];
+  if (!jobs.length) {
+    list.innerHTML = '<div class="item muted">No research jobs yet.</div>';
+    return;
+  }
+
+  list.innerHTML = jobs.map((job) => `
+    <article class="item job-item">
+      <strong>${job.type || 'job'} <span class="badge ${job.status === 'completed' ? 'ok' : job.status === 'failed' ? 'bad' : 'warn'}">${job.status || 'queued'}</span></strong>
+      <div class="job-meta">
+        <span>${job.id}</span>
+        <span>created ${formatAge(job.createdAt)}</span>
+        ${job.finishedAt ? `<span>finished ${formatAge(job.finishedAt)}</span>` : ''}
+      </div>
+      ${job.error ? `<div class="muted">Error: ${job.error}</div>` : ''}
+      ${job.result?.validation?.promotionVerdict ? `<div class="muted">Verdict: ${job.result.validation.promotionVerdict} | return ${formatPct(job.result.validation.candidate?.metrics?.totalReturn)}</div>` : ''}
+    </article>
+  `).join('');
+}
+
+function formatActionAge(ts) {
+  const ms = Number(ts || 0);
+  if (!Number.isFinite(ms) || ms <= 0) return '-';
+  return formatAge(new Date(ms).toISOString());
+}
+
+function renderAgentActions(status) {
+  const all = Array.isArray(status.agent?.actions) ? status.agent.actions : [];
+  const rows = all.slice(0, state.visible.agentActions);
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const sig = `${rows.length}|${first?.type || ''}:${first?.phrase || ''}:${first?.ts || ''}|${last?.type || ''}:${last?.phrase || ''}:${last?.ts || ''}|${state.visible.agentActions}|${status.mode || ''}`;
+  if (state.cache.agentActions === sig) return;
+  state.cache.agentActions = sig;
+
+  const tabButton = $('#tab-agent-actions-button');
+  const panel = $('#tab-agent-actions');
+  const showTab = String(status.mode || '').toLowerCase() === 'paper';
+  if (tabButton) tabButton.style.display = showTab ? 'inline-flex' : 'none';
+  if (panel && !showTab) {
+    if (tabButton?.classList.contains('active')) {
+      tabButton.classList.remove('active');
+      const fallbackTab = document.querySelector('.tab[data-tab="positions"]');
+      const fallbackPanel = $('#tab-positions');
+      if (fallbackTab) fallbackTab.classList.add('active');
+      if (fallbackPanel) fallbackPanel.classList.add('active');
+    }
+    panel.classList.remove('active');
+  }
+
+  setText('#agent-actions-count', `${rows.length} / ${all.length}`);
+  const list = $('#agent-actions-list');
+  if (!list) return;
+  if (!rows.length) {
+    list.innerHTML = '<div class="item muted">No recent agent actions</div>';
+  } else {
+    list.innerHTML = rows.map((entry) => `<article class="item agent-action-item">
+      <div><strong>${String(entry.type || 'agent').toUpperCase()}</strong> <span class="muted">${formatActionAge(entry.ts)}</span></div>
+      <div>${String(entry.phrase || '-')}</div>
+    </article>`).join('');
+  }
+
+  const btn = $('#agent-actions-more');
+  if (btn) btn.style.display = all.length > state.visible.agentActions ? 'inline-block' : 'none';
 }
 
 function correlationCellColor(pct) {
@@ -617,6 +863,8 @@ function renderAll() {
   renderTracked(state.status);
   renderSignals(state.status);
   renderTrades(state.status);
+  renderAgentActions(state.status);
+  renderResearchJobs();
 }
 
 async function tick() {
@@ -625,6 +873,7 @@ async function tick() {
       fetchJson('/api/status', 7000),
       fetchJson('/api/health-lite', 7000, { allowNonOk: true }),
     ]);
+    fetchResearchJobs().catch(() => {});
 
     const nextSig = buildSignature(status, health);
     const prevSig = state.status ? buildSignature(state.status, state.health) : '';
@@ -662,9 +911,35 @@ function bindTabs() {
 }
 
 function bindControls() {
+  document.querySelectorAll('.sql-report-link').forEach((button) => {
+    button.addEventListener('click', () => {
+      markInteraction(1200);
+      openSqlReport(button.dataset.report);
+    });
+  });
+
   $('#refresh-button')?.addEventListener('click', () => {
     markInteraction(800);
     tick();
+  });
+
+  $('#research-refresh')?.addEventListener('click', () => {
+    markInteraction(800);
+    fetchResearchJobs().catch(() => {});
+  });
+
+  $('#research-run-nightly')?.addEventListener('click', async () => {
+    markInteraction(1200);
+    try {
+      await fetchJson('/api/research/nightly-run', 12000, {
+        method: 'POST',
+        headers: getAdminHeaders(true),
+        body: JSON.stringify({}),
+      });
+      fetchResearchJobs().catch(() => {});
+    } catch (err) {
+      window.alert(`Nightly research trigger failed: ${err.message}`);
+    }
   });
 
   $('#pause-button')?.addEventListener('click', () => {
@@ -677,6 +952,26 @@ function bindControls() {
     state.visible.positions += 12;
     state.cache.positions = '';
     renderPositions(state.status || { portfolio: { positions: [] } });
+  });
+
+  $('#positions-body')?.addEventListener('click', async (event) => {
+    const button = event.target.closest('.position-research-btn');
+    if (!button) return;
+    markInteraction(1200);
+    try {
+      await fetchJson('/api/research/benchmark-position', 12000, {
+        method: 'POST',
+        headers: getAdminHeaders(true),
+        body: JSON.stringify({
+          tokenAddress: button.dataset.address,
+          chain: button.dataset.chain,
+          strategy: button.dataset.strategy || 'momentum',
+        }),
+      });
+      fetchResearchJobs().catch(() => {});
+    } catch (err) {
+      window.alert(`Research queue failed: ${err.message}`);
+    }
   });
 
   $('#tracked-more')?.addEventListener('click', () => {
@@ -730,6 +1025,12 @@ function bindControls() {
     state.visible.trades += 12;
     state.cache.trades = '';
     renderTrades(state.status || { portfolio: { recentTrades: [] } });
+  });
+
+  $('#agent-actions-more')?.addEventListener('click', () => {
+    state.visible.agentActions += 14;
+    state.cache.agentActions = '';
+    renderAgentActions(state.status || { mode: 'paper', agent: { actions: [] } });
   });
 
   $('#correlation-refresh')?.addEventListener('click', () => {

@@ -1,0 +1,14 @@
+{
+  "summary": "AI-driven self-improvement: The bot's performance is mediocre with a 37.5% win rate and a profit factor of 0.173. Market intelli",
+  "reason": "The bot's performance is mediocre with a 37.5% win rate and a profit factor of 0.173. Market intelligence suggests a bullish sentiment with hot sectors AI and DeFi. The latest filter cycles show a high number of technical blocks, indicating a need to adapt momentum/swing thresholds. Recent trades show a pattern of losses in the momentum strategy, suggesting a need to tighten filters.",
+  "changes": [
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "defaultBscMinLiquidityUsd = parseFloat\\(process\\.env\\.BSC_MIN_LIQUIDITY_USD || String\\(minLiquidityUsdDefault\\)\\) || minLiquidityUsdDefault;",
+      "replacement": "defaultBscMinLiquidityUsd = parseFloat(process.env.BSC_MIN_LIQUIDITY_USD || String(minLiquidityUsdDefault * 1.2)) || minLiquidityUsdDefault;",
+      "rationale": "Tighten momentum filter to prevent losses"
+    }
+  ],
+  "_source": "ai_driven"
+}

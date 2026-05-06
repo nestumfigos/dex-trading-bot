@@ -1,22 +1,29 @@
 // nvidia-ai.js
 // Central NVIDIA AI utility for your bot (sentiment, explanation, chat, summary)
 const axios = require('axios');
+const config = require('../../config');
 
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
-const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
-const NVIDIA_MODEL = 'minimaxai/minimax-m2.7'; // You can change to any available model
+function getNvidiaConfig() {
+  return {
+    apiKey: config.nvidia?.apiKey || process.env.NVIDIA_API_KEY,
+    model: config.nvidia?.model || 'deepseek-ai/deepseek-v4-pro',
+    apiUrl: config.nvidia?.apiUrl || 'https://integrate.api.nvidia.com/v1/chat/completions',
+  };
+}
 
 async function nvidiaAnalyzeBatch(texts, prompt) {
-  if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not set');
+  const { apiKey, model, apiUrl } = getNvidiaConfig();
+  if (!apiKey) throw new Error('NVIDIA_API_KEY not set');
   const messages = texts.map(text => ({
     role: 'user',
-    content: `${prompt}: ${text}`
+    content: prompt ? `${prompt}: ${text}` : text,
   }));
-  const res = await axios.post(NVIDIA_API_URL, {
-    model: NVIDIA_MODEL,
-    messages
+  const res = await axios.post(apiUrl, {
+    model,
+    messages,
   }, {
-    headers: { Authorization: `Bearer ${NVIDIA_API_KEY}` }
+    headers: { Authorization: `Bearer ${apiKey}` },
+    timeout: 15000,
   });
   return res.data;
 }

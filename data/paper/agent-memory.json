@@ -1,0 +1,208 @@
+{
+  "version": 2,
+  "tradeLessons": [],
+  "strategyDiscoveries": [
+    {
+      "id": "1777685208123-0fzt2",
+      "ts": 1777685208123,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "limited data on specific tokens",
+      "proposedAction": "expand token data coverage",
+      "urgency": "low",
+      "applied": false
+    },
+    {
+      "id": "1777681606244-dn1mp",
+      "ts": 1777681606244,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Tether posts $1.04 billion Q1 profit",
+      "proposedAction": "review stablecoin market",
+      "urgency": "low",
+      "applied": false
+    },
+    {
+      "id": "1777681606243-9hgs3",
+      "ts": 1777681606243,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "AI agent forms its own company",
+      "proposedAction": "monitor AI-related news",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777678007374-19l0v",
+      "ts": 1777678007374,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "limited coverage of NFT sector",
+      "proposedAction": "expand sector coverage",
+      "urgency": "low",
+      "applied": false
+    },
+    {
+      "id": "1777678007374-zm81r",
+      "ts": 1777678007374,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent sentiment across headlines",
+      "proposedAction": "re-evaluate sentiment scoring model",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777674585406-9vsbc",
+      "ts": 1777674585406,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "AI pivot by Riot",
+      "proposedAction": "Monitor AI-related tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777674585405-axvdm",
+      "ts": 1777674585405,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Increased institutional demand",
+      "proposedAction": "Adjust position sizing",
+      "urgency": "medium",
+      "applied": false
+    }
+  ],
+  "tokenBlacklist": {},
+  "tokenPreferences": {
+    "BTC": {
+      "boost": 20,
+      "reason": "Deep research: The token, BTC on all, has shown a price surge with an 80% confidence level, driven by a recent article on CoinDesk. How",
+      "researchSummary": "The token, BTC on all, has shown a price surge with an 80% confidence level, driven by a recent article on CoinDesk. However, on-chain data indicates a relatively stable market with a 0.12% 24h change and low liquidity. Further analysis is needed to confirm the token's potential.",
+      "addedAt": 1777685213667,
+      "expiresAt": 1777714013667
+    },
+    "ETH": {
+      "boost": 15,
+      "reason": "Deep research: ETH is experiencing a moderate increase in price with a 1.61% 24h change, driven by a treasury strategy. On-chain data s",
+      "researchSummary": "ETH is experiencing a moderate increase in price with a 1.61% 24h change, driven by a treasury strategy. On-chain data shows a relatively high liquidity of $6.8M and 2692 transactions in the last 24 hours. However, the intelligence confidence is only 70%, indicating some uncertainty in the analysis.",
+      "addedAt": 1777685221562,
+      "expiresAt": 1777714021562
+    },
+    "TAO": {
+      "boost": 22.5,
+      "reason": "index performance",
+      "researchSummary": "",
+      "addedAt": 1777685229187,
+      "expiresAt": 1777706829187
+    }
+  },
+  "evolutionOutcomes": [],
+  "knowledgeBase": [
+    {
+      "ts": 1777685221563,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the relatively low intelligence confidence, which may lead to unexpected price movements.",
+      "source": "CoinDesk",
+      "confidence": 60
+    },
+    {
+      "ts": 1777685213668,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the token's low liquidity, which may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80
+    },
+    {
+      "ts": 1777685208124,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges as institutional demand and AI pivot drive market sentiment.",
+      "source": "intelligence/groq",
+      "confidence": 72
+    },
+    {
+      "ts": 1777681627595,
+      "category": "token_research",
+      "insight": "TAO: Low trading volume and transactions may lead to market volatility and liquidity issues.",
+      "source": "CoinDesk",
+      "confidence": 70
+    },
+    {
+      "ts": 1777681619615,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the relatively low intelligence confidence, which may indicate that the analysis is not entirely accurate.",
+      "source": "CoinDesk",
+      "confidence": 80
+    },
+    {
+      "ts": 1777681611701,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity may lead to large price swings if market conditions change.",
+      "source": "CoinDesk",
+      "confidence": 80
+    },
+    {
+      "ts": 1777681606244,
+      "category": "market_macro",
+      "insight": "Bitcoin price bounces as big tech earnings fuel optimism, institutional demand drives market sentiment.",
+      "source": "intelligence/groq",
+      "confidence": 85
+    },
+    {
+      "ts": 1777678028724,
+      "category": "token_research",
+      "insight": "TAO: Low trading volume and liquidity may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 85
+    },
+    {
+      "ts": 1777678020703,
+      "category": "token_research",
+      "insight": "ETH: The main risk is a potential price drop due to market volatility and low liquidity.",
+      "source": "CoinDesk",
+      "confidence": 75
+    },
+    {
+      "ts": 1777678012851,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity and transaction volume may lead to price volatility.",
+      "source": "CoinDesk",
+      "confidence": 90
+    },
+    {
+      "ts": 1777678007374,
+      "category": "market_macro",
+      "insight": "Bitcoin price surge driven by institutional demand and AI pivot, with stablecoins and DeFi sectors gaining traction.",
+      "source": "intelligence/groq",
+      "confidence": 82
+    },
+    {
+      "ts": 1777674598882,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the potential for a market correction following the Ethereum Foundation sale, which could negatively impact the token's price.",
+      "source": "CoinDesk",
+      "confidence": 80
+    },
+    {
+      "ts": 1777674590957,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the low liquidity and transaction volume, which may lead to large price swings if trading activity increases suddenly.",
+      "source": "CoinTelegraph",
+      "confidence": 90
+    },
+    {
+      "ts": 1777674585406,
+      "category": "market_macro",
+      "insight": "Bitcoin price is expected to reach $80K driven by institutional demand and AI pivot, with stablecoins and DeFi sectors showing growth.",
+      "source": "intelligence/groq",
+      "confidence": 85
+    }
+  ]
+}

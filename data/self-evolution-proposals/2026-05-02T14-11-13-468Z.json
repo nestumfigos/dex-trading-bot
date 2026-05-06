@@ -1,0 +1,21 @@
+{
+  "summary": "AI-driven self-improvement: The bot's performance is mediocre (PF=0.333), with a recent overemphasis on AI-related tokens. Marke",
+  "reason": "The bot's performance is mediocre (PF=0.333), with a recent overemphasis on AI-related tokens. Market intelligence suggests a bullish sentiment and hot sectors like AI and DeFi. To improve performance, we'll tighten filters for AI-related tokens and adapt momentum/swing thresholds in config/index.js.",
+  "changes": [
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "defaultBscMinLiquidityUsd = parseFloat(process.env.BSC_MIN_LIQUIDITY_USD || '80000') || 80000;",
+      "replacement": "defaultBscMinLiquidityUsd = parseFloat(process.env.BSC_MIN_LIQUIDITY_USD || '60000') || 60000;",
+      "rationale": "Tighten filter for AI-related tokens"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "defaultBscExplorationMinLiquidityUsd = parseFloat(process.env.BSC_EXPLORATION_MIN_LIQUIDITY_USD || '50000') || 50000;",
+      "replacement": "defaultBscExplorationMinLiquidityUsd = parseFloat(process.env.BSC_EXPLORATION_MIN_LIQUIDITY_USD || '70000') || 70000;",
+      "rationale": "Boost momentum/swing thresholds for AI-related tokens"
+    }
+  ],
+  "_source": "ai_driven"
+}

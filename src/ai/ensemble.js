@@ -2,6 +2,7 @@
 
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const axios = require('axios');
 const config = require('../../config');
 const logger = require('../utils/logger');
 const { evaluateToken: evaluateWithClaude } = require('../brain/anthropic');
@@ -11,9 +12,11 @@ const VALID_SIGNALS = new Set(['BUY', 'HOLD', 'SELL']);
 
 let groqClient = null;
 let geminiClient = null;
+let sambannovaClient = null;
+let togetherClient = null;
 
 // Per-model backoff: if a model returns 429, skip it until retryAfter expires
-const modelBackoff = { groq: 0, gemini: 0 };
+const modelBackoff = { groq: 0, gemini: 0, nvidia: 0, cerebras: 0, openrouter: 0, sambanova: 0, together: 0 };
 
 function parseRetryAfterMs(errMessage) {
   // Groq: "Please try again in 4m58.944s" or "in 2m50.208s" or "in 23.699s"
@@ -158,6 +161,15 @@ function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
     volumeSpike: technicalDetails.volumeSpike || null,
     breakoutConfirmed: Boolean(technicalDetails.breakoutConfirmed),
     netBuyFlowUsd10m: technicalDetails.netBuyFlowUsd10m || null,
+    higherTimeframePatternBias: technicalDetails.patternAnalysis?.bias || null,
+    higherTimeframePatterns: Array.isArray(technicalDetails.patternAnalysis?.detectedPatterns)
+      ? technicalDetails.patternAnalysis.detectedPatterns.slice(0, 4)
+      : [],
+    supportResistance: technicalDetails.patternAnalysis?.supportResistance || null,
+    divergenceChecks: technicalDetails.patternAnalysis?.divergenceChecks || null,
+    operatorKnowledge: Array.isArray(technicalDetails.operatorKnowledge)
+      ? technicalDetails.operatorKnowledge.slice(0, 8)
+      : [],
     walletClustering: buildWalletClusteringContext(tokenData, technicalDetails),
   };
 
@@ -166,15 +178,20 @@ function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
     'Schema: {"signal":"BUY|HOLD|SELL","confidence":0-100,"narrativeStrength":0-100,"reason":"<=180 chars","riskFlags":["..."]}',
     `Strategy profile: ${strategyName} (${strategyName === 'swing' ? 'longer-term established token swing setup' : 'short-term new-launch momentum setup'})`,
     'Use the headlines for narrative strength scoring. Be conservative when uncertain.',
+    'When higher-timeframe pattern context is present, prefer 4H/1D pattern confirmation only for established liquid tokens and never overrule clear bearish reversal evidence without strong support.',
     `Context: ${JSON.stringify(context)}`,
     `Headlines: ${JSON.stringify(headlines)}`,
   ].join('\n');
 }
 
 async function evaluateWithGroq(tokenData, technicalDetails, headlines) {
-  if (!config.groq.apiKey) return null;
+  if (config.groq?.enabled === false || !config.groq.apiKey) return null;
   if (Date.now() < modelBackoff.groq) return null;
   if (!checkAndTickQuota('groq')) return null;
+  const configuredModel = String(config.groq.model || '').trim();
+  const model = /deepseek-r1-distill-llama-70b/i.test(configuredModel)
+    ? 'llama-3.3-70b-versatile'
+    : configuredModel;
 
   if (!groqClient) {
     groqClient = new OpenAI({
@@ -185,7 +202,7 @@ async function evaluateWithGroq(tokenData, technicalDetails, headlines) {
 
   try {
     const response = await groqClient.chat.completions.create({
-      model: config.groq.model,
+      model,
       temperature: 0.2,
       max_tokens: 180,
       messages: [
@@ -198,13 +215,17 @@ async function evaluateWithGroq(tokenData, technicalDetails, headlines) {
 
     const text = response?.choices?.[0]?.message?.content || '';
     const parsed = parseSignalPayload(text);
-    return parsed ? { ...parsed, source: 'groq', model: config.groq.model } : null;
+    return parsed ? { ...parsed, source: 'groq', model } : null;
   } catch (err) {
     const isRateLimit = err.status === 429 || /429|rate.?limit|quota/i.test(err.message);
+    const isModelUnavailable = /decommissioned|no longer supported|model.*not found|invalid model/i.test(err.message || '');
     if (isRateLimit) {
       const backoffMs = parseRetryAfterMs(err.message);
       modelBackoff.groq = Date.now() + backoffMs;
       logger.warn(`Groq rate-limited for ${tokenData.symbol}, backing off ${Math.round(backoffMs / 1000)}s`);
+    } else if (isModelUnavailable) {
+      modelBackoff.groq = Date.now() + (6 * 60 * 60 * 1000);
+      logger.warn(`Groq model unavailable (${model}); backing off 21600s. Set GROQ_MODEL to a supported model.`);
     } else {
       logger.warn(`Groq eval failed for ${tokenData.symbol}: ${err.message}`);
     }
@@ -213,7 +234,7 @@ async function evaluateWithGroq(tokenData, technicalDetails, headlines) {
 }
 
 async function evaluateWithGemini(tokenData, technicalDetails, headlines) {
-  if (!config.gemini.apiKey) return null;
+  if (config.gemini?.enabled === false || !config.gemini.apiKey) return null;
   if (Date.now() < modelBackoff.gemini) return null;
   if (!checkAndTickQuota('gemini')) return null;
 
@@ -249,6 +270,202 @@ async function evaluateWithGemini(tokenData, technicalDetails, headlines) {
       logger.warn(`Gemini rate-limited for ${tokenData.symbol}, backing off ${Math.round(backoffMs / 1000)}s`);
     } else {
       logger.warn(`Gemini eval failed for ${tokenData.symbol}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+async function evaluateWithNvidia(tokenData, technicalDetails, headlines) {
+  if (config.nvidia?.enabled === false) return null;
+  const apiKey = config.nvidia?.apiKey || process.env.NVIDIA_API_KEY;
+  if (!apiKey) return null;
+  if (Date.now() < modelBackoff.nvidia) return null;
+
+  const model = config.nvidia?.model || 'deepseek-ai/deepseek-v4-pro';
+  const apiUrl = config.nvidia?.apiUrl || 'https://integrate.api.nvidia.com/v1/chat/completions';
+
+  try {
+    const response = await axios.post(apiUrl, {
+      model,
+      temperature: 0.2,
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: 'Return only JSON.' },
+        { role: 'user', content: buildEnsemblePrompt(tokenData, technicalDetails, headlines) },
+      ],
+    }, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 15000,
+    });
+
+    const text = response.data?.choices?.[0]?.message?.content || '';
+    const parsed = parseSignalPayload(text);
+    return parsed ? { ...parsed, source: 'nvidia', model } : null;
+  } catch (err) {
+    const isRateLimit = err.response?.status === 429 || /429|rate.?limit|quota/i.test(err.message);
+    if (isRateLimit) {
+      modelBackoff.nvidia = Date.now() + 5 * 60 * 1000;
+      logger.warn(`NVIDIA rate-limited for ${tokenData.symbol}, backing off 5m`);
+    } else {
+      logger.warn(`NVIDIA eval failed for ${tokenData.symbol}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+async function evaluateWithCerebras(tokenData, technicalDetails, headlines) {
+  if (config.cerebras?.enabled === false || !config.cerebras?.apiKey) return null;
+  if (Date.now() < modelBackoff.cerebras) return null;
+
+  const model = config.cerebras.model || 'llama-3.3-70b';
+  const apiUrl = config.cerebras.apiUrl || 'https://api.cerebras.ai/v1/chat/completions';
+
+  try {
+    const response = await axios.post(apiUrl, {
+      model,
+      temperature: 0.2,
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: 'Return only JSON.' },
+        { role: 'user', content: buildEnsemblePrompt(tokenData, technicalDetails, headlines) },
+      ],
+    }, {
+      headers: { Authorization: `Bearer ${config.cerebras.apiKey}`, 'Content-Type': 'application/json' },
+      timeout: 12000,
+    });
+
+    const text = response.data?.choices?.[0]?.message?.content || '';
+    const parsed = parseSignalPayload(text);
+    return parsed ? { ...parsed, source: 'cerebras', model } : null;
+  } catch (err) {
+    const isRateLimit = err.response?.status === 429 || /429|rate.?limit|quota/i.test(err.message);
+    if (isRateLimit) {
+      const backoffMs = parseRetryAfterMs(err.message);
+      modelBackoff.cerebras = Date.now() + backoffMs;
+      logger.warn(`Cerebras rate-limited for ${tokenData.symbol}, backing off ${Math.round(backoffMs / 1000)}s`);
+    } else {
+      logger.warn(`Cerebras eval failed for ${tokenData.symbol}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+async function evaluateWithOpenRouter(tokenData, technicalDetails, headlines) {
+  if (config.openrouter?.enabled === false || !config.openrouter?.apiKey) return null;
+  if (Date.now() < modelBackoff.openrouter) return null;
+
+  const model = config.openrouter.model || 'meta-llama/llama-3.3-70b-instruct:free';
+  const apiUrl = config.openrouter.apiUrl || 'https://openrouter.ai/api/v1/chat/completions';
+
+  try {
+    const response = await axios.post(apiUrl, {
+      model,
+      temperature: 0.2,
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: 'Return only JSON.' },
+        { role: 'user', content: buildEnsemblePrompt(tokenData, technicalDetails, headlines) },
+      ],
+    }, {
+      headers: {
+        Authorization: `Bearer ${config.openrouter.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': config.openrouter.siteUrl || '',
+        'X-Title': config.openrouter.siteName || 'dex-trading-bot',
+      },
+      timeout: 20000,
+    });
+
+    const text = response.data?.choices?.[0]?.message?.content || '';
+    const parsed = parseSignalPayload(text);
+    return parsed ? { ...parsed, source: 'openrouter', model } : null;
+  } catch (err) {
+    const isRateLimit = err.response?.status === 429 || /429|rate.?limit|quota/i.test(err.message);
+    if (isRateLimit) {
+      modelBackoff.openrouter = Date.now() + 5 * 60 * 1000;
+      logger.warn(`OpenRouter rate-limited for ${tokenData.symbol}, backing off 5m`);
+    } else {
+      logger.warn(`OpenRouter eval failed for ${tokenData.symbol}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+async function evaluateWithSambanova(tokenData, technicalDetails, headlines) {
+  if (config.sambanova?.enabled === false || !config.sambanova?.apiKey) return null;
+  if (Date.now() < modelBackoff.sambanova) return null;
+
+  const model = config.sambanova.model || 'Meta-Llama-3.3-70B-Instruct';
+
+  if (!sambannovaClient) {
+    sambannovaClient = new OpenAI({
+      apiKey: config.sambanova.apiKey,
+      baseURL: 'https://api.sambanova.ai/v1',
+    });
+  }
+
+  try {
+    const response = await sambannovaClient.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: 'Return only JSON.' },
+        { role: 'user', content: buildEnsemblePrompt(tokenData, technicalDetails, headlines) },
+      ],
+    }, { timeout: 15000 });
+
+    const text = response?.choices?.[0]?.message?.content || '';
+    const parsed = parseSignalPayload(text);
+    return parsed ? { ...parsed, source: 'sambanova', model } : null;
+  } catch (err) {
+    const isRateLimit = err.status === 429 || /429|rate.?limit|quota/i.test(err.message);
+    if (isRateLimit) {
+      const backoffMs = parseRetryAfterMs(err.message);
+      modelBackoff.sambanova = Date.now() + backoffMs;
+      logger.warn(`SambaNova rate-limited for ${tokenData.symbol}, backing off ${Math.round(backoffMs / 1000)}s`);
+    } else {
+      logger.warn(`SambaNova eval failed for ${tokenData.symbol}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+async function evaluateWithTogether(tokenData, technicalDetails, headlines) {
+  if (config.together?.enabled === false || !config.together?.apiKey) return null;
+  if (Date.now() < modelBackoff.together) return null;
+
+  const model = config.together.model || 'meta-llama/Llama-3.3-70B-Instruct-Turbo';
+
+  if (!togetherClient) {
+    togetherClient = new OpenAI({
+      apiKey: config.together.apiKey,
+      baseURL: 'https://api.together.xyz/v1',
+    });
+  }
+
+  try {
+    const response = await togetherClient.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: 'Return only JSON.' },
+        { role: 'user', content: buildEnsemblePrompt(tokenData, technicalDetails, headlines) },
+      ],
+    }, { timeout: 15000 });
+
+    const text = response?.choices?.[0]?.message?.content || '';
+    const parsed = parseSignalPayload(text);
+    return parsed ? { ...parsed, source: 'together', model } : null;
+  } catch (err) {
+    const isRateLimit = err.status === 429 || /429|rate.?limit|quota/i.test(err.message);
+    if (isRateLimit) {
+      const backoffMs = parseRetryAfterMs(err.message);
+      modelBackoff.together = Date.now() + backoffMs;
+      logger.warn(`Together AI rate-limited for ${tokenData.symbol}, backing off ${Math.round(backoffMs / 1000)}s`);
+    } else {
+      logger.warn(`Together AI eval failed for ${tokenData.symbol}: ${err.message}`);
     }
     return null;
   }
@@ -313,6 +530,24 @@ async function evaluateToken(tokenData, technicalDetails) {
       },
     },
     {
+      key: 'cerebras',
+      run: async () => {
+        const result = await evaluateWithCerebras(tokenData, technicalDetails, await getHeadlines());
+        return result
+          ? { ...result, riskFlags: [...new Set([...(result.riskFlags || []), 'fallback_provider'])] }
+          : null;
+      },
+    },
+    {
+      key: 'nvidia',
+      run: async () => {
+        const result = await evaluateWithNvidia(tokenData, technicalDetails, await getHeadlines());
+        return result
+          ? { ...result, riskFlags: [...new Set([...(result.riskFlags || []), 'fallback_provider'])] }
+          : null;
+      },
+    },
+    {
       key: 'groq',
       run: async () => {
         const result = await evaluateWithGroq(tokenData, technicalDetails, await getHeadlines());
@@ -325,6 +560,33 @@ async function evaluateToken(tokenData, technicalDetails) {
       key: 'gemini',
       run: async () => {
         const result = await evaluateWithGemini(tokenData, technicalDetails, await getHeadlines());
+        return result
+          ? { ...result, riskFlags: [...new Set([...(result.riskFlags || []), 'fallback_provider'])] }
+          : null;
+      },
+    },
+    {
+      key: 'openrouter',
+      run: async () => {
+        const result = await evaluateWithOpenRouter(tokenData, technicalDetails, await getHeadlines());
+        return result
+          ? { ...result, riskFlags: [...new Set([...(result.riskFlags || []), 'fallback_provider'])] }
+          : null;
+      },
+    },
+    {
+      key: 'sambanova',
+      run: async () => {
+        const result = await evaluateWithSambanova(tokenData, technicalDetails, await getHeadlines());
+        return result
+          ? { ...result, riskFlags: [...new Set([...(result.riskFlags || []), 'fallback_provider'])] }
+          : null;
+      },
+    },
+    {
+      key: 'together',
+      run: async () => {
+        const result = await evaluateWithTogether(tokenData, technicalDetails, await getHeadlines());
         return result
           ? { ...result, riskFlags: [...new Set([...(result.riskFlags || []), 'fallback_provider'])] }
           : null;

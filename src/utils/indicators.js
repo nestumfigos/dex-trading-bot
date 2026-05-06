@@ -119,19 +119,18 @@ function momentumSignal(priceHistory, volumeHistory, cfg) {
   const emaCrossDown = prevFastEma > prevSlowEma && fastEma < slowEma;
   const emaAlignedUp = fastEma > slowEma && prevFastEma >= prevSlowEma;
   const emaAlignedDown = fastEma < slowEma && prevFastEma <= prevSlowEma;
-  // Momentum trading requires RSI in ZONE (not oversold)
-  const rsiBuyMin = Number(rsiBuyThreshold || 45);
-  const rsiBuyMax = Number(rsiBuyMaxThreshold || 70);
-  const rsiInBuyZone = rsiVal >= rsiBuyMin && rsiVal <= rsiBuyMax;
-  // For momentum: allow RSI up to 95 (strong trend), only SELL on extreme overbought (>95) or crossdown
+  // Momentum trading: trust strong trends (RSI 40-95) with volume confirmation.
+  // Previously rejected RSI 75-95 as "too high" — that excluded the strongest setups.
+  const rsiBuyMin = Number(rsiBuyThreshold || 40);
+  const rsiBuyMax = Number(rsiBuyMaxThreshold || 95);
+  const rsiAllowsBuy = rsiVal >= rsiBuyMin && rsiVal <= rsiBuyMax;
+  // Only flag extreme overbought above 95 (parabolic exhaustion)
   const rsiExtreme = rsiVal > 95;
   const hasVolumeSpike = Number.isFinite(spike) && spike >= volumeSpikeMultiplier;
   const bullishTrend = emaCrossUp || (cfg.allowTrendContinuation && emaAlignedUp);
 
   let signal = 'HOLD';
-  if (bullishTrend && rsiInBuyZone && hasVolumeSpike) signal = 'BUY';
-  // Also allow BUY on bullish trend + volume spike even if RSI slightly high (80-95 is still strong trend)
-  else if (bullishTrend && hasVolumeSpike && rsiVal >= rsiBuyMin) signal = 'BUY';
+  if (bullishTrend && rsiAllowsBuy && hasVolumeSpike) signal = 'BUY';
   else if (emaCrossDown || (cfg.allowTrendContinuation && emaAlignedDown) || rsiExtreme) signal = 'SELL';
 
   return {
@@ -149,4 +148,36 @@ function momentumSignal(priceHistory, volumeHistory, cfg) {
   };
 }
 
-module.exports = { ema, rsi, volumeSpike, adx, momentumSignal };
+function computeRegime(prices = [], volumes = [], window = 20) {
+  if (prices.length < window + 2) return { label: 'unknown', family: 'unknown', confidence: 0, realizedVol: 0, momentum: 0 };
+  const slice = prices.map(Number).filter(Number.isFinite).slice(-(window + 1));
+  if (slice.length < window + 1) return { label: 'unknown', family: 'unknown', confidence: 0, realizedVol: 0, momentum: 0 };
+  const returns = slice.slice(1).map((p, i) => (slice[i] > 0 ? Math.log(p / slice[i]) : 0));
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
+  const realizedVol = Math.sqrt(variance) * 100;
+  const momentum = slice[0] > 0 ? ((slice[slice.length - 1] - slice[0]) / slice[0]) * 100 : 0;
+  const fastEmaVal = ema(slice, Math.min(8, Math.floor(window / 3)));
+  const slowEmaVal = ema(slice, Math.min(21, window));
+  let label, family, confidence;
+  if (realizedVol > 5) {
+    label = momentum > 3 ? 'high_volatility_up' : momentum < -3 ? 'high_volatility_down' : 'high_volatility';
+    family = 'volatile';
+    confidence = Math.min(90, Math.round(realizedVol * 10));
+  } else if (fastEmaVal && slowEmaVal && fastEmaVal > slowEmaVal * 1.005) {
+    label = 'uptrend';
+    family = 'trend_up';
+    confidence = Math.min(85, Math.round(Math.abs(momentum) * 8));
+  } else if (fastEmaVal && slowEmaVal && fastEmaVal < slowEmaVal * 0.995) {
+    label = 'downtrend';
+    family = 'trend_down';
+    confidence = Math.min(85, Math.round(Math.abs(momentum) * 8));
+  } else {
+    label = 'ranging';
+    family = 'ranging';
+    confidence = 55;
+  }
+  return { label, family, confidence: Math.max(20, confidence), realizedVol: Number(realizedVol.toFixed(2)), momentum: Number(momentum.toFixed(2)) };
+}
+
+module.exports = { ema, rsi, volumeSpike, adx, momentumSignal, computeRegime };

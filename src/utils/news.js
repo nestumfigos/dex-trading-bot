@@ -7,7 +7,7 @@ const CRYPTOPANIC_KEY = process.env.CRYPTOPANIC_API_KEY || '';
 const CRYPTOCOMPARE_BASE = 'https://min-api.cryptocompare.com/data/v2/news/';
 const REDDIT_BASE = 'https://www.reddit.com/r/CryptoCurrency/new.json';
 const COINDESK_RSS = 'https://www.coindesk.com/arc/outboundfeeds/rss/';
-const NEWS_CACHE_TTL_MS = Math.max(60_000, Number(process.env.NEWS_CACHE_TTL_MS || 180_000));
+const NEWS_CACHE_TTL_MS = Math.max(30_000, Number(process.env.NEWS_CACHE_TTL_MS || 60_000));
 
 const sourceState = {
   CryptoPanic: { cooldownUntil: 0 },

@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
+let anthropicBackoffUntil = 0;
 const VALID_SIGNALS = new Set(['BUY', 'HOLD', 'SELL']);
 
 function clamp(value, min, max) {
@@ -111,6 +112,9 @@ function buildPrompt(tokenData, technicalDetails) {
     mlMASignal: technicalDetails.ml?.maSignal || 0,
     marketRegime: technicalDetails.marketRegime || null,
     dynamicVolumeSpikeMultiplier: technicalDetails.dynamicVolumeSpikeMultiplier || null,
+    operatorKnowledge: Array.isArray(technicalDetails.operatorKnowledge)
+      ? technicalDetails.operatorKnowledge.slice(0, 8)
+      : [],
     walletClustering: buildWalletClusteringContext(tokenData, technicalDetails),
   };
   const technical = {
@@ -171,6 +175,9 @@ async function evaluateToken(tokenData, technicalDetails) {
   if (!config.anthropic?.enabled || !config.anthropic?.apiKey) {
     return null;
   }
+  if (Date.now() < anthropicBackoffUntil) {
+    return null;
+  }
 
   const startedAt = Date.now();
 
@@ -219,8 +226,24 @@ async function evaluateToken(tokenData, technicalDetails) {
       raw: text,
     });
   } catch (err) {
-    const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    logger.warn(`Anthropic evaluation failed: ${details}`);
+    const details = err.response?.data ? JSON.stringify(err.response.data) : (err.message || 'unknown error');
+    const status = Number(err.response?.status || 0);
+    const lowBalance = /credit balance is too low|insufficient|billing|payment required/i.test(details);
+    const authIssue = status === 401 || status === 403;
+    const rateLimited = status === 429 || /rate.?limit|too many requests|quota/i.test(details);
+
+    if (lowBalance) {
+      anthropicBackoffUntil = Date.now() + (6 * 60 * 60 * 1000);
+      logger.warn('Anthropic disabled for 21600s due to low/invalid credits.');
+    } else if (authIssue) {
+      anthropicBackoffUntil = Date.now() + (30 * 60 * 1000);
+      logger.warn('Anthropic disabled for 1800s due to auth error (401/403).');
+    } else if (rateLimited) {
+      anthropicBackoffUntil = Date.now() + (5 * 60 * 1000);
+      logger.warn('Anthropic rate-limited; backing off 300s.');
+    } else {
+      logger.warn(`Anthropic evaluation failed: ${details}`);
+    }
     return null;
   }
 }

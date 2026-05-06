@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(netstat -tlnp)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3002 -ErrorAction SilentlyContinue)",
+      "Bash(killall -9 node npm)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(\"Done\")",
+      "Bash(curl -s http://localhost:3002)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3002 -State Listen -ErrorAction SilentlyContinue)",
+      "Bash(curl -s http://localhost:3001/api/status)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3; \"Processes killed, waiting for bots to start...\"; Get-Content \"C:\\\\Users\\\\User_\\\\Desktop\\\\dex-trading-bot\\\\data\\\\state.json\" | ConvertFrom-Json | Select-Object -ExpandProperty portfolio | Select-Object @{N=\"Mode\";E={\"live\"}}, safeMode, balance, @{N=\"OpenPositions\";E={$_.positions.PSObject.Properties.Count}})",
+      "Bash(curl -s http://localhost:3001)",
+      "Bash(ipconfig)",
+      "Bash(netstat -ant)",
+      "Bash(pkill -f \"node src/index.js\")",
+      "Bash(npm start *)",
+      "Bash(taskkill /F /IM node.exe)",
+      "PowerShell(Stop-Process -Force)",
+      "PowerShell(\"All node processes terminated\")",
+      "Bash(tee /tmp/current-run.log)",
+      "Bash(tee /tmp/bot-run.log)",
+      "Bash(tee /tmp/bot-final.log)",
+      "Bash(tee /tmp/live-bot.log)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Fix: Pass exchange parameter to applyIntelligentModelReview *)"
+    ]
+  }
+}

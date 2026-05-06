@@ -16,6 +16,15 @@
         <span id="scan-counter-mismatch-badge" class="scan-counter-badge hidden" title="Active scan counter mismatches (evaluated vs scanned)"></span>
       </div>
       <div class="actions">
+        <a class="btn secondary" href="/sql-report.html?report=overview" target="_blank" rel="noopener noreferrer">SQL Overview</a>
+        <a class="btn secondary" href="/sql-report.html?report=breakdown" target="_blank" rel="noopener noreferrer">SQL Breakdown</a>
+        <a class="btn secondary" href="/sql-report.html?report=memory" target="_blank" rel="noopener noreferrer">SQL Memory</a>
+        <a class="btn secondary" href="/sql-report.html?report=overview#model-version-panel" target="_blank" rel="noopener noreferrer">Models</a>
+        <a class="btn secondary" href="/sql-report.html?report=overview#sentiment-panel" target="_blank" rel="noopener noreferrer">Sentiment</a>
+        <a class="btn secondary" href="/sql-report.html?report=overview#rl-policy-panel" target="_blank" rel="noopener noreferrer">RL Policies</a>
+        <a class="btn secondary" href="/sql-report.html?report=overview#hybrid-route-panel" target="_blank" rel="noopener noreferrer">Hybrid Routes</a>
+        <a class="btn secondary" href="/sql-report.html?report=overview#approval-panel" target="_blank" rel="noopener noreferrer">Approvals</a>
+        <a class="btn secondary" href="/sql-report.html?report=overview#rotation-debug-panel" target="_blank" rel="noopener noreferrer">Rotation Debug</a>
         <button id="pause-button" class="btn secondary" type="button">Pause Live Updates</button>
         <button id="refresh-button" class="btn" type="button">Refresh Now</button>
       </div>
@@ -38,6 +47,18 @@
 
     <section class="panel">
       <div class="panel-head">
+        <h2>Research Jobs</h2>
+        <div class="actions">
+          <button id="research-run-nightly" class="btn secondary small" type="button">Run Nightly Now</button>
+          <button id="research-refresh" class="btn secondary small" type="button">Refresh Jobs</button>
+        </div>
+      </div>
+      <div id="research-status-line" class="muted">Waiting for research jobs...</div>
+      <div id="research-jobs-list" class="list compact-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
         <h2>Chain Health</h2>
         <span
           class="metric-legend"
@@ -54,6 +75,7 @@
       <button class="tab" data-tab="tracked" type="button">Tracked Tokens</button>
       <button class="tab" data-tab="signals" type="button">Signals</button>
       <button class="tab" data-tab="trades" type="button">Trades</button>
+      <button class="tab" data-tab="agent-actions" type="button" id="tab-agent-actions-button">Agent Actions</button>
       <button class="tab" data-tab="correlation" type="button">Correlation</button>
     </nav>
 
@@ -101,7 +123,7 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Token</th><th class="sortable" data-sort="chain">Chain</th><th>Price</th><th>24h</th><th>Liquidity</th><th class="sortable" data-sort="signal">Signal</th><th>RSI</th><th>Not Bought Reason</th></tr>
+            <tr><th>Token</th><th class="sortable" data-sort="chain">Chain</th><th>Price</th><th>24h</th><th>Liquidity</th><th class="sortable" data-sort="signal">Signal</th><th>RSI</th><th>Not Bought Reason</th><th>Last Updated</th></tr>
           </thead>
           <tbody id="tracked-body"></tbody>
         </table>
@@ -134,6 +156,16 @@
       <div class="panel-foot"><button id="trades-more" class="btn secondary small" type="button">Show More</button></div>
     </section>
 
+    <section id="tab-agent-actions" class="panel tab-panel">
+      <div class="panel-head">
+        <h2>Agent Actions</h2>
+        <span id="agent-actions-count" class="muted">0</span>
+      </div>
+      <div class="muted" style="margin-bottom:8px;">Short action phrases from memory, intelligence, and gate diagnostics.</div>
+      <div id="agent-actions-list" class="list"></div>
+      <div class="panel-foot"><button id="agent-actions-more" class="btn secondary small" type="button">Show More</button></div>
+    </section>
+
     <section id="tab-correlation" class="panel tab-panel">
       <div class="panel-head">
         <h2>Correlation Heat Map</h2>
@@ -148,7 +180,7 @@
     </section>
   </main>
 
-  <script src="/dashboard.js?v=20260426-1" defer></script>
+  <script src="/dashboard.js?v=20260503-1" defer></script>
   <script type="module" src="/ai-status.js?v=20260426-1"></script>
 </body>
 </html>

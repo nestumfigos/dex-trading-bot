@@ -1,0 +1,217 @@
+'use strict';
+
+const { STRATEGY_KNOWLEDGE_BASE } = require('./strategy-knowledge');
+
+class StrategyBrain {
+  constructor({ config, logger, portfolio }) {
+    this.config = config;
+    this.logger = logger;
+    this.portfolio = portfolio;
+  }
+
+  ensureState() {
+    if (!this.portfolio.learning || typeof this.portfolio.learning !== 'object') {
+      this.portfolio.learning = {};
+    }
+
+    if (!this.portfolio.learning.strategyBrain || typeof this.portfolio.learning.strategyBrain !== 'object') {
+      this.portfolio.learning.strategyBrain = {
+        profiles: {},
+        adjustments: {},
+        mutations: [],
+        knownArchetypes: Object.keys(STRATEGY_KNOWLEDGE_BASE),
+      };
+    }
+
+    const brain = this.portfolio.learning.strategyBrain;
+    if (!brain.profiles || typeof brain.profiles !== 'object') brain.profiles = {};
+    if (!brain.adjustments || typeof brain.adjustments !== 'object') brain.adjustments = {};
+    if (!Array.isArray(brain.mutations)) brain.mutations = [];
+    if (!Array.isArray(brain.knownArchetypes)) brain.knownArchetypes = Object.keys(STRATEGY_KNOWLEDGE_BASE);
+
+    return brain;
+  }
+
+  getBookArchetype(tokenData = {}, details = {}) {
+    const rsi = Number(tokenData?.rsi);
+    const move24h = Math.abs(Number(tokenData?.priceChange24h || 0));
+    const rawSpike = Number(tokenData?.volumeSpike || tokenData?.volumeSpikePct || details?.volumeSpike || 0);
+    const volumeSpike = Number.isFinite(rawSpike) ? rawSpike : 0;
+    const buyRatioRecentPct = Number(tokenData?.buyRatioRecentPct || details?.buyRatioRecentPct || 0);
+
+    if (move24h >= 20 && volumeSpike >= 2.2 && buyRatioRecentPct >= 55) return 'livermore_momentum';
+    if (Number.isFinite(rsi) && rsi >= 36 && rsi <= 52 && move24h <= 10) return 'connors_short_term_reversion';
+    if (move24h >= 8 && volumeSpike >= 1.7) return 'turtle_breakout';
+    if (buyRatioRecentPct >= 58 && volumeSpike >= 1.4) return 'tape_flow_follow_through';
+    return 'canonical_momentum_baseline';
+  }
+
+  getProfileKey(chainKey, strategyName, archetype) {
+    return `${String(chainKey || '').toLowerCase()}:${String(strategyName || 'momentum').toLowerCase()}:${String(archetype || 'canonical_momentum_baseline').toLowerCase()}`;
+  }
+
+  getAdjustmentKey(chainKey, strategyName) {
+    return `${String(chainKey || '').toLowerCase()}:${String(strategyName || 'momentum').toLowerCase()}`;
+  }
+
+  getAdaptiveParameters(chainKey, strategyName, strategyCfg = {}, tokenData = {}) {
+    const brain = this.ensureState();
+    const key = this.getAdjustmentKey(chainKey, strategyName);
+    const adj = brain.adjustments[key] || {
+      rsiBuyThresholdDelta: 0,
+      rsiBuyMaxThresholdDelta: 0,
+      volumeSpikeMultiplierDelta: 0,
+      minPriceChange24hPctAllDelta: 0,
+      maxPriceChange24hPctAllDelta: 0,
+      updatedAt: null,
+    };
+
+    const adapted = {
+      rsiBuyThreshold: Number(strategyCfg?.rsiBuyThreshold || 45) + Number(adj.rsiBuyThresholdDelta || 0),
+      rsiBuyMaxThreshold: Number(strategyCfg?.rsiBuyMaxThreshold || 70) + Number(adj.rsiBuyMaxThresholdDelta || 0),
+      volumeSpikeMultiplier: Number(strategyCfg?.volumeSpikeMultiplier || 2) + Number(adj.volumeSpikeMultiplierDelta || 0),
+      minPriceChange24hPctAll: Number(strategyCfg?.minPriceChange24hPctAll || 0) + Number(adj.minPriceChange24hPctAllDelta || 0),
+      maxPriceChange24hPctAll: Number(strategyCfg?.maxPriceChange24hPctAll || 0) + Number(adj.maxPriceChange24hPctAllDelta || 0),
+    };
+
+    adapted.rsiBuyThreshold = Math.max(20, Math.min(70, adapted.rsiBuyThreshold));
+    adapted.rsiBuyMaxThreshold = Math.max(adapted.rsiBuyThreshold + 5, Math.min(90, adapted.rsiBuyMaxThreshold));
+    adapted.volumeSpikeMultiplier = Math.max(1.1, Math.min(4, adapted.volumeSpikeMultiplier));
+    adapted.minPriceChange24hPctAll = Math.max(0, Math.min(25, adapted.minPriceChange24hPctAll));
+    adapted.maxPriceChange24hPctAll = Math.max(20, Math.min(160, adapted.maxPriceChange24hPctAll));
+
+    const archetype = this.getBookArchetype(tokenData, {});
+    const profileKey = this.getProfileKey(chainKey, strategyName, archetype);
+    const archetypeKnowledge = STRATEGY_KNOWLEDGE_BASE[archetype] || STRATEGY_KNOWLEDGE_BASE.canonical_momentum_baseline;
+    return {
+      ...adapted,
+      archetype,
+      archetypeFamily: archetypeKnowledge.family,
+      profileKey,
+      adjustmentKey: key,
+      hasAdjustments: Object.values(adj).some((v) => typeof v === 'number' && Math.abs(v) > 0.0001),
+    };
+  }
+
+  shouldAllowEntry(chainKey, strategyName, archetype) {
+    const brain = this.ensureState();
+    const profileKey = this.getProfileKey(chainKey, strategyName, archetype);
+    const profile = brain.profiles[profileKey];
+    if (!profile) return { allowed: true, profileKey };
+
+    const minSamples = Math.max(6, Number(this.config.risk?.brainMinSamples || 8));
+    const blockWinRatePct = Math.max(0, Number(this.config.risk?.brainBlockWinRatePct || 22));
+    const exploreBypassPct = Math.max(0, Number(this.config.risk?.brainExploreBypassPct || 7));
+    if (Number(profile.samples || 0) < (minSamples * 2)) return { allowed: true, profileKey };
+
+    const winRate = Number(profile.recentWinRatePct || 50);
+    if (winRate >= blockWinRatePct) return { allowed: true, profileKey };
+
+    const roll = Math.random() * 100;
+    if (roll < exploreBypassPct) {
+      return {
+        allowed: true,
+        profileKey,
+        exploreBypass: true,
+      };
+    }
+
+    return {
+      allowed: false,
+      profileKey,
+      reason: `brain profile blocked (${profileKey}) due to low recent win-rate ${winRate.toFixed(1)}%`,
+    };
+  }
+
+  recordClosedTrade(position = {}, finalTradePnl = 0) {
+    if (this.config.risk?.brainEnabled === false) return;
+
+    const brain = this.ensureState();
+    const chainKey = String(position.chainKey || position.chain || '').toLowerCase();
+    const strategyName = String(position.strategy || 'momentum').toLowerCase();
+    const archetype = String(position.brainArchetype || 'canonical_momentum_baseline').toLowerCase();
+    if (!chainKey) return;
+
+    const profileKey = this.getProfileKey(chainKey, strategyName, archetype);
+    const profile = brain.profiles[profileKey] || {
+      samples: 0,
+      wins: 0,
+      losses: 0,
+      recentOutcomes: [],
+      recentPnl: [],
+      recentWinRatePct: 50,
+      totalPnl: 0,
+      updatedAt: null,
+    };
+
+    const win = Number(finalTradePnl || 0) >= 0 ? 1 : 0;
+    const window = Math.max(10, Number(this.config.risk?.brainWindowTrades || 40));
+    profile.samples += 1;
+    if (win) profile.wins += 1;
+    else profile.losses += 1;
+    profile.totalPnl += Number(finalTradePnl || 0);
+    profile.recentOutcomes = [...profile.recentOutcomes, win].slice(-window);
+    profile.recentPnl = [...profile.recentPnl, Number(finalTradePnl || 0)].slice(-window);
+    const recentWins = profile.recentOutcomes.reduce((s, v) => s + (v ? 1 : 0), 0);
+    profile.recentWinRatePct = profile.recentOutcomes.length > 0
+      ? (recentWins / profile.recentOutcomes.length) * 100
+      : 50;
+    profile.updatedAt = new Date().toISOString();
+    brain.profiles[profileKey] = profile;
+
+    this.mutateParametersIfReady(chainKey, strategyName, profileKey, profile);
+  }
+
+  mutateParametersIfReady(chainKey, strategyName, profileKey, profile) {
+    const minSamples = Math.max(6, Number(this.config.risk?.brainMinSamples || 8));
+    if (Number(profile.samples || 0) < minSamples) return;
+
+    const brain = this.ensureState();
+    const key = this.getAdjustmentKey(chainKey, strategyName);
+    const curr = brain.adjustments[key] || {
+      rsiBuyThresholdDelta: 0,
+      rsiBuyMaxThresholdDelta: 0,
+      volumeSpikeMultiplierDelta: 0,
+      minPriceChange24hPctAllDelta: 0,
+      maxPriceChange24hPctAllDelta: 0,
+      updatedAt: null,
+    };
+
+    const low = Math.max(0, Number(this.config.risk?.brainLowWinRatePct || 35));
+    const high = Math.max(low, Number(this.config.risk?.brainHighWinRatePct || 60));
+    const winRate = Number(profile.recentWinRatePct || 50);
+
+    let changed = false;
+    if (winRate < low) {
+      curr.volumeSpikeMultiplierDelta = Math.min(1.2, Number(curr.volumeSpikeMultiplierDelta || 0) + 0.1);
+      curr.minPriceChange24hPctAllDelta = Math.min(8, Number(curr.minPriceChange24hPctAllDelta || 0) + 0.5);
+      curr.rsiBuyThresholdDelta = Math.max(-8, Number(curr.rsiBuyThresholdDelta || 0) - 0.5);
+      changed = true;
+    } else if (winRate >= high) {
+      curr.volumeSpikeMultiplierDelta = Math.max(-0.4, Number(curr.volumeSpikeMultiplierDelta || 0) - 0.05);
+      curr.minPriceChange24hPctAllDelta = Math.max(-2, Number(curr.minPriceChange24hPctAllDelta || 0) - 0.25);
+      curr.rsiBuyThresholdDelta = Math.min(5, Number(curr.rsiBuyThresholdDelta || 0) + 0.25);
+      changed = true;
+    }
+
+    if (!changed) return;
+
+    curr.updatedAt = new Date().toISOString();
+    brain.adjustments[key] = curr;
+    brain.mutations.unshift({
+      timestamp: new Date().toISOString(),
+      key,
+      sourceProfile: profileKey,
+      recentWinRatePct: winRate,
+      adjustment: { ...curr },
+    });
+    if (brain.mutations.length > 120) brain.mutations = brain.mutations.slice(0, 120);
+
+    this.logger.warn(
+      `Strategy brain mutation ${key} from ${profileKey}: winRate=${winRate.toFixed(1)}% ` +
+      `adj={volSpikeDelta:${curr.volumeSpikeMultiplierDelta.toFixed(2)}, minMoveDelta:${curr.minPriceChange24hPctAllDelta.toFixed(2)}, rsiMinDelta:${curr.rsiBuyThresholdDelta.toFixed(2)}}`
+    );
+  }
+}
+
+module.exports = StrategyBrain;

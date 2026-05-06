@@ -1,0 +1,28 @@
+{
+  "summary": "AI-driven self-improvement: The bot's performance is mediocre, with a 37.5% win rate and a profit factor of 0.173. The average w",
+  "reason": "The bot's performance is mediocre, with a 37.5% win rate and a profit factor of 0.173. The average win is $0.17, while the average loss is $0.59. Given the recent trades, it seems the bot is struggling to maintain momentum, with several orphaned tiers and failed rotations. Considering the market context, I'll suggest three targeted code improvements to tighten filters when losing and loosen them when winning.",
+  "changes": [
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "defaultBscCoreMinLiquidityUsd = parseFloat(process.env.BSC_CORE_MIN_LIQUIDITY_USD || process.env.BSC_TOP_UNIVERSE_MIN_LIQUIDITY_USD || '80000') || 80000;",
+      "replacement": "defaultBscCoreMinLiquidityUsd = parseFloat(process.env.BSC_CORE_MIN_LIQUIDITY_USD || process.env.BSC_TOP_UNIVERSE_MIN_LIQUIDITY_USD || '60000') || 60000;",
+      "rationale": "Tighten the filter for BSC Core Min Liquidity USD when losing to reduce exposure to volatile assets."
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "src/momentum.js",
+      "pattern": "const defaultBscExplorationMinVolume24hUsd = parseFloat(process.env.BSC_EXPLORATION_MIN_VOLUME_24H_USD || '80000') || 80000;",
+      "replacement": "const defaultBscExplorationMinVolume24hUsd = parseFloat(process.env.BSC_EXPLORATION_MIN_VOLUME_24H_USD || '70000') || 70000;",
+      "rationale": "Loosen the filter for BSC Exploration Min Volume 24h USD when winning to allow for more opportunities."
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "src/rotation.js",
+      "pattern": "const defaultBscYoungTokenMinLiquidityUsd = parseFloat(process.env.BSC_YOUNG_TOKEN_MIN_LIQUIDITY_USD || String(Math.max(defaultBscMinLiquidityUsd * 2, defaultBscCoreMinLiquidityUsd))) || Math.max(defaultBscMinLiquidityUsd * 2, defaultBscCoreMinLiquidityUsd);",
+      "replacement": "const defaultBscYoungTokenMinLiquidityUsd = parseFloat(process.env.BSC_YOUNG_TOKEN_MIN_LIQUIDITY_USD || String(Math.max(defaultBscMinLiquidityUsd * 1.5, defaultBscCoreMinLiquidityUsd))) || Math.max(defaultBscMinLiquidityUsd * 1.5, defaultBscCoreMinLiquidityUsd);",
+      "rationale": "Tighten the filter for BSC Young Token Min Liquidity USD when losing to reduce exposure to volatile assets."
+    }
+  ],
+  "_source": "ai_driven"
+}

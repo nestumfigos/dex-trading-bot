@@ -1,0 +1,2966 @@
+{
+  "version": 2,
+  "tradeLessons": [
+    {
+      "id": "1777735294635-9m7v8",
+      "ts": 1777735294635,
+      "symbol": "TAG",
+      "chain": "BSC",
+      "strategy": "momentum",
+      "entryConditions": {
+        "symbol": "TAG",
+        "chain": "BSC",
+        "strategy": "momentum",
+        "entryPrice": 0.001098,
+        "exitReason": "unknown",
+        "holdDurationHours": "NaN",
+        "pnlPct": "0.00"
+      },
+      "outcome": "win",
+      "pnlUsd": 1.8027146005137717,
+      "pnlPct": 0,
+      "reason": "unknown",
+      "lesson": "Avoid trades with unknown RSI and volume spike at entry, as this may indicate insufficient analysis.",
+      "hitCount": 0
+    },
+    {
+      "id": "1777733494617-au2oi",
+      "ts": 1777733494617,
+      "symbol": "BLUAI",
+      "chain": "BSC",
+      "strategy": "momentum",
+      "entryConditions": {
+        "symbol": "BLUAI",
+        "chain": "BSC",
+        "strategy": "momentum",
+        "entryPrice": 0.01168,
+        "exitReason": "unknown",
+        "holdDurationHours": "NaN",
+        "pnlPct": "0.00"
+      },
+      "outcome": "win",
+      "pnlUsd": 0.4503819075172686,
+      "pnlPct": 0,
+      "reason": "unknown",
+      "lesson": "Avoid trades with unknown RSI and volume spike at entry, as this lack of information may lead to suboptimal entry decisions.",
+      "hitCount": 0
+    },
+    {
+      "id": "1777732850826-j3pzc",
+      "ts": 1777732850826,
+      "symbol": "TAC",
+      "chain": "BSC",
+      "strategy": "momentum",
+      "entryConditions": {
+        "symbol": "TAC",
+        "chain": "BSC",
+        "strategy": "momentum",
+        "entryPrice": 0.02247,
+        "exitReason": "unknown",
+        "holdDurationHours": "NaN",
+        "pnlPct": "0.00"
+      },
+      "outcome": "loss",
+      "pnlUsd": -0.6954433141563872,
+      "pnlPct": 0,
+      "reason": "unknown",
+      "lesson": "Avoid trading TAC on BSC with unknown RSI and volume spike at entry, as it may indicate poor market conditions.",
+      "hitCount": 50
+    },
+    {
+      "id": "1777725166777-bim7l",
+      "ts": 1777725166777,
+      "symbol": "哭哭马",
+      "chain": "BSC",
+      "strategy": "momentum",
+      "entryConditions": {
+        "symbol": "哭哭马",
+        "chain": "BSC",
+        "strategy": "momentum",
+        "entryPrice": 0.002321,
+        "exitReason": "unknown",
+        "holdDurationHours": "NaN",
+        "pnlPct": "0.00"
+      },
+      "outcome": "win",
+      "pnlUsd": 0.6292532397289792,
+      "pnlPct": 0,
+      "reason": "unknown",
+      "lesson": "Avoid trades with unknown RSI at entry and exit reason, as this may indicate a lack of clear momentum signals.",
+      "hitCount": 0
+    }
+  ],
+  "strategyDiscoveries": [
+    {
+      "id": "1777757485512-h3eml",
+      "ts": 1777757485512,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent trading signals",
+      "proposedAction": "re-evaluate trading strategy",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777756855735-0fsmc",
+      "ts": 1777756855735,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overemphasis on AI",
+      "proposedAction": "diversify portfolio",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777753885128-qrd12",
+      "ts": 1777753885128,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inadequate risk management",
+      "proposedAction": "set stop-losses",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777753885128-lruow",
+      "ts": 1777753885128,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overemphasis on Bitcoin",
+      "proposedAction": "diversify portfolio",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777753256082-5n8o4",
+      "ts": 1777753256082,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inadequate risk management",
+      "proposedAction": "stress testing",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777753256082-cyo5t",
+      "ts": 1777753256082,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "over-reliance on AI",
+      "proposedAction": "human oversight",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777750285352-2s0dk",
+      "ts": 1777750285352,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "market sentiment shift",
+      "proposedAction": "adjust strategy",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777746865046-doue2",
+      "ts": 1777746865046,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "market sentiment analysis",
+      "proposedAction": "improve sentiment model",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777746056639-dsn0b",
+      "ts": 1777746056639,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "macro sentiment is bullish",
+      "proposedAction": "review portfolio allocation",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777746056639-kptjl",
+      "ts": 1777746056639,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "bot stats show 175% win rate",
+      "proposedAction": "increase position size",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777745209524-m6il9",
+      "ts": 1777745209524,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "sector rotation",
+      "proposedAction": "adjust sector allocation",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777745209524-n1do6",
+      "ts": 1777745209524,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overbought conditions",
+      "proposedAction": "rebalance portfolio",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777744255916-w9qhl",
+      "ts": 1777744255916,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "sector trends",
+      "proposedAction": "adjust watchlist",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777744255916-lidh5",
+      "ts": 1777744255916,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "bot performance",
+      "proposedAction": "rebalance portfolio",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777741790066-9g0jr",
+      "ts": 1777741790066,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Review risk management",
+      "proposedAction": "Adjust stop-loss and position sizing",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777741790066-4n8th",
+      "ts": 1777741790066,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Monitor sector trends",
+      "proposedAction": "Adjust watchlist and strategy",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777741440725-yywy9",
+      "ts": 1777741440725,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bot performance can be improved with more timely market analysis",
+      "proposedAction": "Improve market analysis tools",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777741440725-jgviq",
+      "ts": 1777741440725,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bot performance can be improved with more diversified trading strategies",
+      "proposedAction": "Diversify trading strategies",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777741185748-nwyeb",
+      "ts": 1777741185748,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bitcoin miner Riot's shares jump",
+      "proposedAction": "analyze data center deals",
+      "urgency": "low",
+      "applied": false
+    },
+    {
+      "id": "1777741185746-012l5",
+      "ts": 1777741185746,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "AI agent forms its own company",
+      "proposedAction": "research AI adoption in crypto",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777740838325-bkzfh",
+      "ts": 1777740838325,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Market volatility due to regulatory uncertainty",
+      "proposedAction": "Diversify portfolio to mitigate risk",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777740838324-96gk0",
+      "ts": 1777740838324,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand driving price surge",
+      "proposedAction": "Monitor institutional adoption trends",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777740706263-q1ves",
+      "ts": 1777740706263,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Position sizing is conservative",
+      "proposedAction": "Increase position sizing",
+      "urgency": "low",
+      "applied": false
+    },
+    {
+      "id": "1777740706263-uco29",
+      "ts": 1777740706263,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Trade frequency is high",
+      "proposedAction": "Reduce trade frequency",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777740494794-ibxsa",
+      "ts": 1777740494794,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "underweight on DeFi",
+      "proposedAction": "increase exposure",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777740494794-bj8pq",
+      "ts": 1777740494794,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overemphasis on AI narratives",
+      "proposedAction": "rebalance sector allocation",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777739978923-cqv20",
+      "ts": 1777739978923,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional demand driving price growth",
+      "proposedAction": "increase exposure to institutional-friendly tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777739964146-fduby",
+      "ts": 1777739964146,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Limited sector diversification",
+      "proposedAction": "Invest in multiple sectors",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777739964146-vjzuu",
+      "ts": 1777739964146,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Inadequate risk management",
+      "proposedAction": "Implement stop-loss orders",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777737998860-t5gyj",
+      "ts": 1777737998860,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "sector analysis",
+      "proposedAction": "expand sector coverage",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777737998860-9jzfg",
+      "ts": 1777737998860,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "market sentiment analysis",
+      "proposedAction": "refine sentiment scoring model",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777736588230-yzpbh",
+      "ts": 1777736588230,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional demand driving market",
+      "proposedAction": "increase exposure to institutional-friendly tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777736198569-ezgen",
+      "ts": 1777736198569,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Market sentiment is strongly bullish",
+      "proposedAction": "Adjust strategy to be more aggressive",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777736198569-lwtdj",
+      "ts": 1777736198569,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional investment is driving the market",
+      "proposedAction": "Increase exposure to institutional-friendly tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777735618221-lns90",
+      "ts": 1777735618221,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Regulatory clarity impacting market sentiment",
+      "proposedAction": "Stay up-to-date with regulatory developments",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777735618220-xz9yw",
+      "ts": 1777735618220,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand driving market growth",
+      "proposedAction": "Monitor institutional investment trends",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777733658301-k3amv",
+      "ts": 1777733658301,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Insufficient data on AIOT and SKYAI",
+      "proposedAction": "Conduct further research on these tokens",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777732818590-7dyk1",
+      "ts": 1777732818590,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Increased institutional demand",
+      "proposedAction": "Monitor and adjust portfolio allocation",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777732779088-pei5b",
+      "ts": 1777732779088,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bot performance is below average",
+      "proposedAction": "Adjust trading parameters",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777731139087-ps4ws",
+      "ts": 1777731139087,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inadequate risk management",
+      "proposedAction": "review stop-losses",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777731139087-4kc7r",
+      "ts": 1777731139087,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overreliance on AI",
+      "proposedAction": "diversify portfolio",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777727699622-0o7c5",
+      "ts": 1777727699622,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inadequate risk management",
+      "proposedAction": "implement stop-loss orders",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777727699622-oopj9",
+      "ts": 1777727699622,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent trading strategy",
+      "proposedAction": "re-evaluate position sizing",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777727622295-o0w6r",
+      "ts": 1777727622295,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overemphasis on AI-related tokens",
+      "proposedAction": "diversify portfolio",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777727622294-bk0qv",
+      "ts": 1777727622294,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent trading performance",
+      "proposedAction": "reassess trading strategy",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777727047827-me9id",
+      "ts": 1777727047827,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bot performance can be improved with more diversified portfolio",
+      "proposedAction": "Diversify portfolio across multiple sectors",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777727016026-ju6gj",
+      "ts": 1777727016026,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand is driving price surge",
+      "proposedAction": "Monitor for potential regulatory changes",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777727016026-m53q4",
+      "ts": 1777727016026,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Market sentiment is highly bullish",
+      "proposedAction": "Adjust position sizing",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777726324917-5fyo1",
+      "ts": 1777726324917,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "The market is reacting positively to regulatory news",
+      "proposedAction": "Monitor regulatory developments closely",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777726313185-qelut",
+      "ts": 1777726313185,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Insufficient exposure to DeFi tokens",
+      "proposedAction": "Increase allocation to DeFi",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777726313185-ln9tw",
+      "ts": 1777726313185,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Overemphasis on AI-related tokens",
+      "proposedAction": "Diversify portfolio",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777725592288-jk0zj",
+      "ts": 1777725592288,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bot performance could be improved with more diversified portfolio",
+      "proposedAction": "Diversify portfolio by adding more tokens",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777725577741-9mqlc",
+      "ts": 1777725577741,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional demand driving price",
+      "proposedAction": "increase exposure to institutional-friendly tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777724451346-lcov9",
+      "ts": 1777724451346,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Monitor AI and DeFi sectors for potential market shifts",
+      "proposedAction": "Adjust watchlist and strategy accordingly",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777723982750-1zbyc",
+      "ts": 1777723982750,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Rising oil prices",
+      "proposedAction": "Monitor energy sector",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777723982750-tcy6k",
+      "ts": 1777723982750,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Increased institutional demand for Bitcoin",
+      "proposedAction": "Adjust portfolio allocation",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777723049978-4d5c1",
+      "ts": 1777723049978,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Recent market trends suggest a focus on AI and DeFi",
+      "proposedAction": "Increase exposure to AI and DeFi tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777722545468-ak77t",
+      "ts": 1777722545468,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "High volatility in the market",
+      "proposedAction": "Monitor and adjust positions accordingly",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777722533888-m97se",
+      "ts": 1777722533888,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "increased institutional demand",
+      "proposedAction": "increase exposure to AI and DeFi sectors",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777722533888-zco9b",
+      "ts": 1777722533888,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "overbought conditions",
+      "proposedAction": "rebalance portfolio",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777722159525-nqgit",
+      "ts": 1777722159525,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "high institutional demand",
+      "proposedAction": "position sizing review",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777722159525-negb1",
+      "ts": 1777722159525,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent market sentiment",
+      "proposedAction": "review market indicators",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777722147167-6hm0m",
+      "ts": 1777722147167,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "limited sector diversification",
+      "proposedAction": "expand sector analysis",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777722147166-7n134",
+      "ts": 1777722147166,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent trading volume",
+      "proposedAction": "increase market data collection",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777721790268-ro30x",
+      "ts": 1777721790268,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Monitor AI-related news",
+      "proposedAction": "Adjust strategy to account for AI-related risks",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777721778824-fbmz3",
+      "ts": 1777721778824,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Insufficient sector analysis",
+      "proposedAction": "Conduct deeper sector research",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777721778824-blxcy",
+      "ts": 1777721778824,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Over-reliance on AI narratives",
+      "proposedAction": "Diversify sector exposure",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777721061862-q0qo4",
+      "ts": 1777721061862,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "over-reliance on news sources",
+      "proposedAction": "expand news source diversity",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777721061862-p6q8h",
+      "ts": 1777721061862,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent trading hours",
+      "proposedAction": "improve trading hours consistency",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777721047672-g3h5g",
+      "ts": 1777721047672,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Recent price movements indicate a strong trend",
+      "proposedAction": "Increase position size",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777717642265-ycgb7",
+      "ts": 1777717642265,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Regulatory clarity improving market sentiment",
+      "proposedAction": "Monitor regulatory updates for potential market impact",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777717642265-acfzm",
+      "ts": 1777717642265,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand driving market growth",
+      "proposedAction": "Increase exposure to institutional-focused tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777717609616-poapr",
+      "ts": 1777717609616,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Market sentiment is bullish",
+      "proposedAction": "Monitor for potential corrections",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777717609615-zlo9p",
+      "ts": 1777717609615,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Recent price movements suggest a potential rally",
+      "proposedAction": "Increase exposure to momentum tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777714010289-2ezz1",
+      "ts": 1777714010289,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional demand driving market",
+      "proposedAction": "increase exposure to institutional-friendly tokens",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777714010289-5jz7q",
+      "ts": 1777714010289,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "recent price action suggests momentum",
+      "proposedAction": "adjust position size",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777713998390-v7izq",
+      "ts": 1777713998390,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Limited information on institutional demand for LAB and ACN",
+      "proposedAction": "Conduct deeper analysis on institutional investors",
+      "urgency": "low",
+      "applied": false
+    },
+    {
+      "id": "1777713998390-ek5xc",
+      "ts": 1777713998390,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Insufficient data on AI adoption in crypto",
+      "proposedAction": "Monitor AI-related news and trends",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777710442126-qohk1",
+      "ts": 1777710442127,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Regulatory clarity is a key theme",
+      "proposedAction": "Stay up-to-date with regulatory news",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777710442126-qsp86",
+      "ts": 1777710442126,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand is driving BTC price",
+      "proposedAction": "Monitor institutional adoption metrics",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777710409827-y0ohj",
+      "ts": 1777710409827,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Open positions have low liquidity",
+      "proposedAction": "Monitor and adjust positions",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777710409827-7qwh4",
+      "ts": 1777710409827,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Bot stats show 38% win rate",
+      "proposedAction": "Adjust trading strategy",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777706812505-0nwx6",
+      "ts": 1777706812505,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand to drive bitcoin market cap to $16 trillion by 2030",
+      "proposedAction": "Monitor institutional adoption metrics",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777703256954-b5vxf",
+      "ts": 1777703256954,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand is driving the market",
+      "proposedAction": "Monitor institutional activity",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777703211776-xg4o0",
+      "ts": 1777703211776,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "AI pivot by Riot may impact market",
+      "proposedAction": "Monitor AI-related news",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777703211776-cdhhl",
+      "ts": 1777703211776,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand driving market growth",
+      "proposedAction": "Monitor institutional activity",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777699597650-nx5ez",
+      "ts": 1777699597650,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional demand and AI pivot suggest momentum trade",
+      "proposedAction": "increase exposure to momentum tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777695996498-bhvwv",
+      "ts": 1777695996498,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Limited data on AI-powered trading strategies",
+      "proposedAction": "Research AI-powered trading strategies",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777695996498-xlh0l",
+      "ts": 1777695996498,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Inconsistent sentiment across news sources",
+      "proposedAction": "Improve sentiment analysis model",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777692410272-cgpnc",
+      "ts": 1777692410272,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent NFT sector performance",
+      "proposedAction": "reassess NFT sector analysis",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777692399753-alt1h",
+      "ts": 1777692399753,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional demand driving market cap",
+      "proposedAction": "adjust portfolio allocation",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777688990415-kmgnv",
+      "ts": 1777688990415,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "need to improve AI adoption analysis",
+      "proposedAction": "research AI adoption trends",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777688990414-kswgj",
+      "ts": 1777688990414,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent market sentiment",
+      "proposedAction": "reassess market analysis",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777688978456-ltdeq",
+      "ts": 1777688978456,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent price predictions",
+      "proposedAction": "reassess market sentiment",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777688621813-c7nue",
+      "ts": 1777688621813,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Consider diversifying portfolio to reduce exposure to NFT and Gaming sectors",
+      "proposedAction": "Rebalance portfolio to include more DeFi and Institutional tokens",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777688621813-v0xby",
+      "ts": 1777688621813,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Monitor AI-related news for potential market impact",
+      "proposedAction": "Adjust watchlist to include AI-focused tokens",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777688609303-4bwau",
+      "ts": 1777688609303,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "Institutional demand driving market",
+      "proposedAction": "Monitor institutional activity",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777688316443-lqa2y",
+      "ts": 1777688316443,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "AI agent forming its own company",
+      "proposedAction": "research AI adoption in crypto",
+      "urgency": "high",
+      "applied": false
+    },
+    {
+      "id": "1777688316442-vihei",
+      "ts": 1777688316442,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "inconsistent XRP sentiment",
+      "proposedAction": "monitor XRP price action",
+      "urgency": "medium",
+      "applied": false
+    },
+    {
+      "id": "1777688314855-fphie",
+      "ts": 1777688314855,
+      "source": "intelligence/groq",
+      "theme": "AI",
+      "sector": "AI",
+      "insight": "institutional adoption and AI pivot are driving market sentiment",
+      "proposedAction": "monitor institutional demand and AI-related news",
+      "urgency": "high",
+      "applied": false
+    }
+  ],
+  "tokenBlacklist": {
+    "XRP": {
+      "reason": "Intelligence: Stuck price despite positive sentiment",
+      "source": "intelligence",
+      "addedAt": 1777710442127,
+      "expiresAt": 1777753642127
+    },
+    "ACN": {
+      "reason": "Deep research: Extremely low liquidity and market activity pose a significant risk of price manipulation and volatility.",
+      "source": "deep_research",
+      "addedAt": 1777721061199,
+      "expiresAt": 1777764261199
+    },
+    "LUNC": {
+      "reason": "Intelligence: price drop",
+      "source": "intelligence",
+      "addedAt": 1777749656046,
+      "expiresAt": 1777792856046
+    },
+    "BTC": {
+      "reason": "Deep research: The low trading activity and price may indicate a lack of market interest, making it a high-risk investment.",
+      "source": "deep_research",
+      "addedAt": 1777741446263,
+      "expiresAt": 1777784646263
+    },
+    "ABC": {
+      "reason": "Intelligence: Lack of adoption",
+      "source": "intelligence",
+      "addedAt": 1777732779088,
+      "expiresAt": 1777775979088
+    },
+    "LAB": {
+      "reason": "Intelligence: Price drop due to market volatility",
+      "source": "intelligence",
+      "addedAt": 1777740838326,
+      "expiresAt": 1777784038326
+    },
+    "PEPE": {
+      "reason": "Intelligence: price volatility",
+      "source": "intelligence",
+      "addedAt": 1777753256082,
+      "expiresAt": 1777796456082
+    },
+    "NFT": {
+      "reason": "Intelligence: market volatility",
+      "source": "intelligence",
+      "addedAt": 1777756855735,
+      "expiresAt": 1777800055735
+    },
+    "BIO": {
+      "reason": "Deep research: Low trading volume and liquidity may result in significant price fluctuations and potential losses.",
+      "source": "deep_research",
+      "addedAt": 1777736609668,
+      "expiresAt": 1777779809668
+    },
+    "TRUMP": {
+      "reason": "Intelligence: price volatility",
+      "source": "intelligence",
+      "addedAt": 1777746865047,
+      "expiresAt": 1777790065047
+    },
+    "TAO": {
+      "reason": "Intelligence: Price volatility",
+      "source": "intelligence",
+      "addedAt": 1777741440726,
+      "expiresAt": 1777784640726
+    }
+  },
+  "tokenPreferences": {
+    "BTC": {
+      "boost": 20,
+      "reason": "Deep research: The token, BTC on any, has experienced a price surge, with a 0.79% increase in the last 24 hours. However, on-chain data",
+      "researchSummary": "The token, BTC on any, has experienced a price surge, with a 0.79% increase in the last 24 hours. However, on-chain data suggests relatively low liquidity and a limited number of transactions, which may indicate a potential market imbalance. Further analysis is required to confirm the token's stability.",
+      "addedAt": 1777753890630,
+      "expiresAt": 1777782690630
+    },
+    "ETH": {
+      "boost": 20,
+      "reason": "Deep research: Ethereum (ETH) is experiencing a stable trend with a 0.51% 24h change, driven by the Ethereum Foundation sale. On-chain ",
+      "researchSummary": "Ethereum (ETH) is experiencing a stable trend with a 0.51% 24h change, driven by the Ethereum Foundation sale. On-chain data shows moderate liquidity and a significant number of transactions. The intelligence confidence is 80/100, indicating a relatively high level of accuracy.",
+      "addedAt": 1777753898740,
+      "expiresAt": 1777782698740
+    },
+    "TAO": {
+      "boost": 22.5,
+      "reason": "CoinDesk 20 performance",
+      "researchSummary": "",
+      "addedAt": 1777736601355,
+      "expiresAt": 1777758201355
+    },
+    "LAB": {
+      "boost": 17.5,
+      "reason": "Deep research: LAB token on KuCoin has experienced a significant 292% price surge in the last 24 hours, driven by a recent price surge.",
+      "researchSummary": "LAB token on KuCoin has experienced a significant 292% price surge in the last 24 hours, driven by a recent price surge. On-chain data indicates moderate liquidity and a relatively high number of transactions. However, the high volatility and lack of historical data make it a high-risk investment.",
+      "addedAt": 1777757490925,
+      "expiresAt": 1777786290925
+    },
+    "TETHER": {
+      "boost": 15,
+      "reason": "Deep research: Tether (USDT) has shown a stable performance with a 24h change of -0.03% and a 24h volume of $940.58M, indicating a rela",
+      "researchSummary": "Tether (USDT) has shown a stable performance with a 24h change of -0.03% and a 24h volume of $940.58M, indicating a relatively low trading activity. Despite a significant Q1 profit of $1.04 billion, the on-chain data suggests a cautious approach due to low liquidity and a moderate intelligence confidence of 70/100.",
+      "addedAt": 1777727643830,
+      "expiresAt": 1777756443830
+    },
+    "BIO": {
+      "boost": 12.5,
+      "reason": "Deep research: BIO token on KuCoin has a moderate market sentiment, with a 24h change of -0.07% and a 24h volume of $8,080. The low liq",
+      "researchSummary": "BIO token on KuCoin has a moderate market sentiment, with a 24h change of -0.07% and a 24h volume of $8,080. The low liquidity and transaction count suggest a relatively inactive market. However, the on-chain data does not provide strong evidence for a buy or sell signal.",
+      "addedAt": 1777753277619,
+      "expiresAt": 1777782077619
+    },
+    "LTC": {
+      "boost": 15,
+      "reason": "price movement",
+      "researchSummary": "",
+      "addedAt": 1777738020084,
+      "expiresAt": 1777759620084
+    },
+    "MEGA": {
+      "boost": 15,
+      "reason": "Deep research: MEGA token on KuCoin has shown growing adoption, but its low trading volume and undefined 24h change raise concerns. Des",
+      "researchSummary": "MEGA token on KuCoin has shown growing adoption, but its low trading volume and undefined 24h change raise concerns. Despite a relatively high liquidity, the token's on-chain data suggests a cautious approach. Further analysis is needed to confirm the token's potential.",
+      "addedAt": 1777739977550,
+      "expiresAt": 1777768777550
+    },
+    "TNT": {
+      "boost": 15,
+      "reason": "Deep research: TNT on BSC shows a relatively stable price with a 0.6% 24h change, but its low liquidity and volume raise concerns. The ",
+      "researchSummary": "TNT on BSC shows a relatively stable price with a 0.6% 24h change, but its low liquidity and volume raise concerns. The token's price is influenced by Tether's Q1 profit and reserve buffer, which could impact its value. Further analysis is needed to determine its potential for growth.",
+      "addedAt": 1777740859907,
+      "expiresAt": 1777769659907
+    },
+    "TETH": {
+      "boost": 18.75,
+      "reason": "Deep research: TETH's price is relatively stable with a minor 24h decline, despite Tether's significant Q1 profit announcement. On-chai",
+      "researchSummary": "TETH's price is relatively stable with a minor 24h decline, despite Tether's significant Q1 profit announcement. On-chain data shows moderate liquidity and trading activity. Overall, the token's performance suggests a cautious approach.",
+      "addedAt": 1777741811620,
+      "expiresAt": 1777770611620
+    },
+    "LUNC": {
+      "boost": 15,
+      "reason": "Deep research: LUNC on KuCoin has a moderate market anticipation and a 70% intelligence confidence. The token's price is stable at $0.0",
+      "researchSummary": "LUNC on KuCoin has a moderate market anticipation and a 70% intelligence confidence. The token's price is stable at $0.002420 with a 0.05% 24h change, but its 24h volume is relatively low at $94,73. Overall, it's a cautious investment opportunity.",
+      "addedAt": 1777757499020,
+      "expiresAt": 1777786299020
+    },
+    "PENGU": {
+      "boost": 17.5,
+      "reason": "new listing",
+      "researchSummary": "",
+      "addedAt": 1777756876830,
+      "expiresAt": 1777778476830
+    },
+    "BIT": {
+      "boost": 16.25,
+      "reason": "Deep research: BIT token on KuCoin shows a stable price with a minor 24h change of -0.37%, indicating a relatively calm market. The 24h",
+      "researchSummary": "BIT token on KuCoin shows a stable price with a minor 24h change of -0.37%, indicating a relatively calm market. The 24h volume is moderate at $174,953.52, and liquidity is substantial at $4,754,898.37. The potential for stablecoin adoption, as mentioned in the article, could contribute to its growth.",
+      "addedAt": 1777726346432,
+      "expiresAt": 1777755146432
+    },
+    "KCS": {
+      "boost": 20,
+      "reason": "Deep research: KCS token on KuCoin has a 90% intelligence confidence level. The token's price is $8.33 with a 0.25% 24h change, indicat",
+      "researchSummary": "KCS token on KuCoin has a 90% intelligence confidence level. The token's price is $8.33 with a 0.25% 24h change, indicating a relatively stable market. However, the 24h volume of $21,195.86 and liquidity of $4,870,625.5 suggest a relatively low trading activity.",
+      "addedAt": 1777757507101,
+      "expiresAt": 1777786307101
+    }
+  },
+  "evolutionOutcomes": [],
+  "knowledgeBase": [
+    {
+      "id": "knowledge:02a3c09b685353dd",
+      "ts": 1777842976151,
+      "category": "promotion_governance",
+      "insight": "Successful paper experiments should become promotion candidates only after sample-size gates, regime tags, walk-forward validation, paper/live discrepancy scoring, shadow observation, canary sizing, and rollback rules pass.",
+      "source": "operator_training_playbook",
+      "confidence": 99
+    },
+    {
+      "id": "knowledge:cdb4ffe6d9e56f9c",
+      "ts": 1777842976151,
+      "category": "risk_management",
+      "insight": "Every strategy family must respect position sizing, stop logic, drawdown halts, diversification, chain/venue heat, slippage limits, quote freshness, and reconciliation before any learned edge is allowed to trade live.",
+      "source": "operator_training_playbook",
+      "confidence": 99
+    },
+    {
+      "id": "knowledge:ab239425a72a2352",
+      "ts": 1777842976151,
+      "category": "data_quality",
+      "insight": "For sparse or newly discovered tokens, prefer conservative rule-based filters, liquidity checks, quote freshness, honeypot/security checks, and small/no size instead of predictive modeling.",
+      "source": "operator_training_playbook",
+      "confidence": 95
+    },
+    {
+      "id": "knowledge:f8708e99bbd97e71",
+      "ts": 1777842976151,
+      "category": "data_quality",
+      "insight": "Do not run heavyweight ML, RL, hyperopt, or validation on sparse history. Require sufficient OHLCV coverage across bull, bear, sideways, high-volatility, and low-volatility windows before trusting model or parameter results.",
+      "source": "operator_training_playbook",
+      "confidence": 97
+    },
+    {
+      "id": "knowledge:9096e0af3184805b",
+      "ts": 1777842976150,
+      "category": "hybrid_agentic_ai",
+      "insight": "When ML/RL/LLM signals disagree with deterministic risk controls, risk controls win. When paper and live performance conflict, live execution quality and discrepancy scoring downgrade paper-derived knowledge.",
+      "source": "operator_training_playbook",
+      "confidence": 98
+    },
+    {
+      "id": "knowledge:3a2a1b557bfcf1fd",
+      "ts": 1777842976150,
+      "category": "hybrid_agentic_ai",
+      "insight": "Use the LLM as a reasoning layer for thesis, contradiction checks, sentiment interpretation, and risk review. Keep execution permission deterministic through structured proposal, risk review, approval, and telemetry records.",
+      "source": "operator_training_playbook",
+      "confidence": 96
+    },
+    {
+      "id": "knowledge:44dd43a0e3e6e90d",
+      "ts": 1777842976150,
+      "category": "sentiment_analysis",
+      "insight": "Sentiment sources must be scored for freshness, confidence, and source quality. Decay old sentiment quickly and quarantine news-driven lessons during abnormal regimes or rumor spikes.",
+      "source": "operator_training_playbook",
+      "confidence": 91
+    },
+    {
+      "id": "knowledge:b19dd74ac7e75aa4",
+      "ts": 1777842976150,
+      "category": "sentiment_analysis",
+      "insight": "Use news, Reddit, X/social volume, Fear and Greed, and on-chain activity as context features. Sentiment can boost, filter, or veto a quantitative setup, but it should not override stale quotes, liquidity limits, or risk gates.",
+      "source": "operator_training_playbook",
+      "confidence": 94
+    },
+    {
+      "id": "knowledge:5c992e62801da143",
+      "ts": 1777842976150,
+      "category": "reinforcement_learning",
+      "insight": "RL policies must not control live execution directly. They can propose candidates in paper/shadow mode, then must pass the same promotion gates, discrepancy checks, canary sizing, and rollback rules as any other strategy.",
+      "source": "operator_training_playbook",
+      "confidence": 97
+    },
+    {
+      "id": "knowledge:7d441cd1aa74c1fa",
+      "ts": 1777842976150,
+      "category": "reinforcement_learning",
+      "insight": "Treat reinforcement learning as research-only until proven. The RL state should include price, indicators, volatility, sentiment, liquidity, position state, and regime; rewards must penalize drawdown, churn, slippage, and failed exits.",
+      "source": "operator_training_playbook",
+      "confidence": 90
+    },
+    {
+      "id": "knowledge:9678826c925d9a04",
+      "ts": 1777842976150,
+      "category": "ml_predictive_models",
+      "insight": "Prefer simple models first, such as Random Forest or XGBoost-style tabular learners, before deep time-series models. LSTM/Transformer models require larger clean datasets and stricter out-of-sample tests.",
+      "source": "operator_training_playbook",
+      "confidence": 90
+    },
+    {
+      "id": "knowledge:573d4aea1ef50dd5",
+      "ts": 1777842976150,
+      "category": "ml_predictive_models",
+      "insight": "ML models may predict direction, volatility, risk, or signal quality from OHLCV, indicators, sentiment, and on-chain features, but they should act as scoring inputs or vetoes until walk-forward and paper/live discrepancy evidence is strong.",
+      "source": "operator_training_playbook",
+      "confidence": 92
+    },
+    {
+      "id": "knowledge:c0d31862eeba3cfa",
+      "ts": 1777842976150,
+      "category": "agent_training",
+      "insight": "Use hyperopt and benchmark research to tune parameters, but reject candidates that only work on one window, one symbol, or one regime. Prefer robust edges over maximum backtest profit.",
+      "source": "operator_training_playbook",
+      "confidence": 94
+    },
+    {
+      "id": "knowledge:49a8e68976dc2a7b",
+      "ts": 1777842976150,
+      "category": "agent_training",
+      "insight": "Validation hierarchy is mandatory: historical backtest, walk-forward validation, paper trading, shadow live, canary live, then scaled live. Paper profits alone are not enough for live promotion.",
+      "source": "operator_training_playbook",
+      "confidence": 98
+    },
+    {
+      "id": "knowledge:c479107f0bfb8482",
+      "ts": 1777842976150,
+      "category": "agent_training",
+      "insight": "Use rule-based technical analysis as the execution baseline: RSI, MACD, EMA trend, Bollinger Bands, support/resistance, volume, and price action must be deterministic, logged, and backtested before live use.",
+      "source": "operator_training_playbook",
+      "confidence": 96
+    },
+    {
+      "id": "knowledge:2d6fa4194cfef57c",
+      "ts": 1777842976150,
+      "category": "chart_patterns",
+      "insight": "Do not use chart patterns alone. Combine them with support/resistance, RSI or MACD divergence, and on-chain or sentiment context before acting.",
+      "source": "operator_playbook",
+      "confidence": 95
+    },
+    {
+      "id": "knowledge:9e8dd3b341cc40a7",
+      "ts": 1777842976149,
+      "category": "chart_patterns",
+      "insight": "Continuation structures worth tracking on established tokens: flag, pennant, rectangle, symmetrical triangle, ascending triangle, and descending triangle. Use breakout direction and volume follow-through as confirmation.",
+      "source": "operator_playbook",
+      "confidence": 88
+    },
+    {
+      "id": "knowledge:7c5470385a3a5ed7",
+      "ts": 1777842976149,
+      "category": "chart_patterns",
+      "insight": "Bearish reversal patterns to respect on established tokens: double top, triple top, head and shoulders, rising wedge, and bump-and-run style exhaustion. Treat these as reasons to avoid fresh longs unless invalidated.",
+      "source": "operator_playbook",
+      "confidence": 90
+    },
+    {
+      "id": "knowledge:dfef9e388d3361fa",
+      "ts": 1777842976149,
+      "category": "chart_patterns",
+      "insight": "Bullish reversal patterns to monitor on established tokens: double bottom, triple bottom, inverse head and shoulders, falling wedge, and rounding bottom. Require support hold plus breakout confirmation.",
+      "source": "operator_playbook",
+      "confidence": 90
+    },
+    {
+      "id": "knowledge:b59eadf45686aed9",
+      "ts": 1777842976149,
+      "category": "chart_patterns",
+      "insight": "For established liquid tokens, trust 4H and 1D chart patterns more than low-timeframe noise. Prefer BTC, ETH, major alts, and names doing at least $50M daily volume.",
+      "source": "operator_playbook",
+      "confidence": 92
+    },
+    {
+      "ts": 1777757507101,
+      "category": "token_research",
+      "insight": "KCS: The main risk is the low trading activity, which may lead to increased price volatility if there's a significant market movement.",
+      "source": "user",
+      "confidence": 80,
+      "id": "knowledge:d8f49815e60dff82"
+    },
+    {
+      "ts": 1777757499021,
+      "category": "token_research",
+      "insight": "LUNC: The low 24h volume and limited on-chain activity may lead to significant price fluctuations.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:d74c86c6a9fd023b"
+    },
+    {
+      "ts": 1777757490926,
+      "category": "token_research",
+      "insight": "LAB: High volatility and lack of historical data make it a high-risk investment.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:2215a5de09543fc1"
+    },
+    {
+      "ts": 1777757485512,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by regulatory developments and innovation in AI and DeFi sectors.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:cec5640ca9a8a4a5"
+    },
+    {
+      "ts": 1777756869352,
+      "category": "token_research",
+      "insight": "LUNC: Main risk: potential for price volatility if market sentiment shifts or new developments impact the token's value.",
+      "source": "CoinTelegraph",
+      "confidence": 75,
+      "id": "knowledge:43bccccdd9c64a0b"
+    },
+    {
+      "ts": 1777756861112,
+      "category": "token_research",
+      "insight": "LAB: High price volatility and lack of historical data pose significant risks to potential investors.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:1fd109135ec3ca99"
+    },
+    {
+      "ts": 1777756855735,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by AI and DeFi innovations, with regulatory risks and market volatility to watch out for.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:efc0866f8d70353e"
+    },
+    {
+      "ts": 1777753906611,
+      "category": "token_research",
+      "insight": "LUNC: The main risk is the potential for high volatility due to low liquidity and market activity.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:d35939d6a3c709a6"
+    },
+    {
+      "ts": 1777753898740,
+      "category": "token_research",
+      "insight": "ETH: The main risk is a potential market downturn due to the highly volatile nature of cryptocurrencies.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:cb12764d44b36769"
+    },
+    {
+      "ts": 1777753890631,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sharp price correction due to the token's low liquidity and limited market activity.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:0611d15a8861bc35"
+    },
+    {
+      "ts": 1777753885128,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, while stablecoin regulation remains uncertain.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:e8fe6cd5771c4cef"
+    },
+    {
+      "ts": 1777753277619,
+      "category": "token_research",
+      "insight": "BIO: The main risk is the low liquidity, which may lead to large price fluctuations if there is a significant market movement.",
+      "source": "CoinTelegraph",
+      "confidence": 50,
+      "id": "knowledge:ea6430b100fe9411"
+    },
+    {
+      "ts": 1777753269592,
+      "category": "token_research",
+      "insight": "LAB: The main risk is that the token's price increase may be driven by speculation, potentially leading to a sharp correction if market sentiment shifts.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:334bdf7e8bf2ce92"
+    },
+    {
+      "ts": 1777753261628,
+      "category": "token_research",
+      "insight": "LUNC: Lack of liquidity and low trading volume may lead to significant price fluctuations.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:524ba4f6fffe79bd"
+    },
+    {
+      "ts": 1777753256083,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, while AI and DeFi sectors show signs of growth.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:6f09d31b6f192c9d"
+    },
+    {
+      "ts": 1777750306870,
+      "category": "token_research",
+      "insight": "BTC: The low liquidity and 24h transactions of 2 may lead to significant price swings, making it a high-risk investment.",
+      "source": "CoinDesk",
+      "confidence": 85,
+      "id": "knowledge:371448bf179ddc5d"
+    },
+    {
+      "ts": 1777750298830,
+      "category": "token_research",
+      "insight": "LUNC: The main risk is the token's low liquidity, which may lead to significant price fluctuations.",
+      "source": "CoinTelegraph",
+      "confidence": 80,
+      "id": "knowledge:124c239ea5d70f2d"
+    },
+    {
+      "ts": 1777750294029,
+      "category": "token_research",
+      "insight": "LAB: Main risk: potential price correction due to low liquidity and high volatility.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:2495a7c9be432097"
+    },
+    {
+      "ts": 1777750285353,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend, driven by AI and DeFi innovation, with Bitcoin and other tokens showing price surges.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:36c14fd0199437a1"
+    },
+    {
+      "ts": 1777749677667,
+      "category": "token_research",
+      "insight": "TETH: The main risk lies in the uncertainty of the intelligence confidence, which may lead to unexpected market movements.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:36cae2cc6be34f03"
+    },
+    {
+      "ts": 1777749669499,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the potential for volatility following the foundation sale, which could impact ETH's price.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:385097d84d895ce0"
+    },
+    {
+      "ts": 1777749661435,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the low liquidity, which may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:adee5e476ba7a744"
+    },
+    {
+      "ts": 1777749656046,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges as Senate clears Clarity Act hurdle, stablecoin adoption on the rise.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:72939cd754240e6d"
+    },
+    {
+      "ts": 1777746886608,
+      "category": "token_research",
+      "insight": "KCS: The low trading volume and liquidity may lead to sharp price movements, making it a high-risk investment.",
+      "source": "self",
+      "confidence": 50,
+      "id": "knowledge:20b8802b6df56850"
+    },
+    {
+      "ts": 1777746878427,
+      "category": "token_research",
+      "insight": "ETH: Potential risk due to foundation sales, which may impact token price.",
+      "source": "CoinTelegraph",
+      "confidence": 80,
+      "id": "knowledge:20fef27c96824dd5"
+    },
+    {
+      "ts": 1777746870625,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity and low transactions may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:6588a8ee5459b820"
+    },
+    {
+      "ts": 1777746865047,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, while Ethereum Foundation sells more ether to BitMine.",
+      "source": "intelligence/groq",
+      "confidence": 72,
+      "id": "knowledge:600ecac8f9947768"
+    },
+    {
+      "ts": 1777746078062,
+      "category": "token_research",
+      "insight": "LAB: The main risk is the potential for a sharp price correction due to the high volatility and low Intelligence confidence.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:6596e46d7fbda4b3"
+    },
+    {
+      "ts": 1777746070038,
+      "category": "token_research",
+      "insight": "ETH: Potential price volatility due to foundation sales and market sentiment.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:08a1d2ae38d80d8c"
+    },
+    {
+      "ts": 1777746062095,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sudden drop in price due to low market activity and limited liquidity.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:38714ac5527bd374"
+    },
+    {
+      "ts": 1777746056640,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, while AI and DeFi sectors gain traction.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:3e0fda00f5912f45"
+    },
+    {
+      "ts": 1777745231022,
+      "category": "token_research",
+      "insight": "LAB: The main risk is the potential for a sharp price correction due to the high volatility and low liquidity.",
+      "source": "CoinTelegraph",
+      "confidence": 50,
+      "id": "knowledge:4f70fd8bb5fe5944"
+    },
+    {
+      "ts": 1777745222935,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the uncertainty in the market due to the foundation sale, which may impact the token's price volatility.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:07cfe76f771dd27e"
+    },
+    {
+      "ts": 1777745215085,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity may lead to price volatility and difficulties in executing large trades.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:898b21e3a0710a74"
+    },
+    {
+      "ts": 1777745209524,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, while DeFi and AI sectors gain traction.",
+      "source": "intelligence/groq",
+      "confidence": 72,
+      "id": "knowledge:cec75b861ccb3c15"
+    },
+    {
+      "ts": 1777744277452,
+      "category": "token_research",
+      "insight": "LAB: Potential for price correction due to high volatility and lack of fundamental data.",
+      "source": "coindesk",
+      "confidence": 90,
+      "id": "knowledge:ec56b0dae098a950"
+    },
+    {
+      "ts": 1777744269314,
+      "category": "token_research",
+      "insight": "ETH: Potential volatility due to the foundation sale and relatively low intelligence confidence.",
+      "source": "coindesk",
+      "confidence": 75,
+      "id": "knowledge:9c9b5595ede1a2dc"
+    },
+    {
+      "ts": 1777744261439,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sudden drop in price due to the low trading volume and limited market activity.",
+      "source": "coindesk",
+      "confidence": 80,
+      "id": "knowledge:56d68aa727532b2f"
+    },
+    {
+      "ts": 1777744255916,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, while AI and DeFi sectors show promise.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:6a65e64d1774d8e2"
+    },
+    {
+      "ts": 1777741811621,
+      "category": "token_research",
+      "insight": "TETH: Potential price volatility due to market reaction to Tether's profit announcement and its implications on the stablecoin market.",
+      "source": "CoinDesk",
+      "confidence": 75,
+      "id": "knowledge:d8c97763ce08e995"
+    },
+    {
+      "ts": 1777741803565,
+      "category": "token_research",
+      "insight": "LAB: Rapid price appreciation may be unsustainable, potentially leading to a sharp correction.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:a75ccadaaabd3a89"
+    },
+    {
+      "ts": 1777741795563,
+      "category": "token_research",
+      "insight": "BTC: Low market activity and liquidity may lead to price volatility and trading difficulties.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:d467c6c38530c92c"
+    },
+    {
+      "ts": 1777741790066,
+      "category": "market_macro",
+      "insight": "Bitcoin price above $78,000, AI and DeFi sectors trending, regulatory risks and market volatility to watch.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:821b820331e135dc"
+    },
+    {
+      "ts": 1777741462304,
+      "category": "token_research",
+      "insight": "LAB: Rapid price appreciation may lead to a sharp correction if market sentiment shifts or liquidity dries up.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:846cfc403d8ae6e4"
+    },
+    {
+      "ts": 1777741454208,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the potential impact of the Ethereum Foundation's sale on the market, which could lead to a price drop if it creates a sell-off.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:411ed3e118e3c5f0"
+    },
+    {
+      "ts": 1777741446264,
+      "category": "token_research",
+      "insight": "BTC: The low trading activity and price may indicate a lack of market interest, making it a high-risk investment.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:438c0e83f94fdc4f"
+    },
+    {
+      "ts": 1777741440727,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by regulatory clarity and innovation, with Bitcoin and Ethereum leading the charge.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:3341732a338c0c50"
+    },
+    {
+      "ts": 1777741207196,
+      "category": "token_research",
+      "insight": "LAB: Price volatility due to low liquidity and high transaction activity.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:0d95a55b66ee0798"
+    },
+    {
+      "ts": 1777741199170,
+      "category": "token_research",
+      "insight": "ETH: Potential volatility due to the uncertainty surrounding the Ethereum Foundation sale.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:27ea5f56d6d127cb"
+    },
+    {
+      "ts": 1777741191223,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sudden market downturn due to the low 24h volume and transactions.",
+      "source": "CoinDesk",
+      "confidence": 100,
+      "id": "knowledge:3431b9347927dc13"
+    },
+    {
+      "ts": 1777741185749,
+      "category": "market_macro",
+      "insight": "Bitcoin price continues to grow, driven by regulatory clarity and AI adoption.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:5cedae4a71587608"
+    },
+    {
+      "ts": 1777740859907,
+      "category": "token_research",
+      "insight": "TNT: Low liquidity and volume may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:2f748a96b648f255"
+    },
+    {
+      "ts": 1777740851781,
+      "category": "token_research",
+      "insight": "ETH: Potential market volatility due to underlying factors not yet accounted for.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:71fed4bcf5cc4660"
+    },
+    {
+      "ts": 1777740843881,
+      "category": "token_research",
+      "insight": "BTC: Low trading volume and liquidity may lead to price volatility.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:0787fde91195b040"
+    },
+    {
+      "ts": 1777740838326,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend due to regulatory clarity and institutional adoption, with BTC and ETH being top watchlist tokens.",
+      "source": "intelligence/groq",
+      "confidence": 80,
+      "id": "knowledge:a8ad6b0585b288ed"
+    },
+    {
+      "ts": 1777740727658,
+      "category": "token_research",
+      "insight": "LAB: Potential for price volatility due to high 24h change and low liquidity.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:7549b340c71b274d"
+    },
+    {
+      "ts": 1777740719776,
+      "category": "token_research",
+      "insight": "ETH: The main risk is a potential market correction due to the moderate 24h volume and relatively stable market.",
+      "source": "CoinTelegraph",
+      "confidence": 75,
+      "id": "knowledge:43285b11004f8ebc"
+    },
+    {
+      "ts": 1777740711786,
+      "category": "token_research",
+      "insight": "BTC: Main risk: Market may be due for a correction, given the low 24h transactions and stable price change.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:77e76b180795028b"
+    },
+    {
+      "ts": 1777740706264,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by institutional adoption and regulatory developments.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:5e225f62bf0f44d6"
+    },
+    {
+      "ts": 1777740500271,
+      "category": "token_research",
+      "insight": "BTC: Low volume and transaction count may lead to price volatility.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:c4832dbd44828667"
+    },
+    {
+      "ts": 1777740494794,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by institutional adoption and regulatory clarity, with AI and DeFi sectors leading the charge.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:dc07e4bb32ac1d39"
+    },
+    {
+      "ts": 1777740000350,
+      "category": "token_research",
+      "insight": "LAB: High volatility and potential price correction due to the sudden and extreme price increase.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:e5239c473c439948"
+    },
+    {
+      "ts": 1777739992610,
+      "category": "token_research",
+      "insight": "ETH: Main risk: market volatility due to the Ethereum Foundation's treasury strategy and potential changes in global economic conditions.",
+      "source": "CoinDesk",
+      "confidence": 85,
+      "id": "knowledge:697673d8d89f2741"
+    },
+    {
+      "ts": 1777739986012,
+      "category": "token_research",
+      "insight": "TETHER: The main risk is the undefined 24h change, which could indicate a volatile market.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:a6d468fdc640087c"
+    },
+    {
+      "ts": 1777739984435,
+      "category": "token_research",
+      "insight": "BTC: The main risk is that the low liquidity and market activity may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:da0ef26f0c1b5cd6"
+    },
+    {
+      "ts": 1777739978923,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by institutional adoption and regulatory clarity, with Bitcoin price above $78,000 and Ethereum's treasury strategy gaining attention.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:df63f1ca9dd64a04"
+    },
+    {
+      "ts": 1777739977550,
+      "category": "token_research",
+      "insight": "MEGA: Low trading volume and undefined price change may lead to significant market fluctuations.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:e770be8d4b71846f"
+    },
+    {
+      "ts": 1777739964146,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend, driven by regulatory clarity and growing adoption of AI and DeFi.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:9c346a79af1baf6d"
+    },
+    {
+      "ts": 1777738012351,
+      "category": "token_research",
+      "insight": "ETH: Potential price fluctuations due to foundation sales",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:18c56fa3968e7190"
+    },
+    {
+      "ts": 1777738004335,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sharp price drop due to low liquidity and limited trading activity.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:343f0bb40e8380c1"
+    },
+    {
+      "ts": 1777737998861,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by regulatory clarity and innovation, with key tokens to watch including BTC, ETH, and LTC.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:f9fd910c3651501a"
+    },
+    {
+      "ts": 1777736609669,
+      "category": "token_research",
+      "insight": "BIO: Low trading volume and liquidity may result in significant price fluctuations and potential losses.",
+      "source": "CoinTelegraph",
+      "confidence": 55,
+      "id": "knowledge:738f59c73c2d0c39"
+    },
+    {
+      "ts": 1777736593679,
+      "category": "token_research",
+      "insight": "LAB: Potential price correction due to overbought conditions",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:0f4af864bd86b6d8"
+    },
+    {
+      "ts": 1777736204028,
+      "category": "token_research",
+      "insight": "LAB: The main risk is a potential price correction due to the high volatility and liquidity levels.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:0e153433a08a412b"
+    },
+    {
+      "ts": 1777736198570,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a strong bullish sentiment driven by institutional investment and growing adoption of AI and DeFi technologies.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:53ad066a66588d7f"
+    },
+    {
+      "ts": 1777735639718,
+      "category": "token_research",
+      "insight": "LAB: The main risk is a potential price correction due to the token's high volatility and rapid price movement.",
+      "source": "CoinTelegraph",
+      "confidence": 60,
+      "id": "knowledge:11dc77558e1be78e"
+    },
+    {
+      "ts": 1777735631690,
+      "category": "token_research",
+      "insight": "ETH: The main risk is a potential decline in investor confidence due to the Ethereum Foundation's treasury strategy, which could impact the token's price.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:e538c09d2d083d4a"
+    },
+    {
+      "ts": 1777735623619,
+      "category": "token_research",
+      "insight": "BTC: Potential volatility due to low 24h volume and liquidity.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:66840f32bc3365d9"
+    },
+    {
+      "ts": 1777735618221,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by institutional adoption and regulatory clarity, with strong price action in BTC and ETH.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:dc45f3aa25443fce"
+    },
+    {
+      "ts": 1777733671726,
+      "category": "token_research",
+      "insight": "BTC: The main risk associated with this asset is its low trading volume, which may lead to significant price fluctuations in case of increased market activity.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:05a3b503a0b6dcf9"
+    },
+    {
+      "ts": 1777733663698,
+      "category": "token_research",
+      "insight": "LAB: The main risk is the potential for a sharp price correction if market interest wanes.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:85926e5ca81f32d4"
+    },
+    {
+      "ts": 1777733658302,
+      "category": "market_macro",
+      "insight": "The cryptocurrency market is experiencing a bullish trend driven by regulatory clarity and institutional adoption.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:4f2d9aa9763f2b11"
+    },
+    {
+      "ts": 1777732832143,
+      "category": "token_research",
+      "insight": "LAB: The main risk is the potential for a sharp price correction due to the high volatility and low intelligence confidence.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:531e50475fc989c9"
+    },
+    {
+      "ts": 1777732824064,
+      "category": "token_research",
+      "insight": "BTC: Low trading volume and transactions may lead to price volatility.",
+      "source": "CoinDesk",
+      "confidence": 85,
+      "id": "knowledge:ee512ec6b91c5cf2"
+    },
+    {
+      "ts": 1777732818591,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges to $78,000 as institutional demand drives growth and DeFi sector faces security concerns.",
+      "source": "intelligence/groq",
+      "confidence": 72,
+      "id": "knowledge:38c505497f840adc"
+    },
+    {
+      "ts": 1777732792556,
+      "category": "token_research",
+      "insight": "ETH: The main risk is that the low 24h volume may lead to sharp price movements if there is a significant buying or selling pressure in the future.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:1d0db3b3d181a56a"
+    },
+    {
+      "ts": 1777732784624,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sudden drop in market activity due to the low 24h transactions.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:6e700f1389d87e82"
+    },
+    {
+      "ts": 1777732779089,
+      "category": "market_macro",
+      "insight": "The crypto market is experiencing a bullish trend driven by institutional adoption and Bitcoin's price surge.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:ccac0be5ea312620"
+    },
+    {
+      "ts": 1777731152524,
+      "category": "token_research",
+      "insight": "ETH: Main risk: Potential volatility due to Ethereum Foundation news, which could impact the market.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:45489755fc2d66a1"
+    },
+    {
+      "ts": 1777731144620,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for a sudden price drop due to low liquidity and low trading volume.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:4fad22248e07d522"
+    },
+    {
+      "ts": 1777731139087,
+      "category": "market_macro",
+      "insight": "Bitcoin price continues to rise, driven by institutional adoption and regulatory clarity, while AI and DeFi sectors remain hot.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:07aa063c03527866"
+    },
+    {
+      "ts": 1777727721136,
+      "category": "token_research",
+      "insight": "LAB: The main risk is a potential price correction due to overbought conditions and lack of fundamental data.",
+      "source": "market data",
+      "confidence": 60,
+      "id": "knowledge:46bb6cfd3a93ced6"
+    },
+    {
+      "ts": 1777727713051,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the potential for market volatility driven by the Ethereum Foundation sale, which could impact ETH's price.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:03b5ce651dfba70f"
+    },
+    {
+      "ts": 1777727705030,
+      "category": "token_research",
+      "insight": "BTC: Limited market activity and low liquidity may lead to price volatility.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:9f258410e98a3b27"
+    },
+    {
+      "ts": 1777727699623,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000, driven by institutional adoption and market optimism.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:044c3bcc48688b0d"
+    },
+    {
+      "ts": 1777727643831,
+      "category": "token_research",
+      "insight": "TETHER: The main risk lies in the potential for a sharp price drop due to a loss of confidence in the stablecoin's peg to the US dollar.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:7dcc22f7734d06d7"
+    },
+    {
+      "ts": 1777727635771,
+      "category": "token_research",
+      "insight": "ETH: The main risk is the potential impact of the Ethereum Foundation's sales on the market price of ETH.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:8691200c3092f3ce"
+    },
+    {
+      "ts": 1777727627677,
+      "category": "token_research",
+      "insight": "BTC: The main risk is that the token's price may fluctuate rapidly due to its high volatility.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:cc231a0d3dc50ecd"
+    },
+    {
+      "ts": 1777727622295,
+      "category": "market_macro",
+      "insight": "The market is experiencing a bullish trend driven by institutional adoption and regulatory clarity, with potential for further growth in the near term.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:2b77c8416facafc0"
+    },
+    {
+      "ts": 1777727069351,
+      "category": "token_research",
+      "insight": "LAB: High volatility and potential price correction due to overbought conditions",
+      "source": "CoinDesk",
+      "confidence": 50,
+      "id": "knowledge:fb73f2200d7920aa"
+    },
+    {
+      "ts": 1777727061269,
+      "category": "token_research",
+      "insight": "SKYAI: Potential price volatility due to low intelligence confidence and high 24h price change.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:c9a648e000509119"
+    },
+    {
+      "ts": 1777727053252,
+      "category": "token_research",
+      "insight": "AIOT: The main risk is a potential correction following the recent price surge, which could lead to a decline in value.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:d3670bafe0326414"
+    },
+    {
+      "ts": 1777727047827,
+      "category": "market_macro",
+      "insight": "Bitcoin continues to rise, driven by institutional demand and strong fundamentals, with AI and DeFi sectors showing significant growth.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:bf6300a6beaf58ab"
+    },
+    {
+      "ts": 1777727037396,
+      "category": "token_research",
+      "insight": "BIO: Low trading activity and volatility may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:015a0c327da07180"
+    },
+    {
+      "ts": 1777727029497,
+      "category": "token_research",
+      "insight": "ACN: High price volatility and limited data availability may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:c01f0858b553e2b9"
+    },
+    {
+      "ts": 1777727021530,
+      "category": "token_research",
+      "insight": "LAB: The main risk is a potential price correction due to the token's high volatility and lack of historical data.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:1990c5597464befb"
+    },
+    {
+      "ts": 1777727016027,
+      "category": "market_macro",
+      "insight": "The market is experiencing a strong bullish trend driven by institutional demand and AI adoption.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:91dac3201522d2d1"
+    },
+    {
+      "ts": 1777726346432,
+      "category": "token_research",
+      "insight": "BIT: The main risk is the potential for market volatility if the stablecoin adoption does not materialize as expected.",
+      "source": "CoinDesk",
+      "confidence": 65,
+      "id": "knowledge:f0de3d2778c2119e"
+    },
+    {
+      "ts": 1777726338468,
+      "category": "token_research",
+      "insight": "JUDAO: High volatility due to significant price movement and high trading volume.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:3c9b82c0a9a7b7d4"
+    },
+    {
+      "ts": 1777726330367,
+      "category": "token_research",
+      "insight": "AIOT: Potential for further price decline due to the recent market volatility and the token's relatively low price point.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:fb0d234ee6dc7639"
+    },
+    {
+      "ts": 1777726326563,
+      "category": "token_research",
+      "insight": "ETH: The main risk lies in the potential market reaction to the Ethereum Foundation sale, which could impact ETH's price stability.",
+      "source": "CoinTelegraph",
+      "confidence": 80,
+      "id": "knowledge:a16569e75c7718ec"
+    },
+    {
+      "ts": 1777726324917,
+      "category": "market_macro",
+      "insight": "The market is experiencing a bullish trend driven by regulatory clarity and institutional adoption, with AI and DeFi sectors showing strong growth.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:69a9d18e703d9365"
+    },
+    {
+      "ts": 1777726318712,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity and trading activity may lead to significant price fluctuations and difficulty in executing trades.",
+      "source": "CoinDesk",
+      "confidence": 75,
+      "id": "knowledge:4dc91d541f56fb51"
+    },
+    {
+      "ts": 1777726313186,
+      "category": "market_macro",
+      "insight": "The market is experiencing a bullish sentiment driven by regulatory clarity and institutional adoption, with Bitcoin price above $78,000 and Ethereum Foundation sale to BitMine.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:cc9096a030fdb21f"
+    },
+    {
+      "ts": 1777725613824,
+      "category": "token_research",
+      "insight": "JUDAO: The main risk is that the token may be subject to a pump and dump scheme, potentially leading to significant price volatility.",
+      "source": "Bot",
+      "confidence": 70,
+      "id": "knowledge:19d0c2b9ff9d26ff"
+    },
+    {
+      "ts": 1777725605702,
+      "category": "token_research",
+      "insight": "AIOT: The main risk is the potential for further price drops due to the token's recent decline and moderate liquidity.",
+      "source": "Bot",
+      "confidence": 70,
+      "id": "knowledge:8e5864364149966d"
+    },
+    {
+      "ts": 1777725597698,
+      "category": "token_research",
+      "insight": "LAB: The main risk is a potential price correction due to the high volatility and rapid price increase.",
+      "source": "CoinDesk",
+      "confidence": 100,
+      "id": "knowledge:fc8ec7a374466366"
+    },
+    {
+      "ts": 1777725592289,
+      "category": "market_macro",
+      "insight": "Bitcoin price continues to rise, driven by institutional demand and regulatory clarity, with AI and DeFi sectors showing strong momentum.",
+      "source": "intelligence/groq",
+      "confidence": 80,
+      "id": "knowledge:0e3024a2b96ceee5"
+    },
+    {
+      "ts": 1777725591231,
+      "category": "token_research",
+      "insight": "ETH: The recent sale to BitMine may have a significant impact on the token's price, potentially leading to volatility.",
+      "source": "coindesk",
+      "confidence": 70,
+      "id": "knowledge:340277a601a0c7d8"
+    },
+    {
+      "ts": 1777725583298,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the low market activity, which may lead to price volatility if there's an unexpected market shift.",
+      "source": "coindesk",
+      "confidence": 90,
+      "id": "knowledge:2534503d6a68bd38"
+    },
+    {
+      "ts": 1777725577741,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act hurdle, institutional adoption driving momentum",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:36f28ef0848d6abb"
+    },
+    {
+      "ts": 1777724472771,
+      "category": "token_research",
+      "insight": "TAO: The low 24h volume and transaction count may indicate a lack of market activity, making it difficult to gauge the token's true value and potential for price movement.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:251782dcb3fd3179"
+    },
+    {
+      "ts": 1777724464716,
+      "category": "token_research",
+      "insight": "ETH: Potential volatility due to the AI pivot and treasury strategy implementation.",
+      "source": "CoinDesk",
+      "confidence": 75,
+      "id": "knowledge:dc508de57a49fb0d"
+    },
+    {
+      "ts": 1777724456858,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity and transaction volume may lead to price volatility if institutional demand decreases.",
+      "source": "CoinDesk",
+      "confidence": 85,
+      "id": "knowledge:c8eb235653b6cf97"
+    },
+    {
+      "ts": 1777724451347,
+      "category": "market_macro",
+      "insight": "Bitcoin and Ethereum continue to show strength, driven by institutional demand and positive narrative, while AI and DeFi sectors remain hot.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:105727d1a474529c"
+    },
+    {
+      "ts": 1777724004313,
+      "category": "token_research",
+      "insight": "TETHER: The main risk is Tether's potential depeg from the US dollar, which could lead to a significant price drop.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:b5af1ff09cdc54ae"
+    },
+    {
+      "ts": 1777723996137,
+      "category": "token_research",
+      "insight": "ETH: Uncertainty in the analysis due to 20% confidence gap",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:bb64557cfde5bfcb"
+    },
+    {
+      "ts": 1777723988154,
+      "category": "token_research",
+      "insight": "BTC: Potential for further price decline due to low trading activity and lack of significant on-chain indicators.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:28d71ce50a1e04a2"
+    },
+    {
+      "ts": 1777723982750,
+      "category": "market_macro",
+      "insight": "Bitcoin's price surge continues, driven by institutional demand and AI agent's trading activity.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:8c0960953eab2ca0"
+    },
+    {
+      "ts": 1777723445097,
+      "category": "token_research",
+      "insight": "TAO: Low liquidity and limited market activity may lead to sharp price fluctuations if market sentiment shifts.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:3a1ba47efa49cd22"
+    },
+    {
+      "ts": 1777723437024,
+      "category": "token_research",
+      "insight": "ETH: Potential market volatility due to the relatively low 24h change.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:6343504339f3771c"
+    },
+    {
+      "ts": 1777723429126,
+      "category": "token_research",
+      "insight": "BTC: Potential for further price decline due to low 24h transactions and recent negative price change.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:4215a5ae4e930ae5"
+    },
+    {
+      "ts": 1777723423594,
+      "category": "market_macro",
+      "insight": "Bitcoin's price surge and institutional demand drive market growth, with AI and DeFi sectors showing strong performance.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:4d5220580d1c74bd"
+    },
+    {
+      "ts": 1777723055470,
+      "category": "token_research",
+      "insight": "BTC: Low liquidity and minimal transactions may lead to significant price volatility if market momentum shifts.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:eb48200d6b85f6fe"
+    },
+    {
+      "ts": 1777723049978,
+      "category": "market_macro",
+      "insight": "Bitcoin's recent price surge and AI's growing impact suggest a bullish market sentiment, with momentum and DeFi being key areas of focus.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:fa34b097369b4d6d"
+    },
+    {
+      "ts": 1777722566951,
+      "category": "token_research",
+      "insight": "LAB: The token's price growth may be unsustainable, and a potential market correction could lead to significant losses.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:fcdee91464c6b92d"
+    },
+    {
+      "ts": 1777722558826,
+      "category": "token_research",
+      "insight": "ETH: Ethereum Foundation sales may negatively impact the token's value.",
+      "source": "CoinTelegraph",
+      "confidence": 80,
+      "id": "knowledge:f8af7567d7bcac5d"
+    },
+    {
+      "ts": 1777722555344,
+      "category": "token_research",
+      "insight": "TAO: The main risk is the token's low market activity, which may indicate a lack of investor interest or a potential price drop.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:340bdd89143f2fc2"
+    },
+    {
+      "ts": 1777722550830,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for significant price fluctuations due to low liquidity.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:fadb8a4ad95c6c36"
+    },
+    {
+      "ts": 1777722547725,
+      "category": "token_research",
+      "insight": "ETH: The main risk is that the Ethereum Foundation's treasury strategy may not align with market expectations, potentially affecting ETH's price.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:7ac6583c8db6cf0a"
+    },
+    {
+      "ts": 1777722545469,
+      "category": "market_macro",
+      "insight": "Bitcoin price above $78,000 as Senate clears Clarity Act yield hurdle, institutional demand driving market cap to $16 trillion by 2030",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:763acad699fd5cd8"
+    },
+    {
+      "ts": 1777722539351,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the token's low liquidity, which may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:a0baa171372dee8e"
+    },
+    {
+      "ts": 1777722533888,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as regulatory clarity and institutional adoption drive market momentum.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:6816ddf1352be186"
+    },
+    {
+      "ts": 1777722172924,
+      "category": "token_research",
+      "insight": "ETH: The main risk is that the Ethereum Foundation sale could lead to increased selling pressure, potentially impacting the price.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:a2f6f1c566ef2dc0"
+    },
+    {
+      "ts": 1777722165092,
+      "category": "token_research",
+      "insight": "BTC: The main risk is that the low liquidity and volume may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:5114100ffc54bbea"
+    },
+    {
+      "ts": 1777722160603,
+      "category": "token_research",
+      "insight": "ETH: Potential market volatility due to the Ethereum Foundation's sale may impact ETH price in the short term.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:8ce4da575b8436cb"
+    },
+    {
+      "ts": 1777722159526,
+      "category": "market_macro",
+      "insight": "Bitcoin price above $78,000 as Senate clears Clarity Act yield hurdle, institutional demand driving market",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:f6eefaa2d48f706c"
+    },
+    {
+      "ts": 1777722152631,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for further price decline due to low 24h volume and transactions.",
+      "source": "CoinDesk",
+      "confidence": 90,
+      "id": "knowledge:139c9a8fbc1234f6"
+    },
+    {
+      "ts": 1777722147167,
+      "category": "market_macro",
+      "insight": "Bitcoin price above $78,000, driven by Senate clearance of Clarity Act yield hurdle and institutional adoption",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:127d98792bc1dc9d"
+    },
+    {
+      "ts": 1777721811759,
+      "category": "token_research",
+      "insight": "SKYAI: The main risk is the low intelligence confidence level, which may indicate a higher likelihood of market volatility or unexpected events affecting the token's price.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:b75cc5be3933d9ef"
+    },
+    {
+      "ts": 1777721803811,
+      "category": "token_research",
+      "insight": "JUDAO: Potential for price correction due to the relatively low intelligence confidence and the token's rapid price increase.",
+      "source": "CoinDesk",
+      "confidence": 65,
+      "id": "knowledge:01ee9d24b59b4a5e"
+    },
+    {
+      "ts": 1777721800217,
+      "category": "token_research",
+      "insight": "PENGU: The main risk is the low trading volume and the limited number of transactions, which may indicate a lack of market interest and volatility.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:5e25bcb9445bbb76"
+    },
+    {
+      "ts": 1777721795827,
+      "category": "token_research",
+      "insight": "AIOT: Potential price volatility due to high market sensitivity to AI-related news.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:18818d1bf929c115"
+    },
+    {
+      "ts": 1777721792387,
+      "category": "token_research",
+      "insight": "ACN: High price volatility due to extremely low liquidity and volume.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:c1a1995927b594c5"
+    },
+    {
+      "ts": 1777721790269,
+      "category": "market_macro",
+      "insight": "Bitcoin continues its rally, driven by AI-related news and stablecoin yield rules.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:d1e6898415b8bb8a"
+    },
+    {
+      "ts": 1777721784311,
+      "category": "token_research",
+      "insight": "LAB: High volatility and lack of historical data may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:be65f4157bc54f4a"
+    },
+    {
+      "ts": 1777721778825,
+      "category": "market_macro",
+      "insight": "The market is experiencing a bullish sentiment driven by institutional adoption and regulatory clarity, with AI and DeFi sectors leading the charge.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:6659c509f983d82d"
+    },
+    {
+      "ts": 1777721083281,
+      "category": "token_research",
+      "insight": "SKYAI: The main risk is the uncertain impact of the upcoming partnership on the token's price, which may not materialize as expected.",
+      "source": "CoinDesk",
+      "confidence": 50,
+      "id": "knowledge:fdd0036ad8ec06f7"
+    },
+    {
+      "ts": 1777721075441,
+      "category": "token_research",
+      "insight": "JUDAO: The main risk is the potential for a price correction due to the token's high volatility and relatively low intelligence confidence.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:03fded96b751229b"
+    },
+    {
+      "ts": 1777721067252,
+      "category": "token_research",
+      "insight": "AIOT: The main risk is a potential further correction in price, considering the recent surge and current negative 24h change.",
+      "source": "CoinDesk",
+      "confidence": 75,
+      "id": "knowledge:8f733a6d8f759263"
+    },
+    {
+      "ts": 1777721061863,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act hurdle, institutional demand expected to drive market growth.",
+      "source": "intelligence/groq",
+      "confidence": 82,
+      "id": "knowledge:55a10ddcae1e6596"
+    },
+    {
+      "ts": 1777721061199,
+      "category": "token_research",
+      "insight": "ACN: Extremely low liquidity and market activity pose a significant risk of price manipulation and volatility.",
+      "source": "CoinTelegraph",
+      "confidence": 50,
+      "id": "knowledge:bc563956905faedd"
+    },
+    {
+      "ts": 1777721053143,
+      "category": "token_research",
+      "insight": "LAB: High volatility and potential price correction due to the recent surge.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:5f7cdcab2a76815d"
+    },
+    {
+      "ts": 1777717663748,
+      "category": "token_research",
+      "insight": "TAO: Low trading activity and low 24h volume may lead to price volatility and liquidity issues.",
+      "source": "CoinDesk",
+      "confidence": 60,
+      "id": "knowledge:cb3e91c2b3dbf382"
+    },
+    {
+      "ts": 1777717655612,
+      "category": "token_research",
+      "insight": "ETH: Potential volatility due to the uncertain intelligence confidence and market fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:13852f76433e56e7"
+    },
+    {
+      "ts": 1777717647613,
+      "category": "token_research",
+      "insight": "BTC: Limited liquidity and low trading volume may lead to significant price fluctuations.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:ac4e6fd9ec5ad3c1"
+    },
+    {
+      "ts": 1777717642266,
+      "category": "market_macro",
+      "insight": "Bitcoin and Ethereum continue to gain momentum, driven by institutional demand and regulatory clarity, with potential for further growth.",
+      "source": "intelligence/groq",
+      "confidence": 80,
+      "id": "knowledge:bb61d516df68c813"
+    },
+    {
+      "ts": 1777717631019,
+      "category": "token_research",
+      "insight": "AIOT: The main risk is the potential for further price drops due to the token's low intelligence confidence and recent price movement.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:f6e2862da2943cae"
+    },
+    {
+      "ts": 1777717615079,
+      "category": "token_research",
+      "insight": "LAB: High volatility and potential price correction risk due to the recent surge.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:7503b7d387546494"
+    },
+    {
+      "ts": 1777717609616,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act yield hurdle, S&P 500 sets new record.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:53dec7f216f69f0d"
+    },
+    {
+      "ts": 1777714023861,
+      "category": "token_research",
+      "insight": "JUDAO: The main risk is the potential for a sharp price correction if the AMD deal does not materialize as expected.",
+      "source": "CoinDesk",
+      "confidence": 70,
+      "id": "knowledge:a7946d21fffb3898"
+    },
+    {
+      "ts": 1777714019747,
+      "category": "token_research",
+      "insight": "TAO: Low trading volume and limited on-chain activity may indicate a lack of market momentum, potentially leading to a price correction.",
+      "source": "CoinDesk",
+      "confidence": 85,
+      "id": "knowledge:94a8de4c16e320d0"
+    },
+    {
+      "ts": 1777714015822,
+      "category": "token_research",
+      "insight": "AIOT: The main risk is the potential for further price correction or volatility in the short term.",
+      "source": "CoinDesk",
+      "confidence": 100,
+      "id": "knowledge:d937a1cf35ad1250"
+    },
+    {
+      "ts": 1777714011917,
+      "category": "token_research",
+      "insight": "ACN: High price volatility due to low liquidity and minimal on-chain activity.",
+      "source": "CoinTelegraph",
+      "confidence": 70,
+      "id": "knowledge:f9c208ba3ccb332c"
+    },
+    {
+      "ts": 1777714010289,
+      "category": "market_macro",
+      "insight": "Bitcoin price surges above $78,000 as Senate clears Clarity Act hurdle, institutional demand driving market",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:7e6adfea4c201a7e"
+    },
+    {
+      "ts": 1777714003842,
+      "category": "token_research",
+      "insight": "LAB: Potential price volatility due to rapid growth and limited on-chain data.",
+      "source": "CoinDesk",
+      "confidence": 80,
+      "id": "knowledge:e1c9f866d7a7220d"
+    },
+    {
+      "ts": 1777713998390,
+      "category": "market_macro",
+      "insight": "Bitcoin continues to rally, driven by institutional demand and AI adoption, with potential risks from regulatory uncertainty and market volatility.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:def9b81a0d51d536"
+    },
+    {
+      "ts": 1777710455506,
+      "category": "token_research",
+      "insight": "ETH: Potential volatility due to market fluctuations and regulatory changes.",
+      "source": "CoinDesk",
+      "confidence": 95,
+      "id": "knowledge:fb9cf9f564771f5f"
+    },
+    {
+      "ts": 1777710447615,
+      "category": "token_research",
+      "insight": "BTC: The main risk is the potential for further price decline due to low market activity and limited liquidity.",
+      "source": "CoinDesk",
+      "confidence": 98,
+      "id": "knowledge:72d9c50da8bb1b76"
+    },
+    {
+      "ts": 1777710442127,
+      "category": "market_macro",
+      "insight": "The market is experiencing a bullish trend driven by institutional demand and regulatory clarity, with BTC and AI sectors showing strong momentum.",
+      "source": "intelligence/groq",
+      "confidence": 85,
+      "id": "knowledge:fc9c05af704643dc"
+    }
+  ]
+}

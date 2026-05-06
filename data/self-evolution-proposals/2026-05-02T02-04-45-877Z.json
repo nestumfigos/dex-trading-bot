@@ -1,0 +1,21 @@
+{
+  "summary": "AI-driven self-improvement: The bot has a moderate profit factor (0.173) and a decent win rate (37.5%), but its average loss is ",
+  "reason": "The bot has a moderate profit factor (0.173) and a decent win rate (37.5%), but its average loss is significantly higher than its average win. Given the recent price surges in AI-related tokens, we should tighten the liquidity filter for AI tokens to reduce the risk of large losses. Additionally, we should boost the universe size for BSC Core to capture more momentum in the AI sector.",
+  "changes": [
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "defaultBscYoungTokenMinLiquidityUsd = parseFloat\\(process\\.env\\.BSC_YOUNG_TOKEN_MIN_LIQUIDITY_USD\\|\\) || Math\\.max\\(defaultBscMinLiquidityUsd \\* 2, defaultBscCoreMinLiquidityUsd\\);",
+      "replacement": "defaultBscYoungTokenMinLiquidityUsd = parseFloat(process.env.BSC_YOUNG_TOKEN_MIN_LIQUIDITY_USD || Math.max(defaultBscMinLiquidityUsd * 2.5, defaultBscCoreMinLiquidityUsd));",
+      "rationale": "Tighten liquidity filter for AI tokens"
+    },
+    {
+      "type": "regex_replace_once",
+      "file": "config/index.js",
+      "pattern": "defaultBscCoreUniverseSize = parseInt\\(process\\.env\\.BSC_CORE_UNIVERSE_SIZE || String\\(Math\\.max\\(40, Math\\.round\\(defaultBscUniverseSize \\* 0\\.7\\)\\)\\), 10\\) || Math\\.max\\(40, Math\\.round\\(defaultBscUniverseSize \\* 0\\.7\\)\\);",
+      "replacement": "defaultBscCoreUniverseSize = parseInt(process.env.BSC_CORE_UNIVERSE_SIZE || String(Math.max(60, Math.round(defaultBscUniverseSize * 0.8))), 10) || Math.max(60, Math.round(defaultBscUniverseSize * 0.8));",
+      "rationale": "Boost universe size for BSC Core"
+    }
+  ],
+  "_source": "ai_driven"
+}

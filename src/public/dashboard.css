@@ -305,11 +305,40 @@ th {
   overflow: auto;
 }
 
+.compact-list {
+  gap: 6px;
+}
+
 .item {
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background: #0d1627;
   padding: 8px;
+}
+
+.inline-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.job-item {
+  display: grid;
+  gap: 4px;
+}
+
+.job-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.agent-action-item {
+  display: grid;
+  gap: 4px;
 }
 
 .signal-cell {

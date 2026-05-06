@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL Report</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --bg2: #0d1b2e;
+      --panel: rgba(14, 26, 45, 0.92);
+      --panel-border: rgba(107, 150, 214, 0.18);
+      --text: #ecf3ff;
+      --muted: #9cb1d0;
+      --accent: #7bc6ff;
+      --accent-2: #4de0b7;
+      --warn: #f7bf63;
+      --bad: #ff808f;
+      --good: #53e0a5;
+      --live: #69b7ff;
+      --paper: #8af0bf;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow-x: clip;
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(84, 156, 255, 0.2), transparent 28%),
+        radial-gradient(circle at top right, rgba(77, 224, 183, 0.14), transparent 24%),
+        linear-gradient(180deg, #09111e 0%, #0b1627 54%, #07111f 100%);
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: clamp(12px, 2vw, 22px);
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
+      align-items: stretch;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .hero-main {
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-main::after {
+      content: "";
+      position: absolute;
+      inset: auto -40px -80px auto;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, rgba(123, 198, 255, 0.2), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(28px, 5vw, 42px);
+      line-height: 1.05;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+      max-width: 760px;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(17, 33, 57, 0.8);
+      border: 1px solid rgba(123, 198, 255, 0.14);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .hero-side {
+      padding: 20px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn {
+      border: 1px solid rgba(123, 198, 255, 0.18);
+      background: linear-gradient(180deg, #7bc6ff 0%, #55a8eb 100%);
+      color: #04101c;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .btn.secondary {
+      background: rgba(20, 36, 61, 0.88);
+      color: var(--text);
+    }
+
+    .btn.active {
+      outline: 2px solid rgba(77, 224, 183, 0.55);
+    }
+
+    .status-card {
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(123, 198, 255, 0.14);
+      background: rgba(10, 20, 37, 0.76);
+      display: grid;
+      gap: 6px;
+    }
+
+    .status-card .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .status-card .value {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .status-card .subvalue {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .analysis {
+      padding: 18px 20px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .analysis-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .analysis-item {
+      border-left: 3px solid rgba(123, 198, 255, 0.45);
+      padding-left: 12px;
+      color: #d7e5fa;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .grid-4 {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      min-width: 0;
+    }
+
+    .grid-2 {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      min-width: 0;
+    }
+
+    .card {
+      padding: 18px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .card .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .card .value {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .card .note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .good { color: var(--good); }
+    .bad { color: var(--bad); }
+    .warn { color: var(--warn); }
+
+    .section {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .section-head p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .control-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .control-row label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .control-row select {
+      border: 1px solid rgba(123, 198, 255, 0.18);
+      background: rgba(20, 36, 61, 0.88);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 10px;
+    }
+
+    .compare-list, .memory-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .compare-row, .memory-row {
+      border: 1px solid rgba(123, 198, 255, 0.1);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(8, 18, 33, 0.76);
+    }
+
+    .compare-top, .memory-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+
+    .compare-title, .memory-title {
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .bar-track {
+      width: 100%;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 999px;
+      overflow: hidden;
+      display: flex;
+    }
+
+    .bar-live {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(105, 183, 255, 0.92), rgba(123, 198, 255, 1));
+    }
+
+    .bar-paper {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(83, 224, 165, 0.9), rgba(138, 240, 191, 1));
+    }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .legend .live::before { background: var(--live); }
+    .legend .paper::before { background: var(--paper); }
+
+    .table-wrap {
+      overflow: auto;
+      max-width: 100%;
+      border-radius: 16px;
+      border: 1px solid rgba(123, 198, 255, 0.08);
+      background: rgba(7, 15, 28, 0.88);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    .chart-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .chart-card {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .chart-card p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .chart-wrap {
+      width: 100%;
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid rgba(123, 198, 255, 0.1);
+      background: rgba(7, 15, 28, 0.78);
+      padding: 10px;
+      min-width: 0;
+    }
+
+    svg.chart {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .axis-label {
+      fill: var(--muted);
+      font-size: 11px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .chart-label {
+      fill: var(--text);
+      font-size: 11px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid rgba(123, 198, 255, 0.08);
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      background: rgba(16, 30, 52, 0.95);
+      position: sticky;
+      top: 0;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+    }
+
+    .tag.live {
+      background: rgba(105, 183, 255, 0.16);
+      color: #bfe3ff;
+    }
+
+    .tag.paper {
+      background: rgba(83, 224, 165, 0.16);
+      color: #bdf5da;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    #equity-chart,
+    #trade-chart,
+    #decision-chart,
+    #comparison-list,
+    #chain-bars,
+    #strategy-bars,
+    #tables-root {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .empty {
+      padding: 24px;
+      text-align: center;
+      color: var(--muted);
+      border: 1px dashed rgba(123, 198, 255, 0.18);
+      border-radius: 16px;
+      background: rgba(10, 19, 33, 0.7);
+    }
+
+    .code {
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+    }
+
+    @media (max-width: 1080px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        padding: 14px;
+      }
+
+      .hero-main,
+      .hero-side,
+      .section,
+      .card {
+        padding: 16px;
+      }
+
+      .grid-2,
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card .value {
+        font-size: 24px;
+      }
+
+      table {
+        min-width: 560px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .btn {
+        width: 100%;
+        text-align: center;
+      }
+
+      .hero-meta {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        min-width: 500px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="panel hero-main">
+        <div class="eyebrow">SQL analytics layer</div>
+        <h1 id="title">SQL Report</h1>
+        <p id="subtitle" class="subtitle">Loading report...</p>
+        <div class="hero-meta">
+          <span id="meta-report" class="chip">report: -</span>
+          <span id="meta-generated" class="chip">generated: -</span>
+          <span id="meta-source" class="chip">source: /api/sql-report</span>
+        </div>
+      </div>
+      <div class="panel hero-side">
+        <div class="actions">
+          <a id="btn-overview" class="btn secondary" href="/sql-report.html?report=overview">Overview</a>
+          <a id="btn-breakdown" class="btn secondary" href="/sql-report.html?report=breakdown">Breakdown</a>
+          <a id="btn-memory" class="btn secondary" href="/sql-report.html?report=memory">Memory</a>
+        </div>
+        <div class="actions">
+          <button id="retry-button" class="btn secondary" type="button">Refresh</button>
+        </div>
+        <div class="status-card">
+          <span class="label">Status</span>
+          <span id="status-value" class="value">Waiting</span>
+          <span id="status-detail" class="subvalue">The page will load directly from the SQL report API.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel analysis">
+      <div class="section-head">
+        <div>
+          <h2>Analysis</h2>
+          <p>Auto-generated readout from the live SQL report payload.</p>
+        </div>
+      </div>
+      <div id="analysis-list" class="analysis-list"></div>
+    </section>
+
+    <section id="kpi-grid" class="grid-4"></section>
+
+    <section class="chart-grid">
+      <div class="panel chart-card">
+        <div class="section-head">
+          <div>
+            <h2>Equity Curve</h2>
+            <p>Latest SQL points from <span class="code">bot_pnl_history</span>.</p>
+          </div>
+          <div class="control-row">
+            <label>Profile
+              <select id="chart-profile">
+                <option value="both">Both</option>
+                <option value="live">Live</option>
+                <option value="paper">Paper</option>
+              </select>
+            </label>
+            <label>Range
+              <select id="chart-range">
+                <option value="24h">24h</option>
+                <option value="7d" selected>7d</option>
+                <option value="30d">30d</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div id="equity-chart" class="chart-wrap"></div>
+      </div>
+      <div class="panel chart-card">
+        <div class="section-head">
+          <div>
+            <h2>Trade Cadence</h2>
+            <p>Daily trade counts from <span class="code">bot_trade_ledger</span>.</p>
+          </div>
+        </div>
+        <div id="trade-chart" class="chart-wrap"></div>
+      </div>
+      <div class="panel chart-card">
+        <div class="section-head">
+          <div>
+            <h2>Decision Quality</h2>
+            <p>Approval and execution cadence from <span class="code">decision_log</span>.</p>
+          </div>
+        </div>
+        <div id="decision-chart" class="chart-wrap"></div>
+      </div>
+    </section>
+
+    <section id="decision-sections" class="grid-2">
+      <div id="model-version-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Decision Quality Summary</h2>
+            <p>How often approvals turn into live actions and reflected outcomes.</p>
+          </div>
+        </div>
+        <div id="decision-quality-list" class="compare-list"></div>
+      </div>
+      <div id="rl-policy-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Latest Decisions</h2>
+            <p>Newest approval and execution records coming straight from SQL.</p>
+          </div>
+        </div>
+        <div id="latest-decision-list" class="memory-list"></div>
+      </div>
+    </section>
+
+    <section id="model-sections" class="grid-2">
+      <div id="sentiment-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Active Model Versions</h2>
+            <p>Current production-stage model registry rows and their latest metrics.</p>
+          </div>
+        </div>
+        <div id="model-version-list" class="memory-list"></div>
+      </div>
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Latest RL Policy Metrics</h2>
+            <p>Most recent active reinforcement-learning policy snapshots from SQL.</p>
+          </div>
+        </div>
+        <div id="rl-policy-list" class="memory-list"></div>
+      </div>
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Latest Sentiment Snapshots</h2>
+            <p>Newest news and Reddit sentiment aggregates affecting token review.</p>
+          </div>
+        </div>
+        <div id="sentiment-list" class="memory-list"></div>
+      </div>
+      <div id="hybrid-route-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Latest Hybrid Route Decisions</h2>
+            <p>Most recent ML/RL/sentiment route outcomes recorded by the orchestrator.</p>
+          </div>
+        </div>
+        <div id="hybrid-route-list" class="memory-list"></div>
+      </div>
+      <div id="approval-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Pending Approvals</h2>
+            <p>Paper promotions waiting for manual approval before canary rollout.</p>
+          </div>
+        </div>
+        <div id="approval-list" class="memory-list"></div>
+      </div>
+      <div id="rotation-debug-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Rotation Debug</h2>
+            <p>Current open momentum positions and the latest blocked candidate-vs-open rotation comparisons.</p>
+          </div>
+        </div>
+        <div id="rotation-debug-list" class="memory-list"></div>
+      </div>
+    </section>
+
+    <section id="overview-sections" class="grid-2 hidden">
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Live vs Paper</h2>
+            <p>Metric-by-metric comparison across both bot profiles.</p>
+          </div>
+        </div>
+        <div id="comparison-list" class="compare-list"></div>
+      </div>
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Intelligence Pulse</h2>
+            <p>Latest macro read and evolution posture from SQL.</p>
+          </div>
+        </div>
+        <div id="intelligence-cards" class="compare-list"></div>
+      </div>
+    </section>
+
+    <section id="breakdown-sections" class="grid-2 hidden">
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Chain Performance</h2>
+            <p>Where each profile is concentrating activity and realized outcomes.</p>
+          </div>
+        </div>
+        <div id="chain-bars" class="compare-list"></div>
+      </div>
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Strategy Performance</h2>
+            <p>Momentum versus swing behavior, with wins and realized PnL.</p>
+          </div>
+        </div>
+        <div id="strategy-bars" class="compare-list"></div>
+      </div>
+    </section>
+
+    <section id="memory-sections" class="grid-2 hidden">
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Latest Lessons</h2>
+            <p>Newest shared agent lessons projected from SQL.</p>
+          </div>
+        </div>
+        <div id="lesson-list" class="memory-list"></div>
+      </div>
+      <div class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Latest Discoveries</h2>
+            <p>Newest shared discoveries and knowledge fragments.</p>
+          </div>
+        </div>
+        <div id="discovery-list" class="memory-list"></div>
+      </div>
+    </section>
+
+    <section id="table-sections" class="panel section">
+      <div class="section-head">
+        <div>
+          <h2>Detailed Tables</h2>
+          <p>Raw rows behind the visuals for direct inspection.</p>
+        </div>
+      </div>
+      <div id="tables-root"></div>
+    </section>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const report = String(params.get('report') || 'overview').trim().toLowerCase();
+    const title = document.getElementById('title');
+    const subtitle = document.getElementById('subtitle');
+    const retryButton = document.getElementById('retry-button');
+    const statusValue = document.getElementById('status-value');
+    const statusDetail = document.getElementById('status-detail');
+    const analysisList = document.getElementById('analysis-list');
+    const kpiGrid = document.getElementById('kpi-grid');
+    const comparisonList = document.getElementById('comparison-list');
+    const intelligenceCards = document.getElementById('intelligence-cards');
+    const chainBars = document.getElementById('chain-bars');
+    const strategyBars = document.getElementById('strategy-bars');
+    const lessonList = document.getElementById('lesson-list');
+    const discoveryList = document.getElementById('discovery-list');
+    const equityChart = document.getElementById('equity-chart');
+    const tradeChart = document.getElementById('trade-chart');
+    const decisionChart = document.getElementById('decision-chart');
+    const chartProfile = document.getElementById('chart-profile');
+    const chartRange = document.getElementById('chart-range');
+    const decisionQualityList = document.getElementById('decision-quality-list');
+    const latestDecisionList = document.getElementById('latest-decision-list');
+    const modelVersionList = document.getElementById('model-version-list');
+    const rlPolicyList = document.getElementById('rl-policy-list');
+    const sentimentList = document.getElementById('sentiment-list');
+    const hybridRouteList = document.getElementById('hybrid-route-list');
+    const approvalList = document.getElementById('approval-list');
+    const rotationDebugList = document.getElementById('rotation-debug-list');
+    const tablesRoot = document.getElementById('tables-root');
+    const decisionSections = document.getElementById('decision-sections');
+    const modelSections = document.getElementById('model-sections');
+    const overviewSections = document.getElementById('overview-sections');
+    const breakdownSections = document.getElementById('breakdown-sections');
+    const memorySections = document.getElementById('memory-sections');
+    const metaReport = document.getElementById('meta-report');
+    const metaGenerated = document.getElementById('meta-generated');
+    const metaSource = document.getElementById('meta-source');
+    let currentPayload = null;
+
+    title.textContent = `SQL ${report.charAt(0).toUpperCase()}${report.slice(1)} Dashboard`;
+    metaReport.textContent = `report: ${report}`;
+    document.getElementById(`btn-${report}`)?.classList.add('active');
+
+    function $(value) {
+      return document.getElementById(value);
+    }
+
+    function getStoredAdminToken() {
+      try {
+        return String(window.localStorage.getItem('dashboardAdminToken') || '').trim();
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function setStoredAdminToken(token) {
+      try {
+        if (token) window.localStorage.setItem('dashboardAdminToken', token);
+      } catch (_) {
+        // ignore storage failures
+      }
+    }
+
+    function clearStoredAdminToken() {
+      try {
+        window.localStorage.removeItem('dashboardAdminToken');
+      } catch (_) {
+        // ignore storage failures
+      }
+    }
+
+    function getAdminTokenInteractive() {
+      let token = getStoredAdminToken();
+      if (token) return token;
+      token = String(window.prompt('Enter DASHBOARD_ADMIN_TOKEN to continue:') || '').trim();
+      if (!token) return '';
+      setStoredAdminToken(token);
+      return token;
+    }
+
+    function fmtNumber(value, digits = 0) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '-';
+      return n.toLocaleString('en-US', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function fmtMoney(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '-';
+      return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+    }
+
+    function fmtPct(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '-';
+      return `${n.toFixed(1)}%`;
+    }
+
+    function fmtDate(value) {
+      if (!value) return '-';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
+      return d.toLocaleString();
+    }
+
+    function parseJsonSafe(value, fallback = {}) {
+      if (!value) return fallback;
+      if (typeof value === 'object') return value;
+      try {
+        return JSON.parse(value);
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function profileTag(profile) {
+      const key = String(profile || '').toLowerCase();
+      return `<span class="tag ${key === 'paper' ? 'paper' : 'live'}">${escapeHtml(profile || '-')}</span>`;
+    }
+
+    function renderEmpty(target, message) {
+      target.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+    }
+
+    function setStatus(kind, detail) {
+      statusValue.textContent = kind;
+      statusDetail.textContent = detail;
+    }
+
+    function summarizeOverview(data) {
+      const profiles = Array.isArray(data.profileSummary) ? data.profileSummary : [];
+      const live = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'live') || {};
+      const paper = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'paper') || {};
+      const memory = Array.isArray(data.agentMemorySummary) ? data.agentMemorySummary[0] || {} : {};
+      const intelligence = Array.isArray(data.latestIntelligence) ? data.latestIntelligence : [];
+      const evo = Array.isArray(data.selfEvolutionSummary) ? data.selfEvolutionSummary : [];
+
+      const notes = [];
+      notes.push(`Paper win rate is ${fmtPct(paper.win_rate_pct)} versus ${fmtPct(live.win_rate_pct)} on live, while live has the larger trade sample at ${fmtNumber(live.trade_count)} trades.`);
+      notes.push(`Live equity is ${fmtMoney(live.latest_equity)} and paper equity is ${fmtMoney(paper.latest_equity)}. Open exposure is ${fmtNumber(live.open_positions)} live positions versus ${fmtNumber(paper.open_positions)} in paper.`);
+      if (intelligence.length) {
+        const best = intelligence
+          .map((row) => `${row.bot_profile}: ${row.macro_sentiment || 'unknown'} ${fmtNumber(row.sentiment_score)} score`)
+          .join(' | ');
+        notes.push(`Latest intelligence read: ${best}.`);
+      }
+      if (evo.length) {
+        const evoLine = evo
+          .map((row) => `${row.bot_profile} applied=${fmtNumber(row.applied_count)} failed=${fmtNumber(row.failed_count)}`)
+          .join(' | ');
+        notes.push(`Self-evolution history remains cautious: ${evoLine}.`);
+      }
+      const decisionQuality = Array.isArray(data.decisionQualitySummary) ? data.decisionQualitySummary : [];
+      if (decisionQuality.length) {
+        const line = decisionQuality
+          .map((row) => `${row.bot_profile} approvals=${fmtNumber(row.approved_count)} reflections=${fmtNumber(row.reflection_count)} avg reflected pnl ${fmtMoney(row.avg_reflected_pnl_usd)}`)
+          .join(' | ');
+        notes.push(`Decision quality snapshot: ${line}.`);
+      }
+      const models = Array.isArray(data.activeModelVersions) ? data.activeModelVersions : [];
+      const sentimentRows = Array.isArray(data.latestSentimentSnapshots) ? data.latestSentimentSnapshots : [];
+      const rlPolicies = Array.isArray(data.latestRlPolicyMetrics) ? data.latestRlPolicyMetrics : [];
+      const hybridRows = Array.isArray(data.latestHybridRouteDecisions) ? data.latestHybridRouteDecisions : [];
+      if (models.length) {
+        const families = Array.from(new Set(models.map((row) => row.model_family).filter(Boolean)));
+        notes.push(`Active model registry is live with ${fmtNumber(models.length)} active versions across ${fmtNumber(families.length)} model families: ${families.slice(0, 4).join(', ')}${families.length > 4 ? '...' : ''}.`);
+      }
+      if (sentimentRows.length) {
+        const latest = sentimentRows[0];
+        notes.push(`Latest sentiment snapshot is ${latest.bot_profile} ${latest.symbol || latest.chain_key || 'market'} ${latest.signal || 'neutral'} at ${fmtNumber(latest.aggregate_score, 2)} score with ${fmtNumber(latest.news_count)} news and ${fmtNumber(latest.reddit_count)} Reddit items.`);
+      }
+      if (rlPolicies.length) {
+        const latestPolicy = rlPolicies[0];
+        notes.push(`RL policy registry is active with latest update from ${latestPolicy.bot_profile} ${latestPolicy.policy_name} at ${fmtDate(latestPolicy.updated_at)}.`);
+      }
+      if (hybridRows.length) {
+        const latestHybrid = hybridRows[0];
+        notes.push(`Latest hybrid route decision is ${latestHybrid.bot_profile} ${latestHybrid.final_signal || 'HOLD'} on ${latestHybrid.symbol || latestHybrid.chain_key || 'unknown'} under ${latestHybrid.regime_family || 'any'} regime.`);
+      }
+      const approvals = Array.isArray(data.pendingApprovals) ? data.pendingApprovals : [];
+      if (approvals.length) {
+        notes.push(`There are ${fmtNumber(approvals.length)} promotion candidates waiting for manual approval before canary rollout.`);
+      }
+      const monteCarlo = Array.isArray(data.monteCarloSummary) ? data.monteCarloSummary : [];
+      if (monteCarlo.length) {
+        const line = monteCarlo
+          .map((row) => `${row.bot_profile} ruin ${fmtPct(row.ruin_probability_pct)} p50 ${fmtMoney(row.p50_ending_balance)}`)
+          .join(' | ');
+        notes.push(`Monte Carlo robustness: ${line}.`);
+      }
+      notes.push(`Shared agent memory currently holds ${fmtNumber(memory.lesson_count)} lessons, ${fmtNumber(memory.discovery_count)} discoveries, and ${fmtNumber(memory.blacklist_count)} blacklisted tokens.`);
+      return notes;
+    }
+
+    function summarizeBreakdown(data) {
+      const chains = Array.isArray(data.chainSummary) ? data.chainSummary : [];
+      const strategies = Array.isArray(data.strategySummary) ? data.strategySummary : [];
+      const positions = Array.isArray(data.latestOpenPositions) ? data.latestOpenPositions : [];
+      const notes = [];
+
+      const hottestChain = chains
+        .slice()
+        .sort((a, b) => Number(b.trade_count || 0) - Number(a.trade_count || 0))[0];
+      if (hottestChain) {
+        notes.push(`The busiest chain/profile pair is ${hottestChain.bot_profile} ${hottestChain.chain_key} with ${fmtNumber(hottestChain.trade_count)} trades and realized PnL of ${fmtMoney(hottestChain.realized_pnl_usd)}.`);
+      }
+
+      const bestStrategy = strategies
+        .filter((row) => Number.isFinite(Number(row.win_rate_pct)))
+        .slice()
+        .sort((a, b) => Number(b.win_rate_pct || 0) - Number(a.win_rate_pct || 0))[0];
+      if (bestStrategy) {
+        notes.push(`Best strategy row by win rate is ${bestStrategy.bot_profile} ${bestStrategy.strategy} at ${fmtPct(bestStrategy.win_rate_pct)} across ${fmtNumber(bestStrategy.trade_count)} trades.`);
+      }
+
+      const livePositions = positions.filter((row) => String(row.bot_profile).toLowerCase() === 'live').length;
+      const paperPositions = positions.filter((row) => String(row.bot_profile).toLowerCase() === 'paper').length;
+      notes.push(`Open position inventory in SQL currently shows ${fmtNumber(livePositions)} live rows and ${fmtNumber(paperPositions)} paper rows in the latest-open-positions view.`);
+      const decisionQuality = Array.isArray(data.decisionQualitySummary) ? data.decisionQualitySummary : [];
+      if (decisionQuality.length) {
+        const best = decisionQuality
+          .slice()
+          .sort((a, b) => Number(b.avg_reflected_pnl_usd || -Infinity) - Number(a.avg_reflected_pnl_usd || -Infinity))[0];
+        if (best) {
+          notes.push(`Best reflected decision profile is ${best.bot_profile} with average reflected PnL of ${fmtMoney(best.avg_reflected_pnl_usd)} across ${fmtNumber(best.reflection_count)} closed reflections.`);
+        }
+      }
+      const benchmark = Array.isArray(data.benchmarkSummary) ? data.benchmarkSummary : [];
+      if (benchmark.length) {
+        const bestBench = benchmark
+          .slice()
+          .sort((a, b) => Number(b.total_pnl_usd || -Infinity) - Number(a.total_pnl_usd || -Infinity))[0];
+        if (bestBench) {
+          notes.push(`Top strategy benchmark row is ${bestBench.bot_profile} ${bestBench.strategy} with ${fmtMoney(bestBench.total_pnl_usd)} total PnL and ${fmtPct(bestBench.win_rate_pct)} win rate.`);
+        }
+      }
+      return notes;
+    }
+
+    function summarizeMemory(data) {
+      const lessons = Array.isArray(data.latestLessons) ? data.latestLessons : [];
+      const discoveries = Array.isArray(data.latestDiscoveries) ? data.latestDiscoveries : [];
+      const memory = Array.isArray(data.agentMemorySummary) ? data.agentMemorySummary[0] || {} : {};
+      const notes = [];
+      notes.push(`Shared memory contains ${fmtNumber(memory.lesson_count)} lessons and ${fmtNumber(memory.discovery_count)} discoveries.`);
+      if (lessons[0]) {
+        notes.push(`Latest lesson was recorded at ${fmtDate(lessons[0].ts)} and references ${lessons[0].symbol || lessons[0].chain_key || 'shared learning state'}.`);
+      }
+      if (discoveries[0]) {
+        notes.push(`Latest discovery source is ${discoveries[0].source || 'unknown'} with topic ${discoveries[0].topic || discoveries[0].category || 'general'} at ${fmtDate(discoveries[0].ts)}.`);
+      }
+      const latestDecisions = Array.isArray(data.latestDecisions) ? data.latestDecisions : [];
+      if (latestDecisions[0]) {
+        notes.push(`Latest decision row is ${latestDecisions[0].bot_profile} ${latestDecisions[0].decision_stage} -> ${latestDecisions[0].final_action || latestDecisions[0].status || 'n/a'} for ${latestDecisions[0].symbol || 'unknown'} at ${fmtDate(latestDecisions[0].ts)}.`);
+      }
+      const models = Array.isArray(data.activeModelVersions) ? data.activeModelVersions : [];
+      const sentimentRows = Array.isArray(data.latestSentimentSnapshots) ? data.latestSentimentSnapshots : [];
+      const rlPolicies = Array.isArray(data.latestRlPolicyMetrics) ? data.latestRlPolicyMetrics : [];
+      const hybridRows = Array.isArray(data.latestHybridRouteDecisions) ? data.latestHybridRouteDecisions : [];
+      if (models.length) {
+        notes.push(`Model registry snapshot shows ${fmtNumber(models.length)} active version rows available for audit alongside shared memory.`);
+      }
+      if (sentimentRows.length || rlPolicies.length || hybridRows.length) {
+        notes.push(`The ML/RL/sentiment sidecar is producing ${fmtNumber(sentimentRows.length)} recent sentiment rows, ${fmtNumber(rlPolicies.length)} RL policy rows, and ${fmtNumber(hybridRows.length)} hybrid route decisions for inspection.`);
+      }
+      const approvals = Array.isArray(data.pendingApprovals) ? data.pendingApprovals : [];
+      if (approvals.length) {
+        notes.push(`Manual promotion queue currently has ${fmtNumber(approvals.length)} awaiting approval.`);
+      }
+      notes.push(`Blacklist count is ${fmtNumber(memory.blacklist_count)} and token preference count is ${fmtNumber(memory.preference_count)}.`);
+      return notes;
+    }
+
+    function renderAnalysis(data) {
+      let notes = [];
+      if (report === 'overview') notes = summarizeOverview(data);
+      if (report === 'breakdown') notes = summarizeBreakdown(data);
+      if (report === 'memory') notes = summarizeMemory(data);
+      analysisList.innerHTML = notes.map((note) => `<div class="analysis-item">${escapeHtml(note)}</div>`).join('');
+    }
+
+    function renderKpis(data) {
+      const cards = [];
+      if (report === 'overview') {
+        const profiles = Array.isArray(data.profileSummary) ? data.profileSummary : [];
+        const live = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'live') || {};
+        const paper = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'paper') || {};
+        const memory = Array.isArray(data.agentMemorySummary) ? data.agentMemorySummary[0] || {} : {};
+        cards.push(
+          { label: 'Live Equity', value: fmtMoney(live.latest_equity), note: `Win rate ${fmtPct(live.win_rate_pct)} | ${fmtNumber(live.trade_count)} trades`, tone: Number(live.latest_total_pnl) >= 0 ? 'good' : 'bad' },
+          { label: 'Paper Equity', value: fmtMoney(paper.latest_equity), note: `Win rate ${fmtPct(paper.win_rate_pct)} | ${fmtNumber(paper.trade_count)} trades`, tone: Number(paper.latest_total_pnl) >= 0 ? 'good' : 'bad' },
+          { label: 'Open Positions', value: fmtNumber((Number(live.open_positions || 0) + Number(paper.open_positions || 0))), note: `${fmtNumber(live.open_positions)} live | ${fmtNumber(paper.open_positions)} paper` },
+          { label: 'Shared Discoveries', value: fmtNumber(memory.discovery_count), note: `${fmtNumber(memory.lesson_count)} lessons | ${fmtNumber(memory.blacklist_count)} blacklisted` }
+        );
+      } else if (report === 'breakdown') {
+        const chains = Array.isArray(data.chainSummary) ? data.chainSummary : [];
+        const strategies = Array.isArray(data.strategySummary) ? data.strategySummary : [];
+        const positions = Array.isArray(data.latestOpenPositions) ? data.latestOpenPositions : [];
+        const decisionQuality = Array.isArray(data.decisionQualitySummary) ? data.decisionQualitySummary : [];
+        const totalTrades = chains.reduce((sum, row) => sum + Number(row.trade_count || 0), 0);
+        const totalPnL = chains.reduce((sum, row) => sum + Number(row.realized_pnl_usd || 0), 0);
+        cards.push(
+          { label: 'Chain Rows', value: fmtNumber(chains.length), note: `${fmtNumber(totalTrades)} total trades summarized` },
+          { label: 'Strategy Rows', value: fmtNumber(strategies.length), note: `${fmtNumber(positions.length)} latest open positions listed` },
+          { label: 'Realized PnL', value: fmtMoney(totalPnL), note: 'Aggregate across chain summary rows', tone: totalPnL >= 0 ? 'good' : 'bad' },
+          { label: 'Decision Reflections', value: fmtNumber(decisionQuality.reduce((sum, row) => sum + Number(row.reflection_count || 0), 0)), note: 'Closed-trade decision reviews projected into SQL' }
+        );
+      } else {
+        const lessons = Array.isArray(data.latestLessons) ? data.latestLessons : [];
+        const discoveries = Array.isArray(data.latestDiscoveries) ? data.latestDiscoveries : [];
+        const memory = Array.isArray(data.agentMemorySummary) ? data.agentMemorySummary[0] || {} : {};
+        const latestDecisions = Array.isArray(data.latestDecisions) ? data.latestDecisions : [];
+        cards.push(
+          { label: 'Lessons Loaded', value: fmtNumber(lessons.length), note: `Shared total ${fmtNumber(memory.lesson_count)}` },
+          { label: 'Discoveries Loaded', value: fmtNumber(discoveries.length), note: `Shared total ${fmtNumber(memory.discovery_count)}` },
+          { label: 'Blacklist Count', value: fmtNumber(memory.blacklist_count), note: `${fmtNumber(memory.preference_count)} token preferences` },
+          { label: 'Latest Decisions', value: fmtNumber(latestDecisions.length), note: `${fmtNumber(memory.knowledge_count)} knowledge rows | ${fmtNumber(memory.evolution_outcome_count)} evolution outcomes` }
+        );
+      }
+
+      kpiGrid.innerHTML = cards.map((card) => `
+        <div class="panel card">
+          <div class="label">${escapeHtml(card.label)}</div>
+          <div class="value ${escapeHtml(card.tone || '')}">${escapeHtml(card.value)}</div>
+          <div class="note">${escapeHtml(card.note || '')}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderCompareBars(rows) {
+      if (!rows.length) {
+        renderEmpty(comparisonList, 'No comparison rows available.');
+        return;
+      }
+      comparisonList.innerHTML = rows.map((row) => {
+        const live = Number(row.live_value || 0);
+        const paper = Number(row.paper_value || 0);
+        const max = Math.max(Math.abs(live), Math.abs(paper), 1);
+        const livePct = Math.max(6, Math.round((Math.abs(live) / max) * 100));
+        const paperPct = Math.max(6, Math.round((Math.abs(paper) / max) * 100));
+        return `
+          <div class="compare-row">
+            <div class="compare-top">
+              <div class="compare-title">${escapeHtml(row.metric)}</div>
+              <div class="muted">live ${escapeHtml(fmtNumber(live, 2))} | paper ${escapeHtml(fmtNumber(paper, 2))}</div>
+            </div>
+            <div class="bar-track">
+              <div class="bar-live" style="width:${livePct}%"></div>
+            </div>
+            <div class="bar-track" style="margin-top:8px;">
+              <div class="bar-paper" style="width:${paperPct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('') + '<div class="legend"><span class="live">Live</span><span class="paper">Paper</span></div>';
+    }
+
+    function renderLineChart(target, seriesMap, { metricLabel = 'value', colorMap = {} } = {}) {
+      const seriesEntries = Object.entries(seriesMap || {}).filter(([, values]) => Array.isArray(values) && values.length);
+      if (!seriesEntries.length) {
+        renderEmpty(target, 'No historical points available.');
+        return;
+      }
+
+      const width = 760;
+      const height = 280;
+      const pad = 28;
+      const allPoints = seriesEntries.flatMap(([, values]) => values);
+      const min = Math.min(...allPoints.map((p) => Number(p.value || 0)));
+      const max = Math.max(...allPoints.map((p) => Number(p.value || 0)));
+      const span = Math.max(max - min, 1);
+
+      const paths = seriesEntries.map(([name, values]) => {
+        const sorted = values.slice().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+        const d = sorted.map((point, index) => {
+          const x = pad + ((width - pad * 2) * (sorted.length === 1 ? 0.5 : index / (sorted.length - 1)));
+          const y = height - pad - (((Number(point.value || 0) - min) / span) * (height - pad * 2));
+          return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+        }).join(' ');
+        const stroke = colorMap[name] || (name === 'paper' ? 'var(--paper)' : 'var(--live)');
+        const last = sorted[sorted.length - 1];
+        return { name, d, stroke, lastValue: last?.value, lastTs: last?.ts };
+      });
+
+      const grid = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+        const y = height - pad - (ratio * (height - pad * 2));
+        const value = min + (ratio * span);
+        return `
+          <line x1="${pad}" y1="${y}" x2="${width - pad}" y2="${y}" stroke="rgba(156,177,208,0.18)" stroke-width="1" />
+          <text x="${pad - 8}" y="${y + 4}" class="axis-label" text-anchor="end">${escapeHtml(fmtNumber(value, 2))}</text>
+        `;
+      }).join('');
+
+      const labels = paths.map((path, idx) => `
+        <text x="${width - pad}" y="${18 + idx * 16}" class="chart-label" text-anchor="end" fill="${path.stroke}">
+          ${escapeHtml(`${path.name} ${fmtNumber(path.lastValue, 2)}`)}
+        </text>
+      `).join('');
+
+      target.innerHTML = `
+        <svg class="chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+          ${grid}
+          ${paths.map((path) => `<path d="${path.d}" fill="none" stroke="${path.stroke}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>`).join('')}
+          ${labels}
+          <text x="${pad}" y="${height - 6}" class="axis-label">${escapeHtml(metricLabel)}</text>
+        </svg>
+      `;
+    }
+
+    function renderBarChart(target, rows) {
+      if (!rows.length) {
+        renderEmpty(target, 'No trade cadence rows available.');
+        return;
+      }
+      const width = 760;
+      const height = 280;
+      const pad = 28;
+      const series = rows.slice().sort((a, b) => new Date(a.trade_day) - new Date(b.trade_day)).slice(-24);
+      const max = Math.max(...series.map((row) => Number(row.trade_count || 0)), 1);
+      const barWidth = Math.max(12, Math.floor((width - pad * 2) / Math.max(series.length, 1)) - 6);
+      const bars = series.map((row, index) => {
+        const x = pad + index * ((width - pad * 2) / Math.max(series.length, 1)) + 3;
+        const value = Number(row.trade_count || 0);
+        const h = ((height - pad * 2) * value) / max;
+        const y = height - pad - h;
+        const fill = String(row.bot_profile).toLowerCase() === 'paper' ? 'var(--paper)' : 'var(--live)';
+        return `
+          <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="5" fill="${fill}" opacity="0.92"></rect>
+        `;
+      }).join('');
+      target.innerHTML = `
+        <svg class="chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+          <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="rgba(156,177,208,0.24)" stroke-width="1"></line>
+          ${bars}
+          <text x="${pad}" y="${height - 6}" class="axis-label">last daily trade rows</text>
+        </svg>
+        <div class="legend"><span class="live">Live</span><span class="paper">Paper</span></div>
+      `;
+    }
+
+    function renderIntelligence(rows, evoRows) {
+      if (!rows.length) {
+        renderEmpty(intelligenceCards, 'No intelligence rows available.');
+        return;
+      }
+      const evoMap = new Map((evoRows || []).map((row) => [String(row.bot_profile).toLowerCase(), row]));
+      intelligenceCards.innerHTML = rows.map((row) => {
+        const evo = evoMap.get(String(row.bot_profile).toLowerCase()) || {};
+        return `
+          <div class="compare-row">
+            <div class="compare-top">
+              <div class="compare-title">${profileTag(row.bot_profile)} ${escapeHtml(row.macro_sentiment || 'unknown')}</div>
+              <div class="muted">${escapeHtml(fmtDate(row.ts))}</div>
+            </div>
+            <div class="memory-row" style="padding:0;border:0;background:transparent;">
+              <div><strong>Sentiment score:</strong> ${escapeHtml(fmtNumber(row.sentiment_score))}</div>
+              <div><strong>Synthesized by:</strong> ${escapeHtml(row.synthesized_by || '-')}</div>
+              <div><strong>Evolution:</strong> applied ${escapeHtml(fmtNumber(evo.applied_count))}, failed ${escapeHtml(fmtNumber(evo.failed_count))}</div>
+              <div class="muted" style="margin-top:8px;">${escapeHtml(row.summary || 'No summary')}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderNamedBars(target, rows, nameKey, valueKey, valueFormatter) {
+      if (!rows.length) {
+        renderEmpty(target, 'No rows available.');
+        return;
+      }
+      const max = Math.max(...rows.map((row) => Number(row[valueKey] || 0)), 1);
+      target.innerHTML = rows.map((row) => {
+        const pct = Math.max(5, Math.round((Number(row[valueKey] || 0) / max) * 100));
+        const key = String(row.bot_profile || '').toLowerCase();
+        const klass = key === 'paper' ? 'bar-paper' : 'bar-live';
+        return `
+          <div class="compare-row">
+            <div class="compare-top">
+              <div class="compare-title">${profileTag(row.bot_profile)} ${escapeHtml(row[nameKey] || '-')}</div>
+              <div class="muted">${escapeHtml(valueFormatter(row[valueKey]))}</div>
+            </div>
+            <div class="bar-track">
+              <div class="${klass}" style="width:${pct}%"></div>
+            </div>
+            <div class="legend" style="margin-top:10px;">
+              <span>${escapeHtml(`trades ${fmtNumber(row.trade_count || 0)} | wins ${fmtNumber(row.win_count || 0)} | pnl ${fmtMoney(row.realized_pnl_usd || 0)}`)}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderDecisionQuality(rows) {
+      if (!rows.length) {
+        renderEmpty(decisionQualityList, 'No decision quality rows available yet.');
+        return;
+      }
+      decisionQualityList.innerHTML = rows.map((row) => `
+        <div class="compare-row">
+          <div class="compare-top">
+            <div class="compare-title">${profileTag(row.bot_profile)} decision quality</div>
+            <div class="muted">last decision ${escapeHtml(fmtDate(row.last_decision_at))}</div>
+          </div>
+          <div class="memory-row" style="padding:0;border:0;background:transparent;">
+            <div><strong>Approvals:</strong> ${escapeHtml(fmtNumber(row.approved_count))} / ${escapeHtml(fmtNumber(row.total_decisions))}</div>
+            <div><strong>Buy actions:</strong> ${escapeHtml(fmtNumber(row.buy_action_count))} | <strong>Rejects:</strong> ${escapeHtml(fmtNumber(row.reject_action_count))}</div>
+            <div><strong>Reflections:</strong> ${escapeHtml(fmtNumber(row.reflection_count))} | <strong>Wins:</strong> ${escapeHtml(fmtNumber(row.reflected_wins))} | <strong>Losses:</strong> ${escapeHtml(fmtNumber(row.reflected_losses))}</div>
+            <div><strong>Avg reflected PnL:</strong> ${escapeHtml(fmtMoney(row.avg_reflected_pnl_usd))} (${escapeHtml(fmtPct(row.avg_reflected_pnl_pct))})</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderMemoryRows(target, rows, textBuilder) {
+      if (!rows.length) {
+        renderEmpty(target, 'No rows available.');
+        return;
+      }
+      target.innerHTML = rows.map((row) => `
+        <div class="memory-row">
+          <div class="memory-top">
+            <div class="memory-title">${escapeHtml(textBuilder.title(row))}</div>
+            <div class="muted">${escapeHtml(fmtDate(row.ts))}</div>
+          </div>
+          <div class="muted">${escapeHtml(textBuilder.body(row))}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderModelSections(data) {
+      renderMemoryRows(modelVersionList, Array.isArray(data.activeModelVersions) ? data.activeModelVersions : [], {
+        title: (row) => `${row.display_name || row.model_id || 'model'} | ${row.version_id || 'version'}`,
+        body: (row) => {
+          const metrics = parseJsonSafe(row.metrics_json, {});
+          const params = parseJsonSafe(row.params_json, {});
+          const metricBits = [];
+          if (Number.isFinite(Number(metrics.winRatePct))) metricBits.push(`win ${fmtPct(metrics.winRatePct)}`);
+          if (Number.isFinite(Number(metrics.returnPct))) metricBits.push(`return ${fmtPct(metrics.returnPct)}`);
+          if (Number.isFinite(Number(metrics.confidence))) metricBits.push(`confidence ${fmtNumber(metrics.confidence, 2)}`);
+          if (Number.isFinite(Number(params.thresholdBuy))) metricBits.push(`buy>${fmtNumber(params.thresholdBuy, 2)}`);
+          return `${row.bot_profile || '-'} | ${row.model_family || '-'} | ${row.stage || '-'} | ${row.regime_family || 'any'} | ${metricBits.join(' | ') || 'metrics not populated yet'}`;
+        },
+      });
+
+      renderMemoryRows(rlPolicyList, Array.isArray(data.latestRlPolicyMetrics) ? data.latestRlPolicyMetrics : [], {
+        title: (row) => `${row.policy_name || row.policy_id || 'rl policy'} | ${row.bot_profile || '-'}`,
+        body: (row) => {
+          const metrics = parseJsonSafe(row.metrics_json, {});
+          const pieces = [`${row.stage || '-'} | ${row.status || '-'}`];
+          if (Number.isFinite(Number(metrics.trainingEpisodes))) pieces.push(`episodes ${fmtNumber(metrics.trainingEpisodes)}`);
+          if (Number.isFinite(Number(metrics.winRatePct))) pieces.push(`win ${fmtPct(metrics.winRatePct)}`);
+          if (Number.isFinite(Number(metrics.avgReward))) pieces.push(`reward ${fmtNumber(metrics.avgReward, 2)}`);
+          if (Number.isFinite(Number(metrics.finalBalance))) pieces.push(`balance ${fmtMoney(metrics.finalBalance)}`);
+          pieces.push(`updated ${fmtDate(row.updated_at)}`);
+          return pieces.join(' | ');
+        },
+      });
+
+      renderMemoryRows(sentimentList, Array.isArray(data.latestSentimentSnapshots) ? data.latestSentimentSnapshots : [], {
+        title: (row) => `${row.bot_profile || '-'} ${row.symbol || row.chain_key || 'market'} | ${row.signal || 'neutral'}`,
+        body: (row) => `score ${fmtNumber(row.aggregate_score, 2)} | confidence ${fmtNumber(row.confidence, 2)} | news ${fmtNumber(row.news_count)} | reddit ${fmtNumber(row.reddit_count)} | ${fmtDate(row.ts)}`,
+      });
+
+      renderMemoryRows(hybridRouteList, Array.isArray(data.latestHybridRouteDecisions) ? data.latestHybridRouteDecisions : [], {
+        title: (row) => `${row.bot_profile || '-'} ${row.symbol || row.chain_key || 'unknown'} | ${row.final_signal || 'HOLD'}`,
+        body: (row) => {
+          const route = parseJsonSafe(row.route_json, {});
+          const routeParts = [];
+          if (route.selectedRoute) routeParts.push(`route ${route.selectedRoute}`);
+          if (route.mlScore !== undefined) routeParts.push(`ml ${fmtNumber(route.mlScore, 2)}`);
+          if (route.rlAction) routeParts.push(`rl ${route.rlAction}`);
+          if (route.sentimentSignal) routeParts.push(`sentiment ${route.sentimentSignal}`);
+          return `${row.task_class || '-'} | ${row.regime_family || 'any'} | confidence ${fmtNumber(row.confidence, 2)}${routeParts.length ? ` | ${routeParts.join(' | ')}` : ''}`;
+        },
+      });
+
+      const approvals = Array.isArray(data.pendingApprovals) ? data.pendingApprovals : [];
+      if (!approvals.length) {
+        renderEmpty(approvalList, 'No pending approvals right now.');
+      } else {
+        approvalList.innerHTML = approvals.map((row) => {
+          const meta = parseJsonSafe(row.metadata_json, {});
+          const title = `${row.source_profile || 'paper'} -> ${row.bot_profile || 'live'} | ${row.version_id || 'version'}`;
+          const body = [
+            row.candidate_id ? `candidate ${row.candidate_id}` : null,
+            Number.isFinite(Number(row.promotion_confidence)) ? `confidence ${fmtNumber(row.promotion_confidence, 2)}` : null,
+            Number.isFinite(Number(row.discrepancy_score)) ? `discrepancy ${fmtNumber(row.discrepancy_score, 2)}` : null,
+            meta.regimeFamily ? `regime ${meta.regimeFamily}` : null,
+            `created ${fmtDate(row.created_at)}`,
+          ].filter(Boolean).join(' | ');
+          return `
+            <div class="memory-row">
+              <div class="memory-top">
+                <div class="memory-title">${escapeHtml(title)}</div>
+                <button class="btn secondary small approve-version-btn" type="button" data-version-id="${escapeHtml(row.version_id || '')}">Approve</button>
+              </div>
+              <div class="muted">${escapeHtml(body || 'Awaiting approval.')}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const rotationDebug = data.rotationDebug || {};
+      const openRows = Array.isArray(rotationDebug.openPositions) ? rotationDebug.openPositions : [];
+      const blockedRows = Array.isArray(rotationDebug.blockedCandidates) ? rotationDebug.blockedCandidates : [];
+      if (!openRows.length && !blockedRows.length) {
+        renderEmpty(rotationDebugList, 'No rotation debug rows available right now.');
+      } else {
+        const html = [];
+        if (openRows.length) {
+          html.push(...openRows.slice(0, 12).map((row) => `
+            <div class="memory-row">
+              <div class="memory-title">OPEN ${escapeHtml(row.symbol || row.address || 'unknown')} | ${escapeHtml(row.chain_key || '-')}</div>
+              <div class="muted">24h ${escapeHtml(fmtNumber(row.price_change_24h, 2))}% | conf ${escapeHtml(fmtNumber(row.confidence, 2))} | vol ${escapeHtml(fmtNumber(row.volume_spike, 3))} | accel ${escapeHtml(fmtNumber(row.acceleration_score, 2))} | strong scans ${escapeHtml(fmtNumber(row.consecutive_strong_scans))}</div>
+            </div>
+          `));
+        }
+        if (blockedRows.length) {
+          html.push(...blockedRows.slice(0, 12).map((row) => {
+            const context = row.rotation_context || {};
+            const weakest = context.weakestComponents || {};
+            const candidate = context.candidateComponents || {};
+            return `
+              <div class="memory-row">
+                <div class="memory-title">CANDIDATE ${escapeHtml(row.symbol || row.address || 'unknown')} blocked</div>
+                <div class="muted">${escapeHtml(row.not_bought_reason || 'rotation blocked')}</div>
+                <div class="muted">candidate score ${escapeHtml(fmtNumber(context.candidateScore, 2))} vs weakest ${escapeHtml(context.weakestSymbol || '-')} score ${escapeHtml(fmtNumber(context.weakestScore, 2))}</div>
+                <div class="muted">candidate: 24h ${escapeHtml(fmtNumber(candidate.priceChange24h, 2))}% | conf ${escapeHtml(fmtNumber(candidate.confidence, 2))} | vol ${escapeHtml(fmtNumber(candidate.volumeSpike, 3))} | accel ${escapeHtml(fmtNumber(candidate.accelerationScore, 2))} | strong ${escapeHtml(fmtNumber(candidate.consecutiveStrongScans))}</div>
+                <div class="muted">weakest: 24h ${escapeHtml(fmtNumber(weakest.priceChange24h, 2))}% | pnl ${escapeHtml(fmtNumber(weakest.pnlPct, 2))}% | conf ${escapeHtml(fmtNumber(weakest.confidence, 2))} | vol ${escapeHtml(fmtNumber(weakest.volumeSpike, 3))} | accel ${escapeHtml(fmtNumber(weakest.accelerationScore, 2))} | strong ${escapeHtml(fmtNumber(weakest.consecutiveStrongScans))}</div>
+              </div>
+            `;
+          }));
+        }
+        rotationDebugList.innerHTML = html.join('');
+      }
+    }
+
+    function inferColumns(rows) {
+      const keys = new Set();
+      rows.slice(0, 8).forEach((row) => Object.keys(row || {}).forEach((key) => keys.add(key)));
+      return Array.from(keys);
+    }
+
+    function renderTableSection(titleText, rows) {
+      const columns = inferColumns(rows);
+      if (!rows.length || !columns.length) {
+        return `
+          <div style="margin-bottom:18px;">
+            <h3 style="margin-bottom:10px;">${escapeHtml(titleText)}</h3>
+            <div class="empty">No rows available.</div>
+          </div>
+        `;
+      }
+
+      const header = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+      const body = rows.map((row) => `
+        <tr>
+          ${columns.map((column) => {
+            const value = row[column];
+            const text = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+            return `<td class="${text.length > 80 ? 'code muted' : ''}">${escapeHtml(text)}</td>`;
+          }).join('')}
+        </tr>
+      `).join('');
+
+      return `
+        <div style="margin-bottom:18px;">
+          <h3 style="margin-bottom:10px;">${escapeHtml(titleText)}</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>${header}</tr></thead>
+              <tbody>${body}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function applyHistoryFilters(rows, dateKey) {
+      const profile = chartProfile?.value || 'both';
+      const range = chartRange?.value || '7d';
+      const now = Date.now();
+      const rangeMap = {
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000,
+      };
+
+      return (rows || []).filter((row) => {
+        const rowProfile = String(row.bot_profile || '').toLowerCase();
+        if (profile !== 'both' && rowProfile !== profile) return false;
+        if (range === 'all') return true;
+        const raw = row[dateKey];
+        const ts = new Date(raw).getTime();
+        if (Number.isNaN(ts)) return true;
+        return (now - ts) <= rangeMap[range];
+      });
+    }
+
+    function renderTables(data) {
+      const sections = Object.entries(data || {}).map(([key, rows]) => renderTableSection(key, Array.isArray(rows) ? rows : []));
+      tablesRoot.innerHTML = sections.join('');
+    }
+
+    function renderHistory(data) {
+      const pnlHistory = applyHistoryFilters(Array.isArray(data.pnlHistory) ? data.pnlHistory : [], 'ts');
+      const tradeCadence = applyHistoryFilters(Array.isArray(data.tradeCadence) ? data.tradeCadence : [], 'trade_day');
+      const decisionTimeline = applyHistoryFilters(Array.isArray(data.decisionTimeline) ? data.decisionTimeline : [], 'decision_day');
+      const groupedPnl = pnlHistory.reduce((acc, row) => {
+        const key = String(row.bot_profile || 'unknown').toLowerCase();
+        if (!acc[key]) acc[key] = [];
+        acc[key].push({ ts: row.ts, value: Number(row.equity || row.total_pnl || 0) });
+        return acc;
+      }, {});
+      const groupedDecisions = decisionTimeline.reduce((acc, row) => {
+        const key = String(row.bot_profile || 'unknown').toLowerCase();
+        if (!acc[key]) acc[key] = [];
+        const approvals = Number(row.approved_count || 0);
+        const total = Math.max(1, Number(row.decision_count || 0));
+        acc[key].push({ ts: row.decision_day, value: (approvals / total) * 100 });
+        return acc;
+      }, {});
+      renderLineChart(equityChart, groupedPnl, { metricLabel: 'equity' });
+      renderBarChart(tradeChart, tradeCadence);
+      renderLineChart(decisionChart, groupedDecisions, { metricLabel: 'approval rate %' });
+    }
+
+    function toggleSections() {
+      decisionSections.classList.toggle('hidden', !(Array.isArray(currentPayload?.data?.decisionQualitySummary) && currentPayload.data.decisionQualitySummary.length));
+      modelSections.classList.toggle('hidden', !(
+        (Array.isArray(currentPayload?.data?.activeModelVersions) && currentPayload.data.activeModelVersions.length)
+        || (Array.isArray(currentPayload?.data?.latestSentimentSnapshots) && currentPayload.data.latestSentimentSnapshots.length)
+        || (Array.isArray(currentPayload?.data?.latestRlPolicyMetrics) && currentPayload.data.latestRlPolicyMetrics.length)
+        || (Array.isArray(currentPayload?.data?.latestHybridRouteDecisions) && currentPayload.data.latestHybridRouteDecisions.length)
+      ));
+      overviewSections.classList.toggle('hidden', report !== 'overview');
+      breakdownSections.classList.toggle('hidden', report !== 'breakdown');
+      memorySections.classList.toggle('hidden', report !== 'memory');
+    }
+
+    function renderPayload(payload) {
+      currentPayload = payload;
+      const data = payload?.data || {};
+      subtitle.textContent = 'Structured SQL analytics dashboard';
+      metaGenerated.textContent = `generated: ${fmtDate(payload.generatedAt)}`;
+      metaSource.textContent = `source: /api/sql-report?report=${report}`;
+      setStatus('Loaded', `SQL report ${report} rendered successfully.`);
+      renderAnalysis(data);
+      renderKpis(data);
+      renderHistory(data);
+      renderDecisionQuality(Array.isArray(data.decisionQualitySummary) ? data.decisionQualitySummary : []);
+      renderModelSections(data);
+      renderMemoryRows(latestDecisionList, Array.isArray(data.latestDecisions) ? data.latestDecisions : [], {
+        title: (row) => `${row.bot_profile || 'bot'} ${row.decision_stage || 'decision'} -> ${row.final_action || row.status || 'n/a'}`,
+        body: (row) => `${row.symbol || 'unknown'} | ${row.strategy || '-'} | ${row.reason || 'no reason recorded'}`,
+      });
+      toggleSections();
+
+      if (report === 'overview') {
+        renderCompareBars(Array.isArray(data.liveVsPaper) ? data.liveVsPaper : []);
+        renderIntelligence(Array.isArray(data.latestIntelligence) ? data.latestIntelligence : [], Array.isArray(data.selfEvolutionSummary) ? data.selfEvolutionSummary : []);
+      } else if (report === 'breakdown') {
+        renderNamedBars(chainBars, Array.isArray(data.chainSummary) ? data.chainSummary : [], 'chain_key', 'trade_count', (value) => `${fmtNumber(value)} trades`);
+        renderNamedBars(strategyBars, Array.isArray(data.strategySummary) ? data.strategySummary : [], 'strategy', 'trade_count', (value) => `${fmtNumber(value)} trades`);
+      } else if (report === 'memory') {
+        renderMemoryRows(lessonList, Array.isArray(data.latestLessons) ? data.latestLessons : [], {
+          title: (row) => `${row.symbol || row.chain_key || 'shared'} lesson`,
+          body: (row) => row.lesson || row.lesson_text || row.summary || JSON.stringify(row),
+        });
+        renderMemoryRows(discoveryList, Array.isArray(data.latestDiscoveries) ? data.latestDiscoveries : [], {
+          title: (row) => `${row.source || 'source'} / ${row.topic || row.category || 'discovery'}`,
+          body: (row) => row.summary || row.discovery || row.content || JSON.stringify(row),
+        });
+      }
+
+      renderTables(data);
+    }
+
+    function rerenderHistoryFromCurrentPayload() {
+      if (!currentPayload?.data) return;
+      renderHistory(currentPayload.data);
+    }
+
+    function renderError(message) {
+      subtitle.textContent = 'Load failed';
+      metaGenerated.textContent = 'generated: -';
+      setStatus('Error', message);
+      analysisList.innerHTML = `<div class="analysis-item">${escapeHtml(message)}</div>`;
+      kpiGrid.innerHTML = '';
+      comparisonList.innerHTML = '';
+      intelligenceCards.innerHTML = '';
+      chainBars.innerHTML = '';
+      strategyBars.innerHTML = '';
+      lessonList.innerHTML = '';
+      discoveryList.innerHTML = '';
+      modelVersionList.innerHTML = '';
+      rlPolicyList.innerHTML = '';
+      sentimentList.innerHTML = '';
+      hybridRouteList.innerHTML = '';
+      decisionQualityList.innerHTML = '';
+      latestDecisionList.innerHTML = '';
+      approvalList.innerHTML = '';
+      rotationDebugList.innerHTML = '';
+      tablesRoot.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+    }
+
+    async function approveVersion(versionId) {
+      const token = getAdminTokenInteractive();
+      if (!token) return;
+      const notes = String(window.prompt(`Approval notes for ${versionId}:`, 'Approved from SQL dashboard') || '').trim();
+      try {
+        const response = await fetch('/api/promotion/approve', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Token': token,
+          },
+          body: JSON.stringify({
+            versionId,
+            notes: notes || 'Approved from SQL dashboard',
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 401) {
+            clearStoredAdminToken();
+            throw new Error('Unauthorized. Check DASHBOARD_ADMIN_TOKEN.');
+          }
+          throw new Error(payload?.error || `Approval failed (${response.status})`);
+        }
+        window.alert(`Approved ${versionId} for canary rollout.`);
+        loadReport();
+      } catch (error) {
+        window.alert(`Approval failed: ${error.message}`);
+      }
+    }
+
+    async function loadReport() {
+      setStatus('Loading', 'Fetching SQL report data...');
+      subtitle.textContent = 'Loading report...';
+      metaGenerated.textContent = 'generated: -';
+
+      let token = getStoredAdminToken();
+      if (!token) {
+        token = String(window.prompt('Enter DASHBOARD_ADMIN_TOKEN to open SQL reports:') || '').trim();
+        if (!token) {
+          renderError('No DASHBOARD_ADMIN_TOKEN provided.');
+          return;
+        }
+        setStoredAdminToken(token);
+      }
+
+      try {
+        const response = await fetch(`/api/sql-report?report=${encodeURIComponent(report)}`, {
+          cache: 'no-store',
+          headers: { 'X-Admin-Token': token },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 401) {
+            clearStoredAdminToken();
+            throw new Error('Unauthorized. Check DASHBOARD_ADMIN_TOKEN.');
+          }
+          throw new Error(payload && payload.error ? payload.error : `Request failed (${response.status})`);
+        }
+        renderPayload(payload);
+      } catch (error) {
+        renderError(`Failed to open SQL report: ${error.message}`);
+      }
+    }
+
+    retryButton.addEventListener('click', loadReport);
+    approvalList?.addEventListener('click', (event) => {
+      const button = event.target.closest('.approve-version-btn');
+      if (!button) return;
+      approveVersion(button.dataset.versionId);
+    });
+    chartProfile?.addEventListener('change', rerenderHistoryFromCurrentPayload);
+    chartRange?.addEventListener('change', rerenderHistoryFromCurrentPayload);
+
+    loadReport();
+  </script>
+</body>
+</html>

@@ -6,7 +6,8 @@ const { ethers } = require('ethers');
 const config = require('../config');
 const logger = require('./utils/logger');
 const RiskGuardian = require('./risk/guardian');
-const MomentumStrategy = require('./strategy/momentum');
+// const MomentumStrategy = require('./strategy/momentum');
+const MarketAnalyst = require('./agent/marketAnalyst');
 const { applyPositionJitter, getRandomEntryDelay, shouldSplitSolanaTrade, generateSplitTradeSchedule, sleep } = require('./utils/anti-pattern');
 const JupiterExchange = require('./exchanges/jupiter');
 const PancakeSwapExchange = require('./exchanges/pancakeswap');
@@ -16,18 +17,77 @@ const WebSocketDiscovery = require('./discovery/ws-discovery');
 const { startDashboard } = require('./dashboard');
 const WalletMonitor = require('./wallet-monitor');
 const AITradeBrain = require('./ai/ensemble');
+const StrategyBrain = require('./strategy-brain');
 const { runBacktest, runBacktestWithRegimes, runWalkForwardBacktest, runRegimeSpecificBacktest, runPortfolioBacktest } = require('./backtest');
 const { runPaperSimulation } = require('./simulation');
-const { sendHeartbeat, sendTradeAlert, sendErrorAlert } = require('./telegram');
+const { sendHeartbeat, sendTradeAlert, sendErrorAlert, sendHealthAlert, sendSafeModeAlert } = require('./telegram');
 const { validateConfig } = require('./utils/validate-config');
 const { cleanupNonTradeLogs, getLogCleanupIntervalMs } = require('./utils/log-maintenance');
+const { buildDashboardStatePayload } = require('./utils/dashboard-state');
+const { createTokenDecisionPipeline } = require('./utils/token-decision-pipeline');
+const { createExecutionAccounting } = require('./utils/execution-accounting');
+const { createExecutionFlow } = require('./utils/execution-flow');
+const { createTradeRepairHelpers } = require('./utils/trade-repair');
+const { createResearchHandlers } = require('./utils/research-handlers');
+const { createSelfEvolutionOrchestration } = require('./utils/self-evolution-orchestration');
+const { createStatePersistence } = require('./utils/state-persistence');
+const { createScanOrchestration } = require('./utils/scan-orchestration');
+const SelfEvolutionEngine = require('./self-evolution');
+const EvolutionGovernor = require('./evolution-governor');
+const EvolutionValidator = require('./evolution-validator');
+const StrategyLab = require('./strategy-lab');
+const MarketIntelligenceAgent = require('./agent/marketIntelligence');
+const AgentMemory = require('./agent/agentMemory');
+const SqlCoordination = require('./utils/sqlCoordination');
+const { SqlTelemetry, uuid: telemetryUuid } = require('./utils/sqlTelemetry');
+const { getSqlStatus, runSelfTest: runSqlSelfTest, hasExplicitDatabase } = require('./utils/sqlServer');
+const { execFileSync } = require('child_process');
 const {
   refreshKucoinCatalystCache,
   getPrioritizedKucoinCatalystPairs,
   getKucoinCatalystForToken,
 } = require('./utils/catalyst');
+const { rsi: computeRsi, volumeSpike: computeVolumeSpike, computeRegime } = require('./utils/indicators');
+const { analyzeEstablishedTokenPatterns, isEstablishedTokenCandidate } = require('./utils/pattern-recognition');
+const { getOhlcvSeries } = require('./utils/candles');
+const { executeBuyViaVenue, executeSellViaVenue } = require('./utils/execution-adapter');
+const { runHyperopt, runValidation, buildBaseBacktestOptions } = require('./utils/research');
+const { computeStrategyVersionHash, normalizeRegimeLabel, classifyRegimeFamily } = require('./utils/promotion-governance');
+const { ModelRegistry } = require('./utils/model-registry');
+const { buildFeatureSnapshot } = require('./utils/feature-pipeline');
+const { fetchTokenSentiment } = require('./utils/sentiment-engine');
+const { trainQPolicy, inferRlAction, buildFeatureSeriesFromHistories } = require('./utils/rl-policy');
+const { inferExternalRlAction } = require('./utils/external-rl-policy');
+const { runHybridDecision } = require('./utils/hybrid-agent-orchestrator');
+const OrderBookImbalanceAnalyzer = require('./utils/orderbook-imbalance');
+const TimeframeConfluenceAnalyzer = require('./utils/timeframe-confluence');
+const PositionSizingEngine = require('./utils/position-sizing');
+const RLOnlineUpdater = require('./utils/rl-online-updater');
+const ShadowStrategyValidator = require('./utils/shadow-strategy');
+const SymbolPnLMemory = require('./utils/symbol-memory');
+const BTCMacroFilter = require('./utils/btc-macro-filter');
 const fs = require('fs').promises;
+const path = require('path');
 const redis = require('redis');
+
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const BOT_PROFILE = String(process.env.BOT_PROFILE || (process.env.PAPER_TRADING === 'true' ? 'paper' : 'live')).toLowerCase();
+const BOT_DATA_DIR = process.env.BOT_DATA_DIR || 'data';
+const DATA_DIR_ABS = path.resolve(PROJECT_ROOT, BOT_DATA_DIR);
+const STATE_PATH = path.join(DATA_DIR_ABS, 'state.json');
+const MARKET_STATE_PATH = path.join(DATA_DIR_ABS, 'marketState.json');
+const STATE_BACKUP_PATH = path.join(DATA_DIR_ABS, 'state.backup.json');
+const MARKET_STATE_BACKUP_PATH = path.join(DATA_DIR_ABS, 'marketState.backup.json');
+const STATE_TMP_PATH = path.join(DATA_DIR_ABS, 'state.tmp.json');
+const MARKET_STATE_TMP_PATH = path.join(DATA_DIR_ABS, 'marketState.tmp.json');
+const LIVE_ROLLOUT_PATH = path.join(DATA_DIR_ABS, 'evolution-live-rollout.json');
+const SELF_EVOLUTION_HISTORY_PATH = path.join(DATA_DIR_ABS, 'self-evolution-history.jsonl');
+const CURRENT_STRATEGY_VERSION_HASH = computeStrategyVersionHash({
+  config,
+  strategies: config.strategies,
+  risk: config.risk,
+});
+const CURRENT_STRATEGY_VERSION_ID = `${BOT_PROFILE}-${CURRENT_STRATEGY_VERSION_HASH}`;
 
 // Global dashboard server reference for graceful shutdown
 let dashboardServer = null;
@@ -113,6 +173,19 @@ class AsyncMutex {
   }
 }
 const positionMutex = new AsyncMutex();
+const sqlCoordination = new SqlCoordination({
+  logger,
+  botId: `${process.env.BOT_PROFILE || 'bot'}:${process.pid}`,
+});
+const telemetry = new SqlTelemetry({ logger, botProfile: BOT_PROFILE });
+const sqlRuntimeState = {
+  selfTestOk: false,
+  selfTestReason: 'not_run',
+  lastSelfTestAt: null,
+};
+
+// Track order->position linkage for clean attribution.
+const orderToPositionId = new Map();
 
 /**
  * Returns true if the current UTC time falls within any configured trading window.
@@ -320,6 +393,31 @@ function shouldDelayBorderlineStop(position, currentPrice, stopLevel, stopType) 
   return false;
 }
 
+/**
+ * Smooth dynamic AI confidence floor adjustment based on recent win rate.
+ * When WR is low (drowning), tighten floor (raise it) to be more selective.
+ * When WR is high (hot streak), loosen floor (lower it) to allow more entries.
+ * Returns adjustment in percentage points to add to base floor (positive = stricter).
+ */
+function getDynamicAiFloorAdjustment(strategyName, lookbackTrades = 20) {
+  if (config.risk?.dynamicAiFloorEnabled === false) return 0;
+  const trades = Array.isArray(portfolio.strategies?.[strategyName]?.trades)
+    ? portfolio.strategies[strategyName].trades
+    : [];
+  const closed = trades
+    .filter((t) => t?.type === 'SELL' && Number.isFinite(Number(t?.pnl)))
+    .slice(-lookbackTrades);
+  if (closed.length < 5) return 0;
+  const wins = closed.filter((t) => Number(t.pnl) > 0).length;
+  const winRatePct = (wins / closed.length) * 100;
+  // Linear: at 50% WR adjustment is 0; at 30% WR add +10; at 70% WR add -10
+  const slope = Number(config.risk?.dynamicAiFloorSlope || 0.5);
+  const target = Number(config.risk?.dynamicAiFloorTargetWinRatePct || 50);
+  const maxAdjust = Number(config.risk?.dynamicAiFloorMaxAdjustPct || 12);
+  const raw = (target - winRatePct) * slope;
+  return Math.max(-maxAdjust, Math.min(maxAdjust, raw));
+}
+
 function getHourlyWinRateAdjustment(strategyName, now = new Date()) {
   if (config.risk?.hourlyWinRateModelEnabled === false) {
     return { adjustmentPct: 0, sampleSize: 0, hourUtc: now.getUTCHours(), winRatePct: null };
@@ -354,6 +452,71 @@ function getHourlyWinRateAdjustment(strategyName, now = new Date()) {
     return { adjustmentPct: -adjustPct, sampleSize: hourlyTrades.length, hourUtc, winRatePct: round(winRatePct, 1) };
   }
   return { adjustmentPct: 0, sampleSize: hourlyTrades.length, hourUtc, winRatePct: round(winRatePct, 1) };
+}
+
+/**
+ * Determine the bot's current recovery mode based on aggregate performance.
+ * Returns { active, severity, sizeMultiplier, volumeSpikeBoost, requireBothFlowAndVolume, blockExploration, consecutiveWins }
+ * severity: 'none' | 'light' | 'moderate' | 'deep'
+ */
+function getRecoveryMode() {
+  if (config.recovery?.enabled === false) {
+    return { active: false, severity: 'none', sizeMultiplier: 1, volumeSpikeBoost: 1, requireBothFlowAndVolume: false, blockExploration: false };
+  }
+
+  const rc = config.recovery || {};
+  const minClosed = Number(rc.minClosedTrades || 8);
+  const stats = portfolio.stats || {};
+  const closedTrades = Number(stats.closedTrades || 0);
+  if (closedTrades < minClosed) {
+    return { active: false, severity: 'none', sizeMultiplier: 1, volumeSpikeBoost: 1, requireBothFlowAndVolume: false, blockExploration: false };
+  }
+
+  const wins = Number(stats.wins || 0);
+  const winRatePct = closedTrades > 0 ? (wins / closedTrades) * 100 : 0;
+  const grossProfit = Number(stats.grossProfit || 0);
+  const grossLoss = Math.abs(Number(stats.grossLoss || 0));
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
+  const consecutiveWins = Number(stats.consecutiveWins || 0);
+
+  const deepPF = Number(rc.deepProfitFactorThreshold || 0.25);
+  const moderatePF = Number(rc.moderateProfitFactorThreshold || 0.55);
+  const lightPF = Number(rc.lightProfitFactorThreshold || 0.85);
+  const deepWR = Number(rc.deepWinRateThreshold || 28);
+  const moderateWR = Number(rc.moderateWinRateThreshold || 38);
+
+  const winsEscapeDeep = Number(rc.winsToEscapeDeep || 3);
+  const winsEscapeModerate = Number(rc.winsToEscapeModerate || 2);
+  const winsEscapeLight = Number(rc.winsToEscapeLight || 2);
+
+  let severity = 'none';
+  if ((profitFactor <= deepPF || winRatePct <= deepWR) && consecutiveWins < winsEscapeDeep) {
+    severity = 'deep';
+  } else if ((profitFactor <= moderatePF || winRatePct <= moderateWR) && consecutiveWins < winsEscapeModerate) {
+    severity = 'moderate';
+  } else if (profitFactor <= lightPF && consecutiveWins < winsEscapeLight) {
+    severity = 'light';
+  }
+
+  if (severity === 'none') {
+    return { active: false, severity: 'none', sizeMultiplier: 1, volumeSpikeBoost: 1, requireBothFlowAndVolume: false, blockExploration: false };
+  }
+
+  const sizeMultipliers = { deep: Number(rc.deepSizeMultiplier || 0.30), moderate: Number(rc.moderateSizeMultiplier || 0.50), light: Number(rc.lightSizeMultiplier || 0.70) };
+  const volumeBoosts    = { deep: Number(rc.deepVolumeSpikeBoost || 2.0), moderate: Number(rc.moderateVolumeSpikeBoost || 1.5), light: Number(rc.lightVolumeSpikeBoost || 1.2) };
+
+  return {
+    active: true,
+    severity,
+    sizeMultiplier: sizeMultipliers[severity],
+    volumeSpikeBoost: volumeBoosts[severity],
+    requireBothFlowAndVolume: severity === 'deep' || severity === 'moderate',
+    blockExploration: severity === 'deep',
+    profitFactor: round(profitFactor, 3),
+    winRatePct: round(winRatePct, 1),
+    closedTrades,
+    consecutiveWins,
+  };
 }
 
 async function getOraclePriceUsdForPosition(position, chainName) {
@@ -636,6 +799,10 @@ const portfolio = {
     slippageSamples: 0,
     avgSlippageBps: 0,
   },
+  learning: {
+    badTokenMemory: {},
+    sleevePerformance: {},
+  },
   pnlHistory: [],
 };
 
@@ -651,6 +818,7 @@ function makeFilterCycleStats(strategyName = 'momentum') {
     technicalBlocked: 0,
     aiBlocked: 0,
     riskBlocked: 0,
+    gateRejectCounts: {},
     rejectReasons: {
       portfolioHeat: 0,
       balanceDrift: 0,
@@ -701,6 +869,16 @@ const filterStatsState = {
     swing: false,
     global: false,
   },
+};
+
+// Operational diagnostics — tracks execution-phase failures invisible to filter stats.
+// Self-evolution reads this to detect capacity, chain-diversity, and provider issues.
+const operationalDiagnostics = {
+  slotBlockedCount: 0,          // times "Max concurrent positions reached" fired at execution time
+  nativePriceAbortCount: 0,     // times "native price unavailable or stale" aborted a buy
+  dailyLossBlockCount: 0,       // times per-chain daily loss limit blocked a buy
+  chainMonopolyHistory: [],     // [{ts, chainBreakdown}] rolling 20-entry window of chain distribution at each buy attempt
+  resetAt: Date.now(),
 };
 
 const pollingFallbackLastWarnAt = {};
@@ -760,8 +938,225 @@ function ensureRuntimeStateShape() {
   }
 }
 
+function ensureLearningStateShape() {
+  if (!portfolio.learning || typeof portfolio.learning !== 'object') {
+    portfolio.learning = {
+      badTokenMemory: {},
+      sleevePerformance: {},
+      brainProfiles: {},
+    };
+  }
+
+  if (!portfolio.learning.badTokenMemory || typeof portfolio.learning.badTokenMemory !== 'object') {
+    portfolio.learning.badTokenMemory = {};
+  }
+
+  if (!portfolio.learning.sleevePerformance || typeof portfolio.learning.sleevePerformance !== 'object') {
+    portfolio.learning.sleevePerformance = {};
+  }
+
+  if (!portfolio.learning.brainProfiles || typeof portfolio.learning.brainProfiles !== 'object') {
+    portfolio.learning.brainProfiles = {};
+  }
+
+  // Intelligence store — persisted so the agent resumes with its last report after restart
+  if (!portfolio.intelligence || typeof portfolio.intelligence !== 'object') {
+    portfolio.intelligence = { report: null, lastRunAt: 0, runCount: 0 };
+  }
+
+  const nowMs = Date.now();
+  Object.entries(portfolio.learning.badTokenMemory).forEach(([tokenKey, record]) => {
+    if (!record || typeof record !== 'object') {
+      delete portfolio.learning.badTokenMemory[tokenKey];
+      return;
+    }
+
+    const banUntilMs = Date.parse(record.banUntil || '');
+    const hardBan = Boolean(record.hardBan);
+    if (!hardBan && Number.isFinite(banUntilMs) && banUntilMs > 0 && banUntilMs < nowMs) {
+      delete portfolio.learning.badTokenMemory[tokenKey];
+    }
+  });
+}
+
+function getLearningBrainProfileKey(chainKey, strategyName = 'momentum', lane = 'unknown', trigger = 'unknown') {
+  const normalizedChain = normalizeChainKey(chainKey);
+  const normalizedStrategy = String(strategyName || 'momentum').toLowerCase();
+  const normalizedLane = String(lane || 'unknown').toLowerCase();
+  const normalizedTrigger = String(trigger || 'unknown').toLowerCase();
+  return `${normalizedChain}:${normalizedStrategy}:${normalizedLane}:${normalizedTrigger}`;
+}
+
+function updateBrainProfileFromClosedTrade(position = {}, finalTradePnl = 0) {
+  if (config.risk?.learningEnabled === false || config.risk?.brainEnabled === false) return;
+
+  ensureLearningStateShape();
+  const lane = String(position.discoveryLane || position.entryLane || 'unknown').toLowerCase();
+  const trigger = String(position.triggerTimeframe || position.entryTriggerTimeframe || 'unknown').toLowerCase();
+  const brainProfileKey = getLearningBrainProfileKey(
+    position.chainKey || position.chain,
+    position.strategy || 'momentum',
+    lane,
+    trigger
+  );
+
+  const brainWindowTrades = Math.max(10, Number(config.risk?.brainWindowTrades || 40));
+  const profile = portfolio.learning.brainProfiles[brainProfileKey] || {
+    chainKey: normalizeChainKey(position.chainKey || position.chain),
+    strategy: String(position.strategy || 'momentum').toLowerCase(),
+    lane,
+    trigger,
+    samples: 0,
+    wins: 0,
+    losses: 0,
+    totalPnl: 0,
+    recentOutcomes: [],
+    recentPnl: [],
+    recentWinRatePct: 50,
+    avgRecentPnlUsd: 0,
+    lastUpdated: null,
+  };
+
+  const isWin = Number(finalTradePnl || 0) >= 0;
+  profile.samples = Number(profile.samples || 0) + 1;
+  if (isWin) profile.wins = Number(profile.wins || 0) + 1;
+  else profile.losses = Number(profile.losses || 0) + 1;
+  profile.totalPnl = Number(profile.totalPnl || 0) + Number(finalTradePnl || 0);
+  profile.recentOutcomes = [...(Array.isArray(profile.recentOutcomes) ? profile.recentOutcomes : []), isWin ? 1 : 0].slice(-brainWindowTrades);
+  profile.recentPnl = [...(Array.isArray(profile.recentPnl) ? profile.recentPnl : []), Number(finalTradePnl || 0)].slice(-brainWindowTrades);
+
+  const recentCount = profile.recentOutcomes.length;
+  const recentWins = profile.recentOutcomes.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  profile.recentWinRatePct = recentCount > 0 ? (recentWins / recentCount) * 100 : 50;
+  profile.avgRecentPnlUsd = profile.recentPnl.length > 0
+    ? profile.recentPnl.reduce((sum, value) => sum + Number(value || 0), 0) / profile.recentPnl.length
+    : 0;
+  profile.lastUpdated = new Date().toISOString();
+
+  portfolio.learning.brainProfiles[brainProfileKey] = profile;
+  logger.info(
+    `Brain profile update ${brainProfileKey}: samples=${profile.samples} ` +
+    `winRate=${profile.recentWinRatePct.toFixed(1)}% avgPnl=${profile.avgRecentPnlUsd.toFixed(3)}`
+  );
+}
+
+function getLearningTokenKey(tokenData = {}) {
+  const chainKey = normalizeChainKey(tokenData.chainKey || tokenData.chain);
+  const address = String(tokenData.address || '').trim().toLowerCase();
+  if (!chainKey || !address) return '';
+  return `${chainKey}:${address}`;
+}
+
+function getLearningSleeveKey(chainKey, strategyName = 'momentum') {
+  return `${normalizeChainKey(chainKey)}:${String(strategyName || 'momentum').toLowerCase()}`;
+}
+
+function markTokenBadPattern(tokenData = {}, reason = '', options = {}) {
+  if (config.risk?.learningEnabled === false) return;
+
+  ensureLearningStateShape();
+  const tokenKey = getLearningTokenKey(tokenData);
+  if (!tokenKey) return;
+
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const cooldownHours = Math.max(1, Number(config.risk?.learnedPatternCooldownHours || 168));
+  const hardBanHours = Math.max(cooldownHours, Number(config.risk?.learnedPatternHardBanHours || 720));
+  const strikeThreshold = Math.max(1, Number(config.risk?.learnedPatternStrikeThreshold || 2));
+  const hardBan = Boolean(options.hardBan);
+
+  const current = portfolio.learning.badTokenMemory[tokenKey] || {
+    chainKey: normalizeChainKey(tokenData.chainKey || tokenData.chain),
+    symbol: tokenData.symbol || 'UNKNOWN',
+    address: String(tokenData.address || '').trim(),
+    strikes: 0,
+    hardBan: false,
+    firstSeen: nowIso,
+    lastSeen: nowIso,
+    reasons: [],
+    lastReason: '',
+    banUntil: nowIso,
+  };
+
+  current.symbol = tokenData.symbol || current.symbol;
+  current.lastSeen = nowIso;
+  current.lastReason = String(reason || '').slice(0, 240);
+  current.reasons = [current.lastReason, ...(Array.isArray(current.reasons) ? current.reasons : [])]
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (hardBan) {
+    current.hardBan = true;
+    current.strikes = Math.max(current.strikes, strikeThreshold);
+    current.banUntil = new Date(nowMs + (hardBanHours * 3600 * 1000)).toISOString();
+  } else {
+    current.strikes = Number(current.strikes || 0) + 1;
+    if (current.strikes >= strikeThreshold) {
+      current.banUntil = new Date(nowMs + (cooldownHours * 3600 * 1000)).toISOString();
+    }
+  }
+
+  portfolio.learning.badTokenMemory[tokenKey] = current;
+  logger.warn(
+    `Learned bad pattern: ${current.symbol} (${tokenKey}) strikes=${current.strikes} ` +
+    `hardBan=${current.hardBan ? 'yes' : 'no'} until=${current.banUntil} reason=${current.lastReason}`
+  );
+}
+
+function updateAdaptiveSleevePerformance(position = {}, finalTradePnl = 0) {
+  if (config.risk?.learningEnabled === false || config.risk?.adaptiveSizingEnabled === false) return;
+
+  ensureLearningStateShape();
+  const sleeveKey = getLearningSleeveKey(position.chainKey || position.chain, position.strategy || 'momentum');
+  if (!sleeveKey || sleeveKey.startsWith(':')) return;
+
+  const windowTrades = Math.max(5, Number(config.risk?.adaptiveSizingWindowTrades || 20));
+  const minTrades = Math.max(3, Number(config.risk?.adaptiveSizingMinTrades || 6));
+  const lowWinRatePct = Math.max(0, Number(config.risk?.adaptiveSizingLowWinRatePct || 40));
+  const highWinRatePct = Math.max(lowWinRatePct, Number(config.risk?.adaptiveSizingHighWinRatePct || 60));
+  const reduceMultiplier = Math.max(0.1, Number(config.risk?.adaptiveSizingReduceMultiplier || 0.7));
+  const boostMultiplier = Math.max(0.1, Number(config.risk?.adaptiveSizingBoostMultiplier || 1.05));
+  const minMultiplier = Math.max(0.1, Number(config.risk?.adaptiveSizingMinMultiplier || 0.45));
+  const maxMultiplier = Math.max(minMultiplier, Number(config.risk?.adaptiveSizingMaxMultiplier || 1.15));
+
+  const sleeve = portfolio.learning.sleevePerformance[sleeveKey] || {
+    outcomes: [],
+    recentWinRatePct: 50,
+    sizeMultiplier: 1,
+    totalClosed: 0,
+    wins: 0,
+    losses: 0,
+    lastUpdated: null,
+  };
+
+  const win = Number(finalTradePnl || 0) >= 0 ? 1 : 0;
+  sleeve.outcomes = [...(Array.isArray(sleeve.outcomes) ? sleeve.outcomes : []), win].slice(-windowTrades);
+  sleeve.totalClosed = Number(sleeve.totalClosed || 0) + 1;
+  if (win) sleeve.wins = Number(sleeve.wins || 0) + 1;
+  else sleeve.losses = Number(sleeve.losses || 0) + 1;
+
+  const outcomeCount = sleeve.outcomes.length;
+  const wins = sleeve.outcomes.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  sleeve.recentWinRatePct = outcomeCount > 0 ? (wins / outcomeCount) * 100 : 50;
+
+  let multiplier = 1;
+  if (outcomeCount >= minTrades) {
+    if (sleeve.recentWinRatePct < lowWinRatePct) multiplier = reduceMultiplier;
+    else if (sleeve.recentWinRatePct >= highWinRatePct) multiplier = boostMultiplier;
+  }
+  sleeve.sizeMultiplier = Math.max(minMultiplier, Math.min(maxMultiplier, multiplier));
+  sleeve.lastUpdated = new Date().toISOString();
+
+  portfolio.learning.sleevePerformance[sleeveKey] = sleeve;
+  logger.info(
+    `Adaptive sleeve update ${sleeveKey}: winRate=${sleeve.recentWinRatePct.toFixed(1)}% ` +
+    `window=${outcomeCount} sizeMultiplier=${sleeve.sizeMultiplier.toFixed(2)}`
+  );
+}
+
 function recordRuntimeDelta() {
   ensureRuntimeStateShape();
+  ensureLearningStateShape();
   const nowMs = Date.now();
   const lastTickMs = Number(portfolio.runtime.lastTickMs || nowMs);
   const deltaSeconds = Math.max(0, (nowMs - lastTickMs) / 1000);
@@ -789,6 +1184,30 @@ function classifyFilterReason(cycleStats, reasonText) {
   if (reason.includes('net buy flow')) cycleStats.buyFlowBlocked += 1;
   if (reason.includes('unique buyers')) cycleStats.uniqueBuyerBlocked += 1;
   incrementRejectReason(cycleStats, classifyRejectReason(reason));
+
+  const gateReasonKey = String(reason || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'other';
+  cycleStats.gateRejectCounts[gateReasonKey] = Number(cycleStats.gateRejectCounts[gateReasonKey] || 0) + 1;
+}
+
+function buildGateRejectPercentages(gateRejectCounts = {}, evaluated = 0) {
+  const denominator = Math.max(1, Number(evaluated || 0));
+  const entries = Object.entries(gateRejectCounts || {})
+    .map(([reason, count]) => {
+      const numericCount = Number(count || 0);
+      return [reason, `${((numericCount / denominator) * 100).toFixed(1)}% (${numericCount})`];
+    })
+    .sort((left, right) => {
+      const leftCount = Number(String(left[1]).match(/\((\d+)\)$/)?.[1] || 0);
+      const rightCount = Number(String(right[1]).match(/\((\d+)\)$/)?.[1] || 0);
+      return rightCount - leftCount;
+    })
+    .slice(0, 12);
+  return Object.fromEntries(entries);
 }
 
 function finalizeFilterCycle(strategyName) {
@@ -828,16 +1247,81 @@ function finalizeFilterCycle(strategyName) {
     `passedPct=${passedPct.toFixed(1)} redditBlocked=${cycleStats.redditBlocked} coincapBlocked=${cycleStats.coincapBlocked} ` +
     `buyFlowBlocked=${cycleStats.buyFlowBlocked} uniqueBuyerBlocked=${cycleStats.uniqueBuyerBlocked} ` +
     `technicalBlocked=${cycleStats.technicalBlocked} aiBlocked=${cycleStats.aiBlocked} riskBlocked=${cycleStats.riskBlocked} ` +
-    `rejects=${JSON.stringify(cycleStats.rejectReasons || {})}`
+    `rejects=${JSON.stringify(cycleStats.rejectReasons || {})} ` +
+    `gateRejectPct=${JSON.stringify(buildGateRejectPercentages(cycleStats.gateRejectCounts || {}, evaluated))}`
   );
 }
 
 const marketState = {
-  trackedTokens: {},
-  signals: [],
+  trackedTokens: {}, // key: { ...tokenData, lastUpdated: ISO string }
+  signals: [], // { ...signalData, lastUpdated: ISO string }
+  externalSignals: [],
   backtests: [],
   simulations: [],
+  evolution: {
+    activeExperiment: null,
+    history: [],
+    lastPromotion: null,
+    lastRollback: null,
+  },
 };
+
+function clearTrackedTokensAndSignals() {
+  Object.keys(marketState.trackedTokens).forEach((key) => {
+    delete marketState.trackedTokens[key];
+  });
+  marketState.signals = [];
+  marketState.externalSignals = [];
+}
+
+function ingestExternalSignal(raw = {}) {
+  const symbol = String(raw.symbol || '').trim().toUpperCase();
+  if (!symbol) {
+    return { ok: false, reason: 'symbol_required' };
+  }
+  const signal = String(raw.signal || 'HOLD').trim().toUpperCase();
+  const normalizedSignal = ['BUY', 'SELL', 'HOLD'].includes(signal) ? signal : 'HOLD';
+  const entry = {
+    id: telemetryUuid(),
+    source: String(raw.source || 'webhook').trim().toLowerCase(),
+    provider: String(raw.provider || 'tradingview').trim().toLowerCase(),
+    symbol,
+    chainKey: raw.chain ? normalizeChainKey(raw.chain) : null,
+    strategy: raw.strategy ? String(raw.strategy).trim().toLowerCase() : null,
+    signal: normalizedSignal,
+    confidence: Math.max(0, Math.min(100, Number(raw.confidence || 50))),
+    note: String(raw.note || raw.message || '').slice(0, 300),
+    expiresAt: new Date(Date.now() + Math.max(5 * 60 * 1000, Number(raw.ttlMs || 60 * 60 * 1000))).toISOString(),
+    createdAt: new Date().toISOString(),
+  };
+  marketState.externalSignals.unshift(entry);
+  marketState.externalSignals = marketState.externalSignals
+    .filter((item) => Date.parse(item.expiresAt || 0) > Date.now())
+    .slice(0, 200);
+  telemetry.logOpsEvent({
+    severity: 'info',
+    category: 'external_signal',
+    name: 'webhook_ingested',
+    chain_key: entry.chainKey,
+    symbol: entry.symbol,
+    message: `${entry.provider}:${entry.signal}`.slice(0, 800),
+    context: entry,
+  });
+  return { ok: true, entry };
+}
+
+function getActiveExternalSignal(symbol, chainKey = null, strategyName = null) {
+  const sym = String(symbol || '').trim().toUpperCase();
+  const chain = chainKey ? normalizeChainKey(chainKey) : null;
+  const strategy = strategyName ? String(strategyName).trim().toLowerCase() : null;
+  const now = Date.now();
+  marketState.externalSignals = (marketState.externalSignals || []).filter((item) => Date.parse(item.expiresAt || 0) > now);
+  return (marketState.externalSignals || []).find((item) => (
+    item.symbol === sym
+    && (!item.chainKey || !chain || item.chainKey === chain)
+    && (!item.strategy || !strategy || item.strategy === strategy)
+  )) || null;
+}
 const aiDecisionCache = new Map();
 const aiDecisionQueue = new Map();
 let aiDecisionInFlightKey = null;
@@ -1006,10 +1490,571 @@ function applyDisabledScanStates() {
 
 applyDisabledScanStates();
 
-const strategy = new MomentumStrategy();
+// Local strategy adapter used by processToken/scanChain.
+const strategy = {
+  priceHistory: {},
+  volumeHistory: {},
+
+  getHistoryLength(tokenKey) {
+    const key = String(tokenKey || '');
+    const series = this.priceHistory[key];
+    return Array.isArray(series) ? series.length : 0;
+  },
+
+  clearHistory(tokenKey) {
+    const key = String(tokenKey || '');
+    if (!key) return;
+    delete this.priceHistory[key];
+  },
+
+  refreshSettings() {
+    // Adapter uses live config reads in evaluateForStrategy.
+  },
+
+  determineApplicableStrategies(tokenData = {}) {
+    const chainName = normalizeChainKey(tokenData?.chainKey || tokenData?.chain);
+    const lane = String(tokenData?.discoveryLane || '').toLowerCase() || null;
+    return {
+      momentum: isStrategyScanEnabled(chainName, 'momentum'),
+      swing: isStrategyScanEnabled(chainName, 'swing'),
+      momentumLane: lane,
+    };
+  },
+
+  async evaluateForStrategy(_tokenKey, strategyName, tokenData = {}) {
+    const strategyCfg = config.strategies?.[strategyName] || {};
+    const chainName = normalizeChainKey(tokenData?.chainKey || tokenData?.chain);
+    const adaptiveParams = strategyBrain.getAdaptiveParameters(chainName, strategyName, strategyCfg, tokenData);
+
+    // Accumulate price/volume history and compute RSI + volumeSpike when not provided by exchange (e.g. KuCoin CEX)
+    if (tokenData?.price > 0) {
+      const histKey = tokenData.strategyKey || buildTokenKey(chainName, tokenData.address);
+      recordStrategyTick(histKey, Number(tokenData.price), Number(tokenData.volume24hUsd || tokenData.volume24h || 0));
+      const rsiPeriod = Number(strategyCfg?.rsiPeriod || adaptiveParams?.rsiPeriod || 14);
+      if (!Number.isFinite(Number(tokenData.rsi)) || tokenData.rsi == null) {
+        const computedRsi = computeRsi(this.priceHistory[histKey], rsiPeriod);
+        if (Number.isFinite(computedRsi)) tokenData.rsi = computedRsi;
+      }
+      if (!Number.isFinite(Number(tokenData.volumeSpike)) || !tokenData.volumeSpike) {
+        const validVols = this.volumeHistory[histKey].filter((v) => v > 0);
+        if (validVols.length >= 8) {
+          const computedSpike = computeVolumeSpike(validVols, { method: 'median', minBars: 8 });
+          if (Number.isFinite(computedSpike) && computedSpike > 0) tokenData.volumeSpike = computedSpike;
+        }
+      }
+    }
+
+    const rsi = Number(tokenData?.rsi);
+    const volumeSpike = Number(tokenData?.volumeSpike || tokenData?.volumeSpikePct || 0);
+    const priceChange24h = Number(tokenData?.priceChange24h || 0);
+    const buyRatioRecentPct = Number(tokenData?.buyRatioRecentPct || tokenData?.buyRatio10mPct || 0);
+    const netBuyFlowUsd10m = Number(tokenData?.netBuyFlowUsd10m || 0);
+    const liquidityUsd = Number(tokenData?.liquidityUsd || 0);
+    const patternAnalysis = (strategyName === 'swing' || chainName === 'kucoin') && isEstablishedTokenCandidate(tokenData)
+      ? await analyzeEstablishedTokenPatterns({ ...tokenData, chainKey: chainName }).catch(() => null)
+      : null;
+
+    // --- Recovery mode: tighten entry thresholds when in a losing hole ---
+    const recovery = getRecoveryMode();
+    if (recovery.active) {
+      const discoveryLane = String(tokenData?.discoveryLane || '').toLowerCase();
+      if (recovery.blockExploration && discoveryLane === 'exploration') {
+        return {
+          signal: 'HOLD',
+          details: {
+            technicalSignal: 'HOLD',
+            triggerTimeframe: 'blocked',
+            brainArchetype: adaptiveParams.archetype,
+            brainArchetypeFamily: adaptiveParams.archetypeFamily,
+            brainProfileKey: adaptiveParams.profileKey,
+            brainAdjusted: false,
+            brainBlockReason: null,
+            rsi: Number.isFinite(rsi) ? rsi : null,
+            volumeSpike,
+            priceChange24h,
+            buyRatioRecentPct,
+            netBuyFlowUsd10m,
+            confidence: 0,
+            technicalBlocked: true,
+            externalReasons: [`recovery_${recovery.severity}_blocks_exploration`],
+          },
+        };
+      }
+    }
+
+    const defaultRsiMin = strategyName === 'swing' ? 35 : 40;
+    const defaultRsiMax = strategyName === 'swing' ? 80 : 75;
+    const defaultVolumeSpikeMin = strategyName === 'swing' ? 1.05 : 1.35;
+    const defaultStrongMoveThreshold = strategyName === 'swing' ? 6 : 12;
+    const defaultExtremeMoveThreshold = strategyName === 'swing' ? 35 : 60;
+    const defaultMinBuyRatio = strategyName === 'swing' ? 48 : 50;
+    const defaultMinNetBuyFlowUsd = strategyName === 'swing' ? 1500 : 3500;
+
+    const rsiMin = Number(adaptiveParams?.rsiBuyThreshold || strategyCfg?.rsiBuyThreshold || defaultRsiMin);
+    const rsiMax = Number(adaptiveParams?.rsiBuyMaxThreshold || strategyCfg?.rsiBuyMaxThreshold || defaultRsiMax);
+    const baseVolumeSpikeMin = Number(adaptiveParams?.volumeSpikeMultiplier || strategyCfg?.volumeSpikeMultiplier || defaultVolumeSpikeMin);
+    const volumeSpikeMin = recovery.active ? baseVolumeSpikeMin * recovery.volumeSpikeBoost : baseVolumeSpikeMin;
+    const minMoveAll = Number(adaptiveParams?.minPriceChange24hPctAll || strategyCfg?.minPriceChange24hPctAll || 0);
+    const maxMoveAll = Number(adaptiveParams?.maxPriceChange24hPctAll || strategyCfg?.maxPriceChange24hPctAll || 0);
+    const kucoinMinMove = Number(strategyCfg?.minPriceChange24hPctKucoin || minMoveAll || 0);
+    const kucoinMaxMove = Number(strategyCfg?.maxPriceChange24hPctKucoin || maxMoveAll || 0);
+
+    const reasons = [];
+    let signal = 'HOLD';
+
+    const hasRsi = Number.isFinite(rsi);
+    const rsiInRange = hasRsi && rsi >= rsiMin && rsi <= rsiMax;
+    const strongMove = priceChange24h >= defaultStrongMoveThreshold;
+    const extremeMove = priceChange24h >= defaultExtremeMoveThreshold;
+    const volumeConfirmed = Number.isFinite(volumeSpike) && volumeSpike >= volumeSpikeMin;
+    const minFlowUsd = Number(strategyCfg?.minNetBuyFlowUsd || config.strategy?.minNetBuyFlowUsd || defaultMinNetBuyFlowUsd);
+    const minBuyRatioPct = Number(strategyCfg?.minBuyRatioRecentPct || defaultMinBuyRatio);
+    const flowConfirmed = netBuyFlowUsd10m >= minFlowUsd;
+    const ratioConfirmed = buyRatioRecentPct >= minBuyRatioPct;
+    // For KuCoin (CEX), on-chain flow/ratio data is not available. Treat confirmed volume spike as flow proxy.
+    const kucoinFlowProxy = chainName === 'kucoin' && tokenData.buyTx10m === 0 && netBuyFlowUsd10m === 0 && volumeConfirmed;
+    const absMove24h = Math.abs(priceChange24h);
+    const minMoveForChain = chainName === 'kucoin' ? kucoinMinMove : minMoveAll;
+    const maxMoveForChain = chainName === 'kucoin' ? kucoinMaxMove : maxMoveAll;
+    const minMoveConfirmed = !(Number.isFinite(minMoveForChain) && minMoveForChain > 0) || absMove24h >= minMoveForChain;
+    const maxMoveConfirmed = !(Number.isFinite(maxMoveForChain) && maxMoveForChain > 0) || absMove24h <= maxMoveForChain;
+    const rsiGatePassed = rsiInRange || (!hasRsi && (volumeConfirmed || flowConfirmed || ratioConfirmed || strongMove));
+
+    if (!hasRsi) {
+      reasons.push('missing_rsi_using_momentum_fallback');
+    }
+
+    if (!minMoveConfirmed) reasons.push('move_below_minimum_window');
+    if (!maxMoveConfirmed) reasons.push('move_above_max_window_late_chase_guard');
+    if (!rsiGatePassed) reasons.push('rsi_not_in_buy_zone');
+    if (!(volumeConfirmed || strongMove)) reasons.push('volume_or_momentum_not_confirmed');
+    if (!(flowConfirmed || ratioConfirmed || strongMove || kucoinFlowProxy)) reasons.push('buy_flow_not_confirmed');
+    if (!(Number.isFinite(liquidityUsd) && liquidityUsd > 0)) reasons.push('missing_liquidity');
+    if (patternAnalysis?.strongestPattern?.pattern) reasons.push(`pattern_context:${patternAnalysis.strongestPattern.pattern}`);
+
+    // Recovery mode — in deep/moderate recovery require BOTH volume AND buy-flow (no OR shortcut)
+    const recoveryVolumeGate = recovery.requireBothFlowAndVolume
+      ? (volumeConfirmed && (flowConfirmed || ratioConfirmed || kucoinFlowProxy))
+      : (volumeConfirmed || strongMove);
+    const recoveryFlowGate = recovery.requireBothFlowAndVolume
+      ? (flowConfirmed || ratioConfirmed || kucoinFlowProxy)
+      : (flowConfirmed || ratioConfirmed || strongMove || kucoinFlowProxy);
+
+    if (recovery.active) {
+      if (recovery.requireBothFlowAndVolume && !volumeConfirmed) reasons.push(`recovery_${recovery.severity}_requires_volume_confirmed`);
+      if (recovery.requireBothFlowAndVolume && !(flowConfirmed || ratioConfirmed || kucoinFlowProxy)) reasons.push(`recovery_${recovery.severity}_requires_flow_confirmed`);
+    }
+
+    // Check symbol-specific penalty (repeated losses)
+    const symbolPenalty = symbolPnLMemory.getSymbolPenalty(tokenData?.symbol, chainName);
+
+    if (
+      minMoveConfirmed
+      && maxMoveConfirmed
+      && rsiGatePassed
+      && recoveryVolumeGate
+      && recoveryFlowGate
+      && Number.isFinite(liquidityUsd)
+      && liquidityUsd > 0
+    ) {
+      signal = 'BUY';
+    }
+
+    // Block entry if symbol has 3+ recent losses (unless very high confidence override)
+    if (signal === 'BUY' && symbolPenalty >= 10) {
+      const currentConfidence = Number(evaluation?.details?.confidence || 0.5);
+      const requiredConfidence = 0.70 + (symbolPenalty / 100);
+
+      if (currentConfidence < requiredConfidence) {
+        signal = 'HOLD';
+        reasons.push(`symbol_loss_recovery: ${symbolPenalty.toFixed(0)}pp penalty, confidence ${(currentConfidence * 100).toFixed(0)}% < required ${(requiredConfidence * 100).toFixed(0)}%`);
+      } else {
+        reasons.push(`symbol_loss_recovery_override: confidence sufficient (${(currentConfidence * 100).toFixed(0)}% >= ${(requiredConfidence * 100).toFixed(0)}%)`);
+      }
+    }
+
+    if (signal === 'BUY' && recovery.active) {
+      logger.warn(`[RECOVERY:${recovery.severity.toUpperCase()}] BUY signal allowed for ${tokenData?.symbol} | PF=${recovery.profitFactor} WR=${recovery.winRatePct}% | sizeX=${recovery.sizeMultiplier} volBoost=${recovery.volumeSpikeBoost}x`);
+    }
+
+    let brainBlockReason = null;
+    const brainEntryGate = strategyBrain.shouldAllowEntry(chainName, strategyName, adaptiveParams.archetype);
+    if (signal === 'BUY' && !brainEntryGate.allowed) {
+      signal = 'HOLD';
+      brainBlockReason = brainEntryGate.reason || 'brain_profile_block';
+      reasons.push('brain_profile_block');
+      reasons.push(brainBlockReason);
+    }
+
+    if (signal === 'BUY' && brainEntryGate.exploreBypass) {
+      reasons.push('brain_explore_bypass');
+    }
+
+    const triggerTimeframe = extremeMove
+      ? 'extreme_24h_momentum'
+      : (strongMove ? 'kucoin_relaxed_momentum' : 'momentum_breakout');
+
+    // ── Learned bad pattern: hard-ban gate ─────────────────────────────────
+    if (signal === 'BUY') {
+      const learnedTokenKey = getLearningTokenKey(tokenData);
+      const badRecord = learnedTokenKey ? portfolio.learning?.badTokenMemory?.[learnedTokenKey] : null;
+      if (badRecord) {
+        const banUntilMs = Date.parse(badRecord.banUntil || '');
+        const stillBanned = badRecord.hardBan || (Number.isFinite(banUntilMs) && banUntilMs > Date.now());
+        if (stillBanned) {
+          signal = 'HOLD';
+          reasons.push(`learned_hard_ban: ${badRecord.lastReason || 'sell_failed'}`);
+        }
+      }
+    }
+
+    // ── AgentMemory: blacklist gate ──────────────────────────────────────────
+    if (signal === 'BUY') {
+      const blacklistCheck = agentMemory.isBlacklisted(tokenData?.symbol);
+      if (blacklistCheck.blacklisted) {
+        signal = 'HOLD';
+        reasons.push(`memory_blacklist: ${blacklistCheck.reason}`);
+      }
+    }
+
+    // ── AgentMemory: lesson block (similar losing pattern detected) ──────────
+    if (signal === 'BUY') {
+      const lessonCheck = agentMemory.checkLessons(tokenData?.symbol, {
+        rsi, volumeSpike, chain: chainName, strategy: strategyName,
+        netBuyFlow: netBuyFlowUsd10m,
+      });
+      if (lessonCheck.blocked) {
+        signal = 'HOLD';
+        reasons.push(`memory_lesson_block: ${lessonCheck.reason}`);
+      } else if (lessonCheck.warned) {
+        logger.warn(`[AgentMemory] Pattern warning for ${tokenData?.symbol}: ${lessonCheck.reason}`);
+      }
+    }
+
+    // ── AgentMemory: deep-research preference boost ───────────────────────────
+    const memoryPreference = agentMemory.getTokenPreference(tokenData?.symbol);
+
+    // ── Intelligence: avoid-list gate ──────────────────────────────────────
+    const avoidCheck = intelligenceAgent.isOnAvoidList(tokenData?.symbol);
+    if (signal === 'BUY' && avoidCheck.avoid) {
+      signal = 'HOLD';
+      reasons.push(`intelligence_avoid_list: ${avoidCheck.reason}`);
+    }
+
+    // ── BTC Macro Risk-Off Filter ───────────────────────────────────────────
+    let btcStatus = null;
+    if (signal === 'BUY' && config.risk?.btcRiskOffEnabled !== false) {
+      const btcCheck = await btcMacroFilter.canEnterAltcoin(tokenData);
+      btcStatus = btcCheck.btcStatus;
+      if (!btcCheck.allowed) {
+        signal = 'HOLD';
+        reasons.push(`btc_macro_risk_off: ${btcCheck.reason}`);
+        logger.warn(`[BTC-Macro] ${tokenData?.symbol} altcoin BUY blocked: ${btcCheck.reason}`);
+      }
+    }
+
+    const externalSignal = getActiveExternalSignal(tokenData?.symbol, chainName, strategyName);
+    if (signal === 'BUY' && externalSignal?.signal === 'SELL') {
+      signal = 'HOLD';
+      reasons.push(`external_signal_block:${externalSignal.provider}`);
+    }
+    if (signal === 'BUY' && patternAnalysis?.bias === 'bearish') {
+      signal = 'HOLD';
+      reasons.push(`pattern_bearish_bias:${patternAnalysis?.strongestPattern?.pattern || 'higher_timeframe_reversal'}`);
+    }
+
+    // ── Intelligence: watchlist boost (add to confidence, log it) ──────────
+    const watchlistCheck = signal === 'BUY'
+      ? intelligenceAgent.isOnWatchlist(tokenData?.symbol, chainName)
+      : { matched: false };
+    const sectorBoost = intelligenceAgent.getSectorBoostPct(tokenData);
+    const intelligenceBoost = watchlistCheck.matched
+      ? Math.min(30, watchlistCheck.confidence / 3)
+      : sectorBoost;
+    const externalSignalBoost = externalSignal?.signal === 'BUY'
+      ? Math.min(12, Math.max(0, Number(externalSignal.confidence || 0) / 8))
+      : 0;
+
+    // ── Order book imbalance analysis (bullish if more bids than asks) ─────
+    let orderbookBoost = 0;
+    let orderbookAnalysis = null;
+    try {
+      if (signal === 'BUY' && chainName !== 'bsc' && chainName !== 'base') {
+        orderbookAnalysis = await orderbookAnalyzer.analyzeOrderbook(
+          tokenData?.symbol,
+          chainName,
+          chainName === 'solana' ? 'jupiter' : 'kucoin'
+        );
+        if (orderbookAnalysis?.isBullish) {
+          orderbookBoost = Math.min(15, orderbookAnalysis.signalStrength / 20);
+          if (orderbookBoost > 8) {
+            logger.info(`[OrderBook] ${tokenData?.symbol} strong bid/ask imbalance: ${orderbookAnalysis.signalStrength}% bullish`);
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug(`[OrderBook] Analysis failed for ${tokenData?.symbol}: ${err.message}`);
+    }
+
+    // ── Multi-timeframe confluence (1h + 4h alignment) ──────────────────
+    let confluenceBoost = 0;
+    let confluenceAnalysis = null;
+    try {
+      confluenceAnalysis = await timeframeConfluenceAnalyzer.analyzeTimeframeConfluence(tokenData, chainName);
+      if (confluenceAnalysis && confluenceAnalysis.alignmentScore >= 50) {
+        confluenceBoost = timeframeConfluenceAnalyzer.getConfluenceBoost(confluenceAnalysis.alignmentScore);
+        if (confluenceAnalysis.alignmentScore >= 75) {
+          logger.info(`[Confluence] ${tokenData?.symbol} strong 1h/4h alignment: ${confluenceAnalysis.signal} (${confluenceAnalysis.alignmentScore}%)`);
+        }
+      }
+    } catch (err) {
+      logger.debug(`[Confluence] Analysis failed for ${tokenData?.symbol}: ${err.message}`);
+    }
+
+    if (signal === 'BUY' && watchlistCheck.matched) {
+      logger.warn(`[Intelligence] ${tokenData?.symbol} is on AI watchlist (confidence=${watchlistCheck.confidence}): ${watchlistCheck.reason}`);
+    } else if (signal === 'BUY' && sectorBoost > 0) {
+      logger.info(`[Intelligence] ${tokenData?.symbol} sector boost +${sectorBoost} from hot sector alignment`);
+    }
+
+    const macroSizeMultiplier = intelligenceAgent.getMacroSizeMultiplier();
+
+    const memoryBoost = memoryPreference ? memoryPreference.boost : 0;
+    if (signal === 'BUY' && memoryBoost > 0) {
+      logger.info(`[AgentMemory] ${tokenData?.symbol} deep-research boost +${memoryBoost}: ${(memoryPreference.reason || '').slice(0, 80)}`);
+    }
+    const confidence = Math.max(0, Math.min(1,
+      (rsiInRange ? 0.3 : 0)
+      + (volumeConfirmed ? 0.2 : 0)
+      + (flowConfirmed ? 0.2 : 0)
+      + (ratioConfirmed ? 0.1 : 0)
+      + Math.min(0.2, Math.max(0, Math.abs(priceChange24h)) / 200)
+      + (patternAnalysis?.bias === 'bullish' ? 0.08 : 0)
+      - (patternAnalysis?.bias === 'bearish' ? 0.08 : 0)
+      + Math.min(0.15, intelligenceBoost / 100)
+      + Math.min(0.08, externalSignalBoost / 100)
+      + Math.min(0.1, memoryBoost / 100)
+      + Math.min(0.1, orderbookBoost / 100)
+      + Math.min(0.15, confluenceBoost / 100)
+    ));
+
+    return {
+      signal,
+      details: {
+        technicalSignal: signal,
+        triggerTimeframe,
+        brainArchetype: adaptiveParams.archetype,
+        brainArchetypeFamily: adaptiveParams.archetypeFamily,
+        brainProfileKey: adaptiveParams.profileKey,
+        brainAdjusted: Boolean(adaptiveParams.hasAdjustments),
+        brainBlockReason,
+        rsi: Number.isFinite(rsi) ? rsi : null,
+        volumeSpike: Number.isFinite(volumeSpike) ? volumeSpike : 0,
+        priceChange24h,
+        buyRatioRecentPct,
+        netBuyFlowUsd10m,
+        confidence,
+        patternAnalysis,
+        establishedTokenPatternEligible: Boolean(patternAnalysis?.applicable),
+        intelligenceBoost,
+        externalSignal,
+        externalSignalBoost,
+        intelligenceWatchlist: watchlistCheck.matched,
+        intelligenceMacroSentiment: intelligenceAgent.getReport()?.macroSentiment || null,
+        macroSizeMultiplier,
+        orderbookAnalysis: orderbookAnalysis ? {
+          imbalance: Number(orderbookAnalysis.imbalance || 0),
+          depthImbalance: Number(orderbookAnalysis.depthImbalance || 0),
+          signalStrength: orderbookAnalysis.signalStrength,
+          isBullish: orderbookAnalysis.isBullish,
+        } : null,
+        orderbookBoost,
+        confluenceAnalysis: confluenceAnalysis ? {
+          alignmentScore: confluenceAnalysis.alignmentScore,
+          signal: confluenceAnalysis.signal,
+          rsi1h: confluenceAnalysis.details.rsi1h,
+          rsi4h: confluenceAnalysis.details.rsi4h,
+          trend1h: confluenceAnalysis.details.trend1h,
+          trend4h: confluenceAnalysis.details.trend4h,
+        } : null,
+        confluenceBoost,
+        technicalBlocked: signal !== 'BUY',
+        externalReasons: signal !== 'BUY' ? reasons : [],
+      },
+    };
+  },
+
+  evaluateExitForStrategy(_tokenKey, strategyName, tokenData = {}, position = {}) {
+    const strategyCfg = config.strategies?.[strategyName] || {};
+    const price = Number(tokenData?.price || 0);
+    const entryPrice = Number(position?.entryPrice || 0);
+    if (!(price > 0) || !(entryPrice > 0)) {
+      return { shouldExit: false, reason: null, details: { insufficientData: true } };
+    }
+
+    const profitPct = ((price - entryPrice) / entryPrice) * 100;
+    const rsi = Number(tokenData?.rsi);
+    const buyTx10m = Number(tokenData?.buyTx10m || 0);
+    const sellTx10m = Number(tokenData?.sellTx10m || 0);
+    const tx10mTotal = buyTx10m + sellTx10m;
+    const sellRatio10mPct = tx10mTotal > 0 ? (sellTx10m / tx10mTotal) * 100 : 0;
+    const priceChange24h = Number(tokenData?.priceChange24h || 0);
+
+    // Volume divergence: compare current volume spike to entry volume spike. A collapsing
+    // volume profile while price is fading is a stronger sell signal than RSI alone.
+    const entryVolumeSpike = Number(position?.entryVolumeSpike || 0);
+    const currentVolumeSpike = Number(tokenData?.volumeSpike || 0);
+    const volumeDivergencePct = entryVolumeSpike > 0
+      ? ((currentVolumeSpike - entryVolumeSpike) / entryVolumeSpike) * 100
+      : 0;
+    const hasVolumeCollapse = entryVolumeSpike > 0 && volumeDivergencePct <= -30;
+
+    if (String(strategyName) === 'momentum') {
+      const maxSellRatio10m = Number(strategyCfg.maxSellRatioPct10m || 65);
+      const bearishRsiFloor = Number(strategyCfg.momentumExitRsiFloor || 32);
+      const bearish24hFloor = Number(strategyCfg.momentumExitPriceChange24hFloor || -8);
+
+      if (Number.isFinite(rsi) && rsi <= bearishRsiFloor && sellRatio10mPct >= maxSellRatio10m && profitPct > 0.5) {
+        return {
+          shouldExit: true,
+          reason: 'MOMENTUM_FADE_RSI_SELL_PRESSURE',
+          details: { rsi, sellRatio10mPct, profitPct, priceChange24h, volumeDivergencePct },
+        };
+      }
+
+      if (priceChange24h <= bearish24hFloor && sellRatio10mPct >= maxSellRatio10m + 5 && profitPct > 0.5) {
+        return {
+          shouldExit: true,
+          reason: 'MOMENTUM_REVERSAL_SELL_PRESSURE',
+          details: { rsi, sellRatio10mPct, profitPct, priceChange24h, volumeDivergencePct },
+        };
+      }
+
+      // New: volume collapse on a winning position with rising sell ratio = momentum exhaustion
+      if (hasVolumeCollapse && sellRatio10mPct >= 55 && profitPct > 1) {
+        return {
+          shouldExit: true,
+          reason: 'MOMENTUM_VOLUME_COLLAPSE',
+          details: { rsi, sellRatio10mPct, profitPct, volumeDivergencePct, entryVolumeSpike, currentVolumeSpike },
+        };
+      }
+
+      return {
+        shouldExit: false,
+        reason: null,
+        details: { rsi, sellRatio10mPct, profitPct, priceChange24h, volumeDivergencePct },
+      };
+    }
+
+    if (String(strategyName) === 'swing') {
+      const swingExitRsi = Number(strategyCfg.rsiExitThreshold || 78);
+      if (Number.isFinite(rsi) && rsi >= swingExitRsi && profitPct > 2) {
+        return {
+          shouldExit: true,
+          reason: 'RSI_OVERBOUGHT_SWING',
+          details: { rsi, profitPct, priceChange24h, volumeDivergencePct },
+        };
+      }
+
+      // New: swing exit confluence — volume collapse + sell pressure + winning, no RSI needed
+      if (hasVolumeCollapse && sellRatio10mPct >= 60 && profitPct > 2) {
+        return {
+          shouldExit: true,
+          reason: 'SWING_VOLUME_DIVERGENCE',
+          details: { rsi, sellRatio10mPct, profitPct, volumeDivergencePct },
+        };
+      }
+
+      return {
+        shouldExit: false,
+        reason: null,
+        details: { rsi, sellRatio10mPct, profitPct, priceChange24h, volumeDivergencePct },
+      };
+    }
+
+    return { shouldExit: false, reason: null, details: { unsupportedStrategy: strategyName } };
+  },
+};
 const risk = new RiskGuardian(portfolio);
+const strategyBrain = new StrategyBrain({ config, logger, portfolio });
+const orderbookAnalyzer = new OrderBookImbalanceAnalyzer({ logger, config });
+const timeframeConfluenceAnalyzer = new TimeframeConfluenceAnalyzer({ logger, config });
+const positionSizingEngine = new PositionSizingEngine({ logger, config });
+const rlOnlineUpdater = new RLOnlineUpdater({ logger, config });
+const shadowStrategyValidator = new ShadowStrategyValidator({ logger, config });
+const symbolPnLMemory = new SymbolPnLMemory({ logger, config });
+const btcMacroFilter = new BTCMacroFilter({ logger, config, exchanges });
+const selfEvolution = new SelfEvolutionEngine({
+  config,
+  logger,
+  projectRoot: PROJECT_ROOT,
+});
+const evolutionGovernor = new EvolutionGovernor({
+  config,
+  logger,
+  projectRoot: PROJECT_ROOT,
+  dataDir: BOT_DATA_DIR,
+});
+const evolutionValidator = new EvolutionValidator({
+  config,
+  logger,
+  projectRoot: PROJECT_ROOT,
+});
+const executionAccounting = createExecutionAccounting({
+  portfolio,
+  logger,
+  getRequiredConfirmations,
+  extractExecutionPriceUsd,
+  extractFilledBaseQty,
+  extractFilledQuoteUsd,
+});
+const {
+  setExecutionJournalState,
+  markExecutionConfirmed,
+  resolveBuyFillMetrics,
+  resolveSellFillMetrics,
+} = executionAccounting;
+const strategyLab = new StrategyLab({
+  logger,
+  projectRoot: PROJECT_ROOT,
+  dataDir: BOT_DATA_DIR,
+});
+const agentMemory = new AgentMemory({ logger, config });
+selfEvolution.bindDependencies({ agentMemory, portfolio });
+const modelRegistry = new ModelRegistry({ logger, botProfile: BOT_PROFILE });
+const intelligenceAgent = new MarketIntelligenceAgent({ portfolio, config, agentMemory });
+const agent = new MarketAnalyst({
+  portfolio,
+  exchanges,
+  config,
+  logger,
+  risk,
+  marketState,
+});
 const walletMonitor = new WalletMonitor(portfolio);
 const wsDiscovery = new WebSocketDiscovery();
+
+const rlPolicyManager = {
+  async getActivePolicy() {
+    if (config.rl?.enabled === false) return null;
+    return modelRegistry.getLatestRlPolicy(config.paperTrading ? 'paper_rl_default' : 'live_rl_default');
+  },
+  inferAction(policyRecord, featureSnapshot) {
+    if (!policyRecord?.policy) {
+      return { signal: 'HOLD', confidence: 0, score: 0, stateKey: 'missing_policy', q: {} };
+    }
+    const engine = String(policyRecord?.metrics?.framework || policyRecord?.policy?.framework || policyRecord?.policy?.engine || '').toLowerCase();
+    if (engine === 'sb3' || engine === 'stable_baselines3' || engine === 'rllib') {
+      return inferExternalRlAction(policyRecord, featureSnapshot).catch(() => ({
+        signal: 'HOLD',
+        confidence: 0,
+        score: 0.5,
+        provider: engine,
+      }));
+    }
+    return inferRlAction(policyRecord.policy, featureSnapshot);
+  },
+};
 
 let scanTimer = null;
 let scanInFlight = false;
@@ -1020,6 +2065,10 @@ let swingExitTimer = null;
 let realtimeStopTimer = null;
 let swingWatchlistRefreshTimer = null;
 let walletBalanceRefreshTimer = null;
+let bscNativePriceRefreshTimer = null;
+let selfEvolutionTimer = null;
+let intelligenceTimer = null;
+let rlTrainingTimer = null;
 const loopLocks = {
   momentumScan: false,
   kucoinMomentumScan: false,
@@ -1028,6 +2077,8 @@ const loopLocks = {
   swingExit: false,
   realtimeStop: false,
   swingRefresh: false,
+  selfEvolution: false,
+  intelligence: false,
 };
 
 const scanCursorByChainStrategy = {
@@ -1103,6 +2154,7 @@ async function reconcileWalletPositions() {
   const dustThresholdUsd = Math.max(0, Number(config.risk?.reconciliationDustUsd || 5));
   let prunedStateOnlyPositions = 0;
   let recoveredWalletBuys = 0;
+  let clearedStuckPositions = 0;
 
   await Promise.allSettled(Object.entries(exchanges).map(async ([chainName, exchange]) => {
     if (!exchange || typeof exchange.getWalletPositions !== 'function') {
@@ -1139,6 +2191,37 @@ async function reconcileWalletPositions() {
     );
     const walletKeys = new Set(walletPositionByKey.keys());
 
+    // Refresh price/value on already-tracked positions whose state may have stale data
+    // (e.g. positions that were adopted with currentPrice=0 because the ticker lookup
+    // failed at that moment). Without this, the dashboard shows them at $0 forever.
+    for (const key of walletKeys) {
+      if (!stateKeys.has(key)) continue;
+      const walletPos = walletPositionByKey.get(key) || {};
+      const tracked = portfolio.positions?.[key];
+      if (!tracked) continue;
+      const livePrice = Number(walletPos.lastPrice || 0);
+      const liveQty = Number(walletPos.quantity || 0);
+      const liveValue = Number(walletPos.valueUsd || 0);
+      if (livePrice > 0) {
+        if (!Number.isFinite(Number(tracked.currentPrice)) || Number(tracked.currentPrice) <= 0) {
+          tracked.currentPrice = livePrice;
+        }
+        if (!Number.isFinite(Number(tracked.entryPrice)) || Number(tracked.entryPrice) <= 0) {
+          tracked.entryPrice = livePrice;
+          tracked.highestPrice = livePrice;
+          tracked.stopLoss = livePrice * (1 - Number(config.risk?.stopLossPct || 8) / 100);
+          logger.warn(`[Reconciliation] Repaired ${tracked.symbol} entryPrice (was 0): now $${livePrice}`);
+        }
+      }
+      if (liveQty > 0 && (!Number.isFinite(Number(tracked.quantity)) || Number(tracked.quantity) <= 0)) {
+        tracked.quantity = liveQty;
+      }
+      if (liveValue > 0 && (!Number.isFinite(Number(tracked.costBasisUsd)) || Number(tracked.costBasisUsd) <= 0)) {
+        tracked.costBasisUsd = liveValue;
+        tracked.initialSizeUsd = tracked.initialSizeUsd || liveValue;
+      }
+    }
+
     for (const key of walletKeys) {
       if (stateKeys.has(key)) continue;
       const walletPosition = walletPositionByKey.get(key) || {};
@@ -1159,17 +2242,154 @@ async function reconcileWalletPositions() {
         quantity: Number(walletPosition.quantity || 0),
         valueUsd: Number(walletPosition.valueUsd || 0),
       };
-      discrepancies.push(entry);
-      untrackedWalletPositions.push(entry);
-      untrackedWalletPositionValueUsdByChain[chainName] = Number(untrackedWalletPositionValueUsdByChain[chainName] || 0) + Number(walletPosition.valueUsd || 0);
-      logger.error('State reconciliation mismatch', {
-        reason: 'unrecovered position detected',
-        ...entry,
-      });
+
+      // Optional auto-adoption: turn the unmanaged wallet position into a tracked
+      // position so the exit logic (stop loss, trailing, stale-drift) applies. We
+      // can't recover the real entry price, so we synthesize one from current price
+      // and flag the position as `adoptedFromWallet=true` for downstream visibility.
+      // Enable with RECONCILE_ADOPT_UNMANAGED=true (default true on KuCoin since
+      // that's where reconciliation is reliable; off for DEX chains where partial
+      // wallet info can produce false adoptions).
+      const adoptionEnabledGlobally = String(process.env.RECONCILE_ADOPT_UNMANAGED || 'true').toLowerCase() !== 'false';
+      const adoptionEnabledForChain = chainName === 'kucoin' || String(process.env.RECONCILE_ADOPT_UNMANAGED_DEX || 'false').toLowerCase() === 'true';
+      const minAdoptionValueUsd = Number(process.env.RECONCILE_ADOPT_MIN_VALUE_USD || 5);
+      const valueUsd = Number(walletPosition.valueUsd || 0);
+      const qty = Number(walletPosition.quantity || 0);
+      // Prefer the wallet's reported lastPrice (already validated by the exchange adapter).
+      // Fall back to value/qty division only as a sanity check.
+      const lastPrice = Number(walletPosition.lastPrice || 0);
+      const currentPrice = lastPrice > 0
+        ? lastPrice
+        : (qty > 0 && valueUsd > 0 ? valueUsd / qty : 0);
+      let adopted = false;
+      // Skip adoption when price is unknown — adopting a position with currentPrice=0
+      // breaks every downstream calc (PnL, stop loss, exit thresholds).
+      if (currentPrice <= 0) {
+        logger.warn(`[Reconciliation] Skipping adoption of ${walletPosition.symbol}: no valid price available`);
+      } else if (adoptionEnabledGlobally && adoptionEnabledForChain && qty > 0 && valueUsd >= minAdoptionValueUsd) {
+        try {
+          const strategyName = 'momentum';
+          const stopLossPctRisk = Number(config.risk?.stopLossPct || 8);
+          portfolio.positions[key] = {
+            key,
+            address: walletPosition.address || walletPosition.symbol || key,
+            chain: chainName,
+            chainKey: chainName,
+            strategyKey: key,
+            strategy: strategyName,
+            symbol: walletPosition.symbol || key,
+            entryPrice: currentPrice,
+            currentPrice,
+            quantity: qty,
+            initialSizeUsd: valueUsd,
+            costBasisUsd: valueUsd,
+            requestedEntryUsd: valueUsd,
+            filledEntryUsd: valueUsd,
+            requestedEntryQuantity: qty,
+            filledEntryQuantity: qty,
+            entryFillDiscrepancyPct: 0,
+            stopLoss: currentPrice * (1 - stopLossPctRisk / 100),
+            takeProfit: currentPrice * 1.25,
+            openedAt: new Date().toISOString(),
+            txid: null,
+            entryBlockNumber: null,
+            entryConfirmations: null,
+            entryPrivateRouteUsed: false,
+            signalSource: 'wallet_adoption',
+            triggerTimeframe: null,
+            brainArchetype: 'adopted',
+            brainProfileKey: null,
+            discoveryLane: null,
+            aiReason: 'adopted_from_wallet_reconciliation',
+            aiConfidence: 0,
+            patternAnalysis: null,
+            pairAddress: walletPosition.pairAddress || null,
+            entryLiquidityUsd: 0,
+            entryTopHoldersPct: null,
+            entryBuyRatioPct10m: 0,
+            entryRecentWindowMinutes: null,
+            entryBuyRatioRecentPct: null,
+            entryHolderCount: 0,
+            entryRsi: 0,
+            entryVolumeSpike: 0,
+            tokenAgeBucket: 'unknown',
+            marketRegime: 'unknown',
+            highestPrice: currentPrice,
+            antiPatternInfo: { adoptedFromWallet: true },
+            trailingStop: null,
+            tierLocalHigh: currentPrice,
+            triggeredSellTiers: {},
+            tierDelayedAt: {},
+            partialFillRetry: false,
+            exitInProgress: false,
+            realizedPnlByTier: {},
+            realizedPnl: 0,
+            adoptedFromWallet: true,
+            adoptedAt: new Date().toISOString(),
+          };
+          if (!portfolio.strategies?.[strategyName]) {
+            portfolio.strategies = portfolio.strategies || {};
+            portfolio.strategies[strategyName] = portfolio.strategies[strategyName] || {
+              positions: {},
+              stats: { wins: 0, losses: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0, closedTrades: 0, consecutiveLosses: 0, consecutiveWins: 0, maxConsecutiveLosses: 0 },
+              trades: [],
+            };
+          }
+          portfolio.strategies[strategyName].positions[key] = portfolio.positions[key];
+          stateKeys.add(key);
+          adopted = true;
+          logger.warn(`[Reconciliation] Adopted unmanaged position ${entry.symbol} (${chainName}) qty=${qty.toFixed(6)} value=$${valueUsd.toFixed(2)} — now subject to stop-loss / stale-drift / strategy exits`);
+        } catch (adoptErr) {
+          logger.warn(`[Reconciliation] Adoption of ${entry.symbol} failed: ${adoptErr.message}`);
+        }
+      }
+
+      if (adopted) {
+        entry.adopted = true;
+        // Adopted positions are now tracked — don't show them as "unmanaged" on the
+        // dashboard or contribute to untracked totals. Keep an audit entry in discrepancies
+        // so the adoption shows up in the reconciliation log, but skip the unmanaged buckets.
+        discrepancies.push(entry);
+        logger.warn('State reconciliation: adopted unmanaged position', { ...entry });
+      } else {
+        discrepancies.push(entry);
+        untrackedWalletPositions.push(entry);
+        untrackedWalletPositionValueUsdByChain[chainName] = Number(untrackedWalletPositionValueUsdByChain[chainName] || 0) + Number(walletPosition.valueUsd || 0);
+        logger.error('State reconciliation mismatch', {
+          reason: 'unrecovered position detected',
+          ...entry,
+        });
+      }
     }
 
     stateKeys.forEach((key) => {
       if (walletKeys.has(key)) return;
+      const stalePosition = portfolio.positions?.[key];
+      const staleQty = Number(stalePosition?.quantity || 0);
+      const stalePrice = Number(stalePosition?.currentPrice || stalePosition?.entryPrice || 0);
+      const staleValueUsd = staleQty > 0 && stalePrice > 0
+        ? staleQty * stalePrice
+        : Number(stalePosition?.initialSizeUsd || stalePosition?.costBasisUsd || 0);
+      const strategyName = String(stalePosition?.strategy || 'momentum').toLowerCase();
+
+      if (stalePosition && Number.isFinite(staleValueUsd) && staleValueUsd > 0 && staleValueUsd <= dustThresholdUsd) {
+        delete portfolio.positions[key];
+        if (portfolio.strategies?.[strategyName]?.positions) {
+          delete portfolio.strategies[strategyName].positions[key];
+        }
+        releaseLiquiditySentinel(chainName, stalePosition.pairAddress);
+        strategy.clearHistory(stalePosition.strategyKey || key);
+        prunedStateOnlyPositions += 1;
+        logger.info('Removed dust state-only position from local state', {
+          chain: chainName,
+          key,
+          symbol: stalePosition.symbol,
+          valueUsd: Number(staleValueUsd.toFixed(4)),
+          dustThresholdUsd,
+        });
+        return;
+      }
+
       const entry = {
         chain: chainName,
         type: 'state_only_position',
@@ -1184,9 +2404,7 @@ async function reconcileWalletPositions() {
       // KuCoin can drift when users manually trade outside the bot.
       // If an in-state KuCoin position is absent from live wallet holdings, prune it.
       if (chainName === 'kucoin') {
-        const stalePosition = portfolio.positions?.[key];
         if (stalePosition) {
-          const strategyName = String(stalePosition.strategy || 'momentum').toLowerCase();
           delete portfolio.positions[key];
           if (portfolio.strategies?.[strategyName]?.positions) {
             delete portfolio.strategies[strategyName].positions[key];
@@ -1203,6 +2421,22 @@ async function reconcileWalletPositions() {
         }
       }
     });
+
+    const stuckEntries = Object.entries(portfolio.stuckPositions || {})
+      .filter(([, meta]) => normalizeChainKey(meta?.chainKey) === chainName);
+
+    for (const [stuckKey, meta] of stuckEntries) {
+      if (walletKeys.has(stuckKey)) continue;
+      if (portfolio.positions?.[stuckKey]) continue;
+      delete portfolio.stuckPositions[stuckKey];
+      clearedStuckPositions += 1;
+      logger.info('Cleared stale stuck-position flag after wallet reconciliation', {
+        chain: chainName,
+        key: stuckKey,
+        symbol: meta?.symbol || null,
+        address: meta?.address || null,
+      });
+    }
 
     Object.values(marketState.trackedTokens || {}).forEach((tracked) => {
       if (normalizeChainKey(tracked?.chainKey || tracked?.chain) !== chainName) return;
@@ -1222,6 +2456,10 @@ async function reconcileWalletPositions() {
     recordPortfolioSnapshot('reconcile_recover_buy');
   }
 
+  if (clearedStuckPositions > 0) {
+    recordPortfolioSnapshot('reconcile_clear_stuck');
+  }
+
   portfolio.stateReconciliation = {
     lastRunAt: new Date().toISOString(),
     discrepancies,
@@ -1239,6 +2477,7 @@ async function enterSafeMode(reason) {
   logger.error('Safe mode enabled', {
     reason: reason || 'safe mode activated',
   });
+  sendSafeModeAlert(reason || 'safe mode activated').catch((error) => logger.error(`Safe mode alert error: ${error.message}`));
   await reconcileWalletPositions();
 }
 
@@ -1334,6 +2573,43 @@ const aiCircuit = {
   failures: 0,
   cooldownUntil: 0,
 };
+const tokenDecisionPipeline = createTokenDecisionPipeline({
+  config,
+  logger,
+  aiCircuit,
+  operationalDiagnostics,
+  agentMemory,
+  risk,
+  strategy,
+  AITradeBrain,
+  getStrategyScanStatus,
+  syncChainScanStatus,
+  removeAiDecisionQueueCandidate,
+  getHourlyWinRateAdjustment,
+  getDynamicAiFloorAdjustment,
+  cacheAiDecisionCandidate,
+  queueAiDecisionRefresh,
+  getCachedAiDecision,
+  recordBrainSuccess,
+  recordBrainFailure,
+  getAiDecisionCacheStatus,
+  refreshBrainAvailability,
+  incrementRejectReason,
+  tryRotateForStrongerMomentum,
+  approvePortfolioDecision,
+  queueDecisionTelemetry,
+  recordTradeBlockState,
+  classifyRejectReason,
+  executeBuy: (...args) => executeBuy(...args),
+  enterSafeMode,
+  sendErrorAlert,
+});
+const {
+  updateTokenScanState,
+  runTokenEligibilityGates,
+  applyAiReviewToEvaluation,
+  handleApprovedTradeDecision,
+} = tokenDecisionPipeline;
 const exchangeCircuit = {
   solana: { failures: 0, cooldownUntil: 0, initialized: false, lastError: null },
   bsc: { failures: 0, cooldownUntil: 0, initialized: false, lastError: null },
@@ -1385,6 +2661,10 @@ async function probeExchangeHealth(chainName, exchange) {
     if (chainName === 'solana') {
       await exchange.connection.getLatestBlockhash('confirmed');
       state.endpoint = exchange.connection?.rpcEndpoint || config.solana.rpcUrl;
+    } else if (chainName === 'bsc' || chainName === 'base') {
+      if (!exchange.provider) throw new Error('RPC provider not initialized');
+      await exchange.provider.getBlockNumber();
+      state.endpoint = exchange.provider?._getConnection?.().url || state.endpoint;
     } else if (chainName === 'kucoin') {
       if (!exchange.exchange) throw new Error('KuCoin client not initialized');
       if (typeof exchange.exchange.fetchTime === 'function') {
@@ -1393,10 +2673,6 @@ async function probeExchangeHealth(chainName, exchange) {
         await exchange.exchange.loadMarkets();
       }
       state.endpoint = exchange.exchange.id || 'kucoin-rest';
-    } else {
-      if (!exchange.provider) throw new Error('RPC provider not initialized');
-      await exchange.provider.getBlockNumber();
-      state.endpoint = exchange.provider?._getConnection?.().url || state.endpoint;
     }
 
     state.lastLatencyMs = Date.now() - startedAt;
@@ -1417,176 +2693,31 @@ async function refreshDependencyHealth() {
 }
 
 async function saveState() {
-  try {
-    await fs.mkdir('data', { recursive: true });
-    recordRuntimeDelta();
-    const state = {
-      portfolio,
-      marketState,
-      riskState: {
-        dailyStartBalance: Number(risk.dailyStartBalance || 0),
-        dailyResetDate: String(risk.dailyResetDate || ''),
-        haltedToday: Boolean(risk.haltedToday),
-      },
-      strategyState: {
-        priceHistory: strategy.priceHistory,
-        volumeHistory: strategy.volumeHistory,
-      },
-    };
-    const serialized = JSON.stringify(state);
-    const tempPath = 'data/state.tmp.json';
-    const statePath = 'data/state.json';
-    const backupPath = 'data/state.backup.json';
-    await fs.writeFile(tempPath, serialized);
-    await fs.rename(tempPath, statePath);
-    await fs.copyFile(statePath, backupPath);
-    saveFailureCount = 0;
-    portfolio.saveFailureCount = 0;
-    logger.info('Bot state saved to disk');
-  } catch (error) {
-    saveFailureCount += 1;
-    portfolio.saveFailureCount = saveFailureCount;
-    setStatePersistenceError(true);
-    logger.error('Failed to save state', {
-      reason: error.message,
-      statePersistenceError,
-      saveFailureCount,
-    });
-  }
+  return statePersistence.saveState();
+}
+
+function buildSerializableStatePayload() {
+  return statePersistence.buildSerializableStatePayload();
+}
+
+async function persistSqlStateSnapshot(snapshotKind = 'periodic') {
+  return statePersistence.persistSqlStateSnapshot(snapshotKind);
+}
+
+async function loadSelfEvolutionHistoryEntries(limit = 250) {
+  return statePersistence.loadSelfEvolutionHistoryEntries(limit);
+}
+
+async function syncQueryableSqlState() {
+  return statePersistence.syncQueryableSqlState();
+}
+
+async function tryLoadStateFromSqlSnapshot() {
+  return statePersistence.tryLoadStateFromSqlSnapshot();
 }
 
 async function loadState() {
-  const statePath = 'data/state.json';
-  const backupPath = 'data/state.backup.json';
-  const tempPath = 'data/state.tmp.json';
-  try {
-    let saved = null;
-
-    try {
-      const data = await fs.readFile(statePath, 'utf8');
-      saved = JSON.parse(data);
-    } catch (error) {
-      const primaryError = error;
-      const primaryMissing = primaryError?.code === 'ENOENT';
-      if (!primaryMissing) {
-        logger.error('Primary state load failed', {
-          reason: primaryError.message,
-          source: statePath,
-        });
-      }
-
-      try {
-        const backupData = await fs.readFile(backupPath, 'utf8');
-        saved = JSON.parse(backupData);
-        logger.warn('Recovered runtime state from backup state file', {
-          source: backupPath,
-          reason: primaryError.message,
-        });
-      } catch (backupError) {
-        const backupMissing = backupError?.code === 'ENOENT';
-        if (primaryMissing && backupMissing) {
-          logger.info('No saved state found, starting fresh');
-            setStatePersistenceError(false);
-            portfolio.safeMode = false;
-          return;
-        }
-
-        logger.error('state unrecoverable', {
-          reason: 'state unrecoverable',
-          primaryError: primaryError.message,
-          backupError: backupError.message,
-        });
-        await enterSafeMode('state unrecoverable');
-        return;
-      }
-    }
-
-    if (!saved || typeof saved !== 'object') {
-      throw new Error('Loaded state payload is invalid');
-    }
-
-    if (saved.portfolio) Object.assign(portfolio, saved.portfolio);
-    if (saved.marketState) Object.assign(marketState, saved.marketState);
-    // Drop stale INSUFFICIENT DATA entries so they do not inflate tracked counts after restart.
-    // These are regenerated naturally as scans run.
-    if (marketState.trackedTokens && typeof marketState.trackedTokens === 'object') {
-      for (const key of Object.keys(marketState.trackedTokens)) {
-        const entry = marketState.trackedTokens[key];
-        if (entry && entry.finalSignal === 'INSUFFICIENT DATA') {
-          delete marketState.trackedTokens[key];
-        }
-      }
-    }
-    if (saved.riskState && typeof saved.riskState === 'object') {
-      if (Number.isFinite(Number(saved.riskState.dailyStartBalance)) && Number(saved.riskState.dailyStartBalance) > 0) {
-        risk.dailyStartBalance = Number(saved.riskState.dailyStartBalance);
-      }
-      if (typeof saved.riskState.dailyResetDate === 'string' && saved.riskState.dailyResetDate) {
-        risk.dailyResetDate = saved.riskState.dailyResetDate;
-      }
-      if (typeof saved.riskState.haltedToday === 'boolean') {
-        risk.haltedToday = saved.riskState.haltedToday;
-      }
-    }
-    ensureRuntimeStateShape();
-    portfolio.runtime.lastTickMs = Date.now();
-    if (saved.strategyState?.priceHistory && typeof saved.strategyState.priceHistory === 'object') {
-      strategy.priceHistory = saved.strategyState.priceHistory;
-    }
-    if (saved.strategyState?.volumeHistory && typeof saved.strategyState.volumeHistory === 'object') {
-      strategy.volumeHistory = saved.strategyState.volumeHistory;
-    }
-
-    // Backward-compat migration: old states keyed positions by raw token address.
-    if (portfolio.positions && typeof portfolio.positions === 'object') {
-      const migrated = {};
-      Object.entries(portfolio.positions).forEach(([key, pos]) => {
-        const chainKey = pos?.chainKey || normalizeChainKey(pos?.chain);
-        const address = pos?.address || key;
-        const nextKey = key.includes(':') ? key : buildTokenKey(chainKey, address);
-        migrated[nextKey] = {
-          ...pos,
-          key: nextKey,
-          chainKey,
-          address,
-          strategyKey: pos?.strategyKey || nextKey,
-          strategy: pos?.strategy || 'momentum',
-        };
-      });
-      portfolio.positions = migrated;
-    }
-
-    ensureStatsShape();
-    refreshPerformanceMetrics();
-    setStatePersistenceError(false);
-
-    try {
-      const checkpoint = JSON.stringify({
-        portfolio,
-        marketState,
-        riskState: {
-          dailyStartBalance: Number(risk.dailyStartBalance || 0),
-          haltedToday: Boolean(risk.haltedToday),
-        },
-        strategyState: {
-          priceHistory: strategy.priceHistory,
-          volumeHistory: strategy.volumeHistory,
-        },
-      });
-      await fs.writeFile(tempPath, checkpoint);
-      await fs.rename(tempPath, statePath);
-      await fs.copyFile(statePath, backupPath);
-    } catch (checkpointError) {
-      logger.error('State checkpoint update failed after load', {
-        reason: checkpointError.message,
-      });
-    }
-
-    logger.info('Bot state loaded from disk');
-  } catch (error) {
-    logger.error('Failed to load state', { reason: error.message });
-      await enterSafeMode('loadState failure');
-  }
+  return statePersistence.loadState();
 }
 
 function normalizeChainKey(chain) {
@@ -1603,9 +2734,338 @@ function buildTokenKey(chainName, tokenAddress) {
   return `${String(chainName || '').trim().toLowerCase()}:${String(tokenAddress || '').trim().toLowerCase()}`;
 }
 
+const OPERATOR_RUNBOOKS = {
+  sql_unhealthy: {
+    title: 'SQL degraded',
+    summary: 'Check SQL connectivity, explicit database selection, and schema readiness before trusting reports or state writes.',
+    steps: [
+      'Run npm run sql:init to ensure schema and views exist.',
+      'Verify SQL_CONNECTION_STRING points at the expected database and instance.',
+      'Inspect dashboard SQL status and recent SQL errors in logs.',
+    ],
+  },
+  safe_mode_active: {
+    title: 'Safe mode active',
+    summary: 'Bot has entered capital-protection mode after a serious execution or reconciliation issue.',
+    steps: [
+      'Review recent execution failures and balance drift diagnostics.',
+      'Confirm exchange connectivity and wallet balances before resuming.',
+      'Clear safe mode only after the triggering fault is understood.',
+    ],
+  },
+  loop_stalled_or_timer_missing: {
+    title: 'Loop stalled',
+    summary: 'One or more core scan or exit loops are stale or missing a timer.',
+    steps: [
+      'Inspect PM2 logs for uncaught loop errors.',
+      'Check dashboard health loop timestamps and stale flags.',
+      'Restart the affected bot only after confirming root cause.',
+    ],
+  },
+  strategy_exit_checks_degraded: {
+    title: 'Exit checks degraded',
+    summary: 'One or more strategy exit loops are skipping work or hitting repeated errors.',
+    steps: [
+      'Inspect skipped exit checks and exitErrorCount in dashboard health.',
+      'Review market-data availability for affected positions.',
+      'Treat open positions cautiously until exit checks are healthy again.',
+    ],
+  },
+  exchange_dependency_unhealthy: {
+    title: 'Exchange dependency unhealthy',
+    summary: 'One or more exchange or RPC dependencies are degraded.',
+    steps: [
+      'Review dependency health in the dashboard and recent RPC errors.',
+      'Confirm upstream API or RPC availability outside the bot.',
+      'Reduce exposure or disable affected chains if failures persist.',
+    ],
+  },
+  state_persistence_error: {
+    title: 'State persistence error',
+    summary: 'Primary state save path is failing and needs immediate attention.',
+    steps: [
+      'Inspect SQL self-test and state snapshot write errors.',
+      'Check filesystem backup path permissions if SQL fallback was used.',
+      'Do not delete backup state files until the save path is healthy again.',
+    ],
+  },
+};
+
+function safeDecisionText(value, fallback = '') {
+  const text = String(value || fallback || '').trim();
+  return text.slice(0, 800);
+}
+
+function deriveIncidentState({ riskCheck = null, approval = null, chainName = '', strategyName = '' } = {}) {
+  const active = [];
+  if (portfolio.safeMode) active.push('safe_mode_active');
+  if (portfolio.balanceDriftHalt) active.push('balance_drift_halt');
+  if (statePersistenceError || portfolio.statePersistenceError) active.push('state_persistence_error');
+  if (String(riskCheck?.code || '').toLowerCase() === 'chain_daily_loss') active.push('chain_daily_loss');
+  if (approval && approval.approved === false) active.push(`approval_blocked_${String(approval.reasonCode || 'general').toLowerCase()}`);
+  return {
+    active,
+    primary: active[0] || 'normal',
+    chainKey: normalizeChainKey(chainName),
+    strategy: strategyName || null,
+  };
+}
+
+function buildDecisionProposal({
+  chainName,
+  tokenData,
+  strategyName,
+  signalSource,
+  evaluation,
+}) {
+  const details = evaluation?.details || {};
+  return {
+    botProfile: BOT_PROFILE,
+    chainKey: normalizeChainKey(chainName),
+    symbol: tokenData?.symbol || null,
+    address: tokenData?.address || null,
+    strategy: strategyName || null,
+    signalSource: signalSource || tokenData?.signalSource || 'technical',
+    technicalSignal: evaluation?.signal || null,
+    finalSignal: tokenData?.finalSignal || 'BUY',
+    ai: {
+      confidence: Number(details.aiConfidence ?? tokenData?.aiConfidence ?? null),
+      reason: details.aiReason || tokenData?.aiReason || null,
+      verificationStatus: details.aiVerificationStatus || null,
+      riskFlags: Array.isArray(details.aiRiskFlags) ? details.aiRiskFlags : [],
+    },
+    market: {
+      price: Number(tokenData?.price || 0),
+      liquidityUsd: Number(tokenData?.liquidityUsd || 0),
+      volume24h: Number(tokenData?.volume24h || 0),
+      priceChange24h: Number(tokenData?.priceChange24h || details?.priceChange24h || 0),
+      holderCount: Number(tokenData?.holderCount || 0),
+      topHoldersPct: tokenData?.topHoldersPct ?? null,
+    },
+    trigger: {
+      timeframe: details.triggerTimeframe || tokenData?.entryTriggerTimeframe || null,
+      rsi: Number(details.rsi ?? tokenData?.rsi ?? null),
+      volumeSpike: Number(details.volumeSpike ?? tokenData?.volumeSpike ?? null),
+      buyRatioRecentPct: Number(details.buyRatioRecentPct ?? tokenData?.buyRatioRecentPct ?? null),
+      confidence: Number(details.confidence ?? tokenData?.confidence ?? null),
+    },
+    brain: {
+      archetype: details.brainArchetype || tokenData?.brainArchetype || null,
+      profileKey: details.brainProfileKey || tokenData?.brainProfileKey || null,
+      marketRegime: details.marketRegime || tokenData?.marketRegime || null,
+    },
+    patternAnalysis: details.patternAnalysis || tokenData?.patternAnalysis || null,
+    externalSignal: details.externalSignal || tokenData?.externalSignal || null,
+  };
+}
+
+function buildDecisionRiskReview({
+  chainName,
+  tokenData,
+  strategyName,
+  riskCheck,
+  evaluation,
+}) {
+  const details = evaluation?.details || {};
+  return {
+    allowed: Boolean(riskCheck?.allowed),
+    code: riskCheck?.code || null,
+    reason: riskCheck?.reason || null,
+    chainKey: normalizeChainKey(chainName),
+    strategy: strategyName || null,
+    safeMode: Boolean(portfolio.safeMode),
+    balanceDriftHalt: Boolean(portfolio.balanceDriftHalt),
+    statePersistenceError: Boolean(statePersistenceError || portfolio.statePersistenceError),
+    sqlHealthy: !process.env.SQL_ENABLED || Boolean(sqlRuntimeState.selfTestOk),
+    openPositions: Object.keys(portfolio.positions || {}).length,
+    strategyOpenPositions: Object.values(portfolio.positions || {}).filter((position) => String(position?.strategy || '').toLowerCase() === String(strategyName || '').toLowerCase()).length,
+    aiVerificationStatus: details.aiVerificationStatus || null,
+    aiRiskFlags: Array.isArray(details.aiRiskFlags) ? details.aiRiskFlags : [],
+    topHoldersPctKnown: tokenData?.topHoldersPct !== null && tokenData?.topHoldersPct !== undefined,
+    liquidityUsd: Number(tokenData?.liquidityUsd || 0),
+  };
+}
+
+function approvePortfolioDecision({
+  chainName,
+  tokenData,
+  strategyName,
+  signalSource,
+  evaluation,
+  riskCheck,
+}) {
+  const details = evaluation?.details || {};
+  const blockers = [];
+  const notes = [];
+  const liveMode = BOT_PROFILE === 'live' && !config.paperTrading;
+  const aiVerificationStatus = String(details.aiVerificationStatus || '').toLowerCase();
+  const aiConfidence = Number(details.aiConfidence ?? tokenData?.aiConfidence ?? 0);
+  const aiFloor = Number(details.confidenceFloor || 0);
+
+  if (!riskCheck?.allowed) {
+    blockers.push({ code: String(riskCheck?.code || 'risk_guardian_block'), reason: safeDecisionText(riskCheck?.reason, 'risk guardian blocked entry') });
+  }
+  if (portfolio.safeMode) {
+    blockers.push({ code: 'safe_mode_active', reason: 'safe mode is active' });
+  }
+  if (portfolio.balanceDriftHalt) {
+    blockers.push({ code: 'balance_drift_halt', reason: 'balance drift halt is active' });
+  }
+  if (liveMode && String(process.env.SQL_ENABLED || '').toLowerCase() === 'true' && !sqlRuntimeState.selfTestOk) {
+    blockers.push({ code: 'sql_self_test_failed', reason: 'live execution blocked while SQL self-test is unhealthy' });
+  }
+  if (liveMode && aiVerificationStatus.includes('pending')) {
+    const freshCacheStatus = getAiDecisionCacheStatus(tokenData, strategyName);
+    const pendingMs = freshCacheStatus.queuedAt ? Date.now() - Date.parse(freshCacheStatus.queuedAt) : 0;
+    const aiPendingTimeoutMs = Number(process.env.AI_PENDING_TIMEOUT_MS || 45000);
+    if (pendingMs < aiPendingTimeoutMs) {
+      blockers.push({ code: 'ai_verification_pending', reason: `AI verification pending (${(pendingMs / 1000).toFixed(0)}s / ${(aiPendingTimeoutMs / 1000).toFixed(0)}s timeout)` });
+    }
+  }
+  if (liveMode && signalSource === 'AI' && aiFloor > 0 && aiConfidence > 0 && aiConfidence < aiFloor) {
+    blockers.push({ code: 'ai_confidence_below_floor', reason: `AI confidence ${aiConfidence.toFixed(1)} is below floor ${aiFloor.toFixed(1)}` });
+  }
+  if (liveMode && (tokenData?.topHoldersPct === null || tokenData?.topHoldersPct === undefined) && (chainName === 'bsc' || chainName === 'base')) {
+    blockers.push({ code: 'holder_concentration_unknown', reason: `${String(chainName).toUpperCase()} holder concentration is unavailable` });
+  }
+
+  // BTC macro risk-off: block altcoin BUYs when BTC sold off >2% in last hour.
+  // BTC itself is exempt (it IS the macro signal — buying BTC dip is a separate decision).
+  const symbolUpper = String(tokenData?.symbol || '').toUpperCase();
+  if (isBtcRiskOff() && symbolUpper !== 'BTC' && symbolUpper !== 'WBTC') {
+    blockers.push({ code: 'btc_risk_off', reason: getBtcRiskOffReason() || 'BTC selling off; alts blocked' });
+  }
+
+  if (!blockers.length) {
+    notes.push(`approved for ${BOT_PROFILE} ${normalizeChainKey(chainName)} ${strategyName}`);
+  }
+
+  const approved = blockers.length === 0;
+  return {
+    approved,
+    action: approved ? 'BUY' : 'REJECT',
+    reasonCode: blockers[0]?.code || 'approved',
+    reason: blockers[0]?.reason || notes[0] || 'approved',
+    blockers,
+    checks: {
+      liveMode,
+      sqlSelfTestOk: Boolean(sqlRuntimeState.selfTestOk),
+      aiVerificationStatus: details.aiVerificationStatus || null,
+      aiConfidence,
+      aiFloor,
+      safeMode: Boolean(portfolio.safeMode),
+      balanceDriftHalt: Boolean(portfolio.balanceDriftHalt),
+    },
+    notes,
+    incidentState: deriveIncidentState({ riskCheck, chainName, strategyName }),
+  };
+}
+
+function queueDecisionTelemetry({
+  stage,
+  tokenData,
+  chainName,
+  strategyName,
+  signalSource,
+  proposal = null,
+  riskReview = null,
+  approval = null,
+  finalAction = null,
+  approved = false,
+  reason = null,
+  status = null,
+  orderId = null,
+  positionId = null,
+}) {
+  const decisionId = telemetryUuid();
+  const confidence = proposal?.trigger?.confidence;
+  const aiConfidence = proposal?.ai?.confidence ?? tokenData?.aiConfidence;
+  const activeRollout = getActivePromotionRolloutContext();
+  telemetry.logDecision({
+    decision_id: decisionId,
+    ts: new Date().toISOString(),
+    chain: tokenData?.chain || chainName,
+    chain_key: normalizeChainKey(chainName),
+    symbol: tokenData?.symbol || null,
+    address: tokenData?.address || null,
+    strategy: strategyName || null,
+    signal_source: signalSource || tokenData?.signalSource || 'technical',
+    decision_stage: stage,
+    proposal_json: proposal || null,
+    risk_json: riskReview || null,
+    approval_json: approval || null,
+    final_action: finalAction || null,
+    approved: Boolean(approved),
+    confidence: Number.isFinite(Number(confidence)) ? Number(confidence) : null,
+    ai_confidence: Number.isFinite(Number(aiConfidence)) ? Number(aiConfidence) : null,
+    reason: safeDecisionText(reason || approval?.reason || riskReview?.reason || tokenData?.aiReason || ''),
+    order_id: orderId,
+    position_id: positionId,
+    status: status || null,
+    strategy_version_id: CURRENT_STRATEGY_VERSION_ID,
+    regime_label: normalizeRegimeLabel(tokenData?.marketRegime || proposal?.marketContext?.regime || ''),
+    promotion_stage: BOT_PROFILE === 'paper' ? 'paper_candidate' : (activeRollout?.stage || 'live_active'),
+  });
+  return decisionId;
+}
+
+function buildDecisionReflection(position, finalTradePnl, reason) {
+  const openedAtMs = position?.openedAt ? new Date(position.openedAt).getTime() : NaN;
+  const closedAtMs = Date.now();
+  const holdDurationHours = Number.isFinite(openedAtMs) ? ((closedAtMs - openedAtMs) / (1000 * 60 * 60)) : null;
+  const initialSizeUsd = Number(position?.initialSizeUsd || position?.costBasisUsd || 0);
+  const pnlPct = initialSizeUsd > 0 ? (Number(finalTradePnl || 0) / initialSizeUsd) * 100 : null;
+  const outcome = Number(finalTradePnl || 0) > 0 ? 'win' : (Number(finalTradePnl || 0) < 0 ? 'loss' : 'flat');
+  const summary = outcome === 'win'
+    ? `Closed green after ${holdDurationHours !== null ? holdDurationHours.toFixed(2) : 'n/a'}h; keep leaning into this setup when approval conditions match.`
+    : outcome === 'loss'
+      ? `Closed red after ${holdDurationHours !== null ? holdDurationHours.toFixed(2) : 'n/a'}h; review trigger quality, liquidity, and approval blockers for similar setups.`
+      : `Closed flat after ${holdDurationHours !== null ? holdDurationHours.toFixed(2) : 'n/a'}h; setup was indecisive and may need tighter approval thresholds.`;
+  return {
+    reflectionId: telemetryUuid(),
+    ts: new Date().toISOString(),
+    botProfile: BOT_PROFILE,
+    chainKey: normalizeChainKey(position?.chainKey || position?.chain),
+    symbol: position?.symbol || null,
+    strategy: position?.strategy || null,
+    outcome,
+    pnlUsd: Number(finalTradePnl || 0),
+    pnlPct,
+    holdDurationHours,
+    summary,
+    reflection: {
+      exitReason: reason || null,
+      signalSource: position?.signalSource || null,
+      triggerTimeframe: position?.triggerTimeframe || null,
+      aiConfidence: Number(position?.aiConfidence || 0),
+      entryLiquidityUsd: Number(position?.entryLiquidityUsd || 0),
+      entryTopHoldersPct: position?.entryTopHoldersPct ?? null,
+      realizedPnlByTier: position?.realizedPnlByTier || {},
+      approvalDecisionId: position?.sqlApprovalDecisionId || null,
+      executionDecisionId: position?.sqlDecisionId || null,
+    },
+    strategy_version_id: CURRENT_STRATEGY_VERSION_ID,
+    regime_label: normalizeRegimeLabel(position?.marketRegime || ''),
+  };
+}
+
 function getBscDiscoveryLaneMetadata(tokenAddress) {
   const key = String(tokenAddress || '').trim().toLowerCase();
   return bscDiscoveryLaneCache.get(key) || null;
+}
+
+function getActivePromotionRolloutContext() {
+  const rollout = marketState.evolution?.liveRollout || null;
+  if (!rollout || BOT_PROFILE !== 'live' || config.paperTrading) return null;
+  const stage = String(rollout.stage || '').toLowerCase();
+  if (!stage) return null;
+  const regimeFamily = normalizeRegimeLabel(rollout.regimeFamily || '');
+  const canaryLiveSizePct = Number(rollout.canaryLiveSizePct || config.selfEvolution?.governance?.canaryLiveSizePct || 10);
+  return {
+    stage,
+    regimeFamily: classifyRegimeFamily(rollout.regimeFamily || ''),
+    canaryLiveSizePct: Number.isFinite(canaryLiveSizePct) ? canaryLiveSizePct : 10,
+  };
 }
 
 function setBscDiscoveryLaneMetadata(rows = [], summary = null) {
@@ -1643,7 +3103,85 @@ function getHistorySeries(historyMap, chainKey, tokenAddress) {
 }
 
 function round(value, digits = 2) {
-  return Number(Number(value || 0).toFixed(digits));
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num === 0) return 0;
+  // For very small values (sub-pico like meme coins at 4e-10), .toFixed truncates to 0.
+  // Promote to scientific precision (4 significant digits) so the price survives serialization.
+  const abs = Math.abs(num);
+  if (abs > 0 && abs < Math.pow(10, -digits)) {
+    return Number(num.toPrecision(4));
+  }
+  return Number(num.toFixed(digits));
+}
+
+// roundPrice — like round() but specifically tuned to preserve very small token prices
+// (BABYDOGE, SHIB, etc) where .toFixed(N) silently truncates to 0. Always uses scientific
+// precision when the absolute value is below the precision floor.
+function roundPrice(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num === 0) return 0;
+  if (Math.abs(num) < 1e-4) return Number(num.toPrecision(6));
+  return Number(num.toFixed(8));
+}
+
+// ── BTC risk-off filter ──────────────────────────────────────────────────────
+// Macro guard: when BTC is selling off (>2% drop in last hour), block new altcoin
+// BUYs. Catches market-wide flushes that would otherwise vaporize altcoin momentum.
+const btcRiskOffState = {
+  enabled: true,
+  lastCheckedAt: 0,
+  lastPriceUsd: 0,
+  hourAgoPriceUsd: 0,
+  priceChange1hPct: 0,
+  riskOff: false,
+  reason: null,
+  // Rolling 1h price ring buffer of {ts, price}
+  history: [],
+};
+
+async function refreshBtcRiskOff() {
+  try {
+    const ku = exchanges?.kucoin;
+    if (!ku || typeof ku.exchange?.fetchTicker !== 'function') return;
+    const ticker = await ku.exchange.fetchTicker('BTC/USDT').catch(() => null);
+    const last = Number(ticker?.last || 0);
+    if (!last || !Number.isFinite(last)) return;
+    const now = Date.now();
+    btcRiskOffState.lastPriceUsd = last;
+    btcRiskOffState.lastCheckedAt = now;
+    btcRiskOffState.history.push({ ts: now, price: last });
+    // Keep only last 90 minutes of samples
+    const oneAndHalfHourAgo = now - 90 * 60 * 1000;
+    btcRiskOffState.history = btcRiskOffState.history.filter((s) => s.ts >= oneAndHalfHourAgo);
+    // Find the sample closest to 1h ago
+    const oneHourAgo = now - 60 * 60 * 1000;
+    let hourAgoSample = btcRiskOffState.history[0];
+    for (const s of btcRiskOffState.history) {
+      if (s.ts <= oneHourAgo) hourAgoSample = s;
+    }
+    if (hourAgoSample && hourAgoSample.ts <= now - 30 * 60 * 1000) {
+      // Need at least 30 min of history before drawing conclusions
+      const change = ((last - hourAgoSample.price) / hourAgoSample.price) * 100;
+      btcRiskOffState.hourAgoPriceUsd = hourAgoSample.price;
+      btcRiskOffState.priceChange1hPct = change;
+      const threshold = -Number(config.risk?.btcRiskOffThresholdPct || 2);
+      btcRiskOffState.riskOff = change <= threshold;
+      btcRiskOffState.reason = btcRiskOffState.riskOff
+        ? `btc_risk_off:${change.toFixed(2)}%_in_1h`
+        : null;
+    }
+  } catch (err) {
+    logger.debug(`BTC risk-off refresh failed: ${err.message}`);
+  }
+}
+
+function isBtcRiskOff() {
+  if (!btcRiskOffState.enabled || config.risk?.btcRiskOffEnabled === false) return false;
+  return btcRiskOffState.riskOff;
+}
+
+function getBtcRiskOffReason() {
+  return btcRiskOffState.reason;
 }
 
 function defaultStatsShape() {
@@ -1742,9 +3280,6 @@ function refreshPerformanceMetrics() {
 
     if (strategyGrossLoss > 0) {
       stats.profitFactor = strategyGrossProfit / strategyGrossLoss;
-    } else {
-      // null = "no losses yet" (mathematically undefined, not infinite)
-      stats.profitFactor = strategyGrossProfit > 0 ? null : 0;
     }
 
     const strategySlippageSamples = Number(stats.slippageSamples || 0);
@@ -1827,6 +3362,100 @@ function calcDiscrepancyPct(requestedValue, filledValue) {
   return ((filled - requested) / requested) * 100;
 }
 
+const executionFlow = createExecutionFlow({
+  config,
+  logger,
+  portfolio,
+  strategy,
+  telemetry,
+  telemetryUuid,
+  operationalDiagnostics,
+  risk,
+  sqlCoordination,
+  markExecutionConfirmed,
+  resolveBuyFillMetrics,
+  resolveSellFillMetrics,
+  setExecutionJournalState,
+  calcSlippageBps,
+  calcDiscrepancyPct,
+  recordSlippageSample,
+  refreshPerformanceMetrics,
+  buildTokenKey,
+  ensureLiquiditySentinel,
+  releaseLiquiditySentinel,
+  markTokenBadPattern,
+  recordTradeBlockState,
+  sendErrorAlert,
+  sendTradeAlert,
+  enterSafeMode,
+  saveState: (...args) => saveState(...args),
+  logTrade,
+  recordPortfolioSnapshot,
+  queueDecisionTelemetry,
+  safeDecisionText,
+  buildDecisionReflection,
+  updateAdaptiveSleevePerformance,
+  updateBrainProfileFromClosedTrade,
+  strategyBrain,
+  agentMemory,
+  symbolPnLMemory,
+  rlOnlineUpdater,
+  round,
+  normalizeChainKey,
+  updateWalletBalance: (...args) => updateWalletBalance(...args),
+  reconcileWalletPositions: (...args) => reconcileWalletPositions(...args),
+  recordExchangeFailure,
+  recordBuyFailureState,
+  orderToPositionId,
+  executeSell: (...args) => executeSell(...args),
+});
+
+function getRequiredConfirmations(chainName) {
+  if (chainName === 'bsc') {
+    return Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2));
+  }
+  if (chainName === 'base') {
+    return Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2));
+  }
+  return 1;
+}
+
+function recordStrategyTick(tokenKey, price, volume = 0) {
+  const key = String(tokenKey || '');
+  const priceNum = Number(price || 0);
+  if (!key || !Number.isFinite(priceNum) || priceNum <= 0) {
+    return;
+  }
+  const maxHistBars = Math.max(120, Number(config.research?.targetHistoryBars || 240));
+  if (!strategy.priceHistory[key]) strategy.priceHistory[key] = [];
+  if (!strategy.volumeHistory[key]) strategy.volumeHistory[key] = [];
+  strategy.priceHistory[key].push(priceNum);
+  if (strategy.priceHistory[key].length > maxHistBars) strategy.priceHistory[key].shift();
+  const vol = Number(volume || 0);
+  if (Number.isFinite(vol) && vol > 0) {
+    strategy.volumeHistory[key].push(vol);
+    if (strategy.volumeHistory[key].length > maxHistBars) strategy.volumeHistory[key].shift();
+  }
+}
+
+function getNativeQuoteOrThrow(normalizedChain, currentTokenData) {
+  const maxNativePriceAgeMs = Math.max(1000, Number(config.risk?.maxNativePriceAgeMs || 120000));
+  const cached = normalizedChain === 'bsc'
+    ? exchanges.bsc.getCachedBnbPrice()
+    : exchanges.base.getCachedEthPrice();
+  if (!Number.isFinite(cached.price) || cached.price <= 0 || cached.cachedAt === null || (Date.now() - cached.cachedAt) > maxNativePriceAgeMs) {
+    operationalDiagnostics.nativePriceAbortCount++;
+    logger.error('native price unavailable or stale - buy aborted', {
+      reason: 'native price unavailable or stale - buy aborted',
+      chain: normalizedChain,
+      symbol: currentTokenData.symbol,
+      cachedAt: cached.cachedAt,
+    });
+    throw new Error(`native price unavailable or stale for ${currentTokenData.symbol} on ${normalizedChain}`);
+  }
+  return cached.price;
+}
+
 async function withTimeout(promise, timeoutMs, timeoutMessage) {
   const timeout = Math.max(1000, Number(timeoutMs || 6000));
   let timeoutId;
@@ -1840,19 +3469,6 @@ async function withTimeout(promise, timeoutMs, timeoutMessage) {
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
-}
-
-function setExecutionJournalState(txid, patch = {}) {
-  if (!txid) return;
-  portfolio.executionJournal = portfolio.executionJournal || {};
-  const key = String(txid);
-  const current = portfolio.executionJournal[key] || {};
-  portfolio.executionJournal[key] = {
-    ...current,
-    ...patch,
-    txid: key,
-    updatedAt: new Date().toISOString(),
-  };
 }
 
 async function reconcileExecutionJournal() {
@@ -1929,6 +3545,32 @@ function getHealthStatus() {
   const runtime = getRuntimeSnapshot();
   const degradedReasons = [];
   const unhealthyReasons = [];
+  const sqlStatus = getSqlStatus();
+  const maxNativePriceAgeMs = Math.max(1000, Number(config.risk?.maxNativePriceAgeMs || 120000));
+  const bscNativePriceCache = (() => {
+    try {
+      return exchanges?.bsc?.getCachedBnbPrice?.() || { price: null, cachedAt: null };
+    } catch {
+      return { price: null, cachedAt: null };
+    }
+  })();
+  const bscNativePriceHealthy = Number.isFinite(Number(bscNativePriceCache.price))
+    && Number(bscNativePriceCache.price) > 0
+    && Number.isFinite(Number(bscNativePriceCache.cachedAt))
+    && (Date.now() - Number(bscNativePriceCache.cachedAt)) <= maxNativePriceAgeMs;
+  const sqlHealth = {
+    ...sqlStatus,
+    selfTestOk: Boolean(sqlRuntimeState.selfTestOk),
+    selfTestReason: sqlRuntimeState.selfTestReason,
+    lastSelfTestAt: sqlRuntimeState.lastSelfTestAt,
+    databaseExplicit: Boolean(sqlStatus.databaseExplicit || hasExplicitDatabase()),
+    healthy: !sqlStatus.enabled || (
+      Boolean(sqlRuntimeState.selfTestOk)
+      && Boolean(sqlStatus.connected)
+      && Boolean(sqlStatus.schemaReady)
+      && Boolean(sqlStatus.databaseExplicit || hasExplicitDatabase())
+    ),
+  };
   const dependencies = Object.keys(exchangeCircuit).map((chainKey) => {
     const state = exchangeCircuit[chainKey];
     const probe = dependencyHealth[chainKey] || {};
@@ -1946,7 +3588,8 @@ function getHealthStatus() {
   });
 
   const unhealthyDeps = dependencies.filter((item) => !item.healthy).length;
-  const aiHealthy = config.anthropic.enabled
+  const aiHealthRequired = Boolean(config.anthropic.enabled) && config.execution?.aiNonBlocking === false;
+  const aiHealthy = aiHealthRequired
     ? (Boolean(config.anthropic.apiKey) && aiCircuit.cooldownUntil <= Date.now())
     : true;
   const discovery = wsDiscovery.getStatus();
@@ -2046,10 +3689,21 @@ function getHealthStatus() {
     && !anyStrategyDegraded
     && !balanceDriftHalt
     && !safeMode
-    && !persistenceError;
+    && !persistenceError
+    && sqlHealth.healthy;
 
-  if (signalDrought.global) {
-    degradedReasons.push('signal_drought');
+  if (signalDrought.momentum) {
+    degradedReasons.push('signal_drought_momentum');
+  }
+  if (signalDrought.swing) {
+    degradedReasons.push('signal_drought_swing');
+  }
+  if (!bscNativePriceHealthy) {
+    degradedReasons.push('bsc_native_price_degraded');
+  }
+  const stuckPositionCount = Object.keys(portfolio.stuckPositions || {}).length;
+  if (stuckPositionCount > 0) {
+    degradedReasons.push(`stuck_positions_${stuckPositionCount}`);
   }
 
   if (unhealthyDeps > 0) {
@@ -2076,6 +3730,19 @@ function getHealthStatus() {
   if (persistenceError) {
     unhealthyReasons.push('state_persistence_error');
   }
+  if (!sqlHealth.healthy) {
+    unhealthyReasons.push('sql_unhealthy');
+  }
+  if (sqlStatus.enabled && !sqlHealth.databaseExplicit) {
+    degradedReasons.push('sql_connection_string_missing_database');
+  }
+  const incidentKeys = [...new Set([...unhealthyReasons, ...degradedReasons])];
+  const incidentState = {
+    severity: unhealthyReasons.length > 0 ? 'critical' : (degradedReasons.length > 0 ? 'warning' : 'normal'),
+    active: unhealthyReasons.length > 0 || degradedReasons.length > 0,
+    keys: incidentKeys,
+    runbooks: incidentKeys.filter((key) => OPERATOR_RUNBOOKS[key]).map((key) => ({ key, ...(OPERATOR_RUNBOOKS[key] || {}) })),
+  };
   return {
     ok: overallOk,
     degraded: degradedReasons.length > 0,
@@ -2162,6 +3829,7 @@ function getHealthStatus() {
       momentum: Number(filterStatsState.consecutiveZeroSignalCycles?.momentum || 0),
       swing: Number(filterStatsState.consecutiveZeroSignalCycles?.swing || 0),
     },
+    incidentState,
     filterStats: {
       currentCycle: filterStatsState.currentCycle,
       recentCycles: filterStatsState.recentCycles,
@@ -2171,6 +3839,17 @@ function getHealthStatus() {
       return acc;
     }, {}),
     exchanges: dependencies,
+    nativePrices: {
+      bsc: {
+        healthy: bscNativePriceHealthy,
+        price: Number.isFinite(Number(bscNativePriceCache.price)) ? Number(bscNativePriceCache.price) : null,
+        cachedAt: Number.isFinite(Number(bscNativePriceCache.cachedAt))
+          ? new Date(Number(bscNativePriceCache.cachedAt)).toISOString()
+          : null,
+        maxAgeMs: maxNativePriceAgeMs,
+      },
+    },
+    sql: sqlHealth,
   };
 }
 
@@ -2200,16 +3879,16 @@ function getOpenPositions() {
         strategy: position.strategy || 'momentum',
         triggerTimeframe: position.triggerTimeframe || null,
         symbol: position.symbol,
-        entryPrice: round(position.entryPrice, 6),
-        currentPrice: round(position.currentPrice || position.entryPrice, 6),
+        entryPrice: roundPrice(position.entryPrice),
+        currentPrice: roundPrice(position.currentPrice || position.entryPrice),
         quantity: round(position.quantity || 0, 6),
         initialSizeUsd: round(position.initialSizeUsd || 0),
         costBasisUsd: round(costBasisUsd),
         positionValueUsd: round(currentValue),
         unrealizedPnl: round(unrealizedPnl),
         unrealizedPnlPct: round(unrealizedPnlPct),
-        stopLoss: round(position.stopLoss || 0, 6),
-        takeProfit: round(position.takeProfit || 0, 6),
+        stopLoss: roundPrice(position.stopLoss || 0),
+        takeProfit: roundPrice(position.takeProfit || 0),
         openedAt: position.openedAt,
         signalSource: position.signalSource || 'technical',
         aiReason: position.aiReason || '',
@@ -2384,14 +4063,16 @@ function getPortfolioSnapshot(options = {}) {
 
 function recordPortfolioSnapshot(reason) {
   const snapshot = getPortfolioSnapshot();
-  portfolio.pnlHistory.push({
+  const point = {
     timestamp: new Date().toISOString(),
     cash: snapshot.cashBalance,
     equity: snapshot.equity,
     totalPnl: snapshot.totalPnl,
     unrealizedPnl: snapshot.unrealizedPnl,
     reason,
-  });
+  };
+  portfolio.pnlHistory.push(point);
+  telemetry.logPnlPoint(point);
 
   if (portfolio.pnlHistory.length > 240) {
     portfolio.pnlHistory.shift();
@@ -2423,11 +4104,15 @@ function toCompactTrackedToken(token) {
     indicators: {
       rsi: token.indicators?.rsi ?? null,
       volumeSpike: token.indicators?.volumeSpike ?? null,
+      buyRatioRecentPct: token.indicators?.buyRatioRecentPct ?? null,
+      netBuyFlowUsd10m: token.indicators?.netBuyFlowUsd10m ?? null,
       shortSignal: token.indicators?.shortSignal ?? null,
       mediumSignal: token.indicators?.mediumSignal ?? null,
       longSignal: token.indicators?.longSignal ?? null,
       recentWindowLabel: token.indicators?.recentWindowLabel ?? null,
     },
+    momentumState: token.momentumState || null,
+    rotationContext: token.rotationContext || null,
     hasOpenPosition: token.hasOpenPosition,
     signalSource: token.signalSource,
     lastSignalAt: token.lastSignalAt,
@@ -2472,6 +4157,9 @@ function getTrackedTokens(options = {}) {
 
 function recordSignalEvent(entry) {
   marketState.signals.unshift(entry);
+  if (marketState.signals.length > 1000) {
+    marketState.signals.splice(1000);
+  }
 }
 
 function summarizeBuyFailureReason(message) {
@@ -2538,6 +4226,7 @@ function recordTradeBlockState(chainName, tokenData, strategyName, technicalSign
       riskFlags: Array.isArray(extra.riskFlags) && extra.riskFlags.length
         ? extra.riskFlags
         : (Array.isArray(previous.riskFlags) ? previous.riskFlags : []),
+      rotationContext: extra.rotationContext || previous.rotationContext || null,
       lastScannedAt: timestamp,
     };
   }
@@ -2551,7 +4240,85 @@ function recordTradeBlockState(chainName, tokenData, strategyName, technicalSign
     if (Array.isArray(extra.riskFlags) && extra.riskFlags.length) {
       recentSignal.riskFlags = extra.riskFlags;
     }
+    if (extra.rotationContext) {
+      recentSignal.rotationContext = extra.rotationContext;
+    }
   }
+}
+
+function buildMomentumMetrics(tokenData = {}, technicalDetails = {}) {
+  return {
+    priceChange24h: Number(tokenData?.priceChange24h || technicalDetails?.priceChange24h || 0),
+    buyRatioRecentPct: Number(technicalDetails?.buyRatioRecentPct || technicalDetails?.buyRatio10mPct || tokenData?.buyRatioRecentPct || 0),
+    volumeSpike: Number(technicalDetails?.volumeSpike || tokenData?.volumeSpike || 0),
+    confidence: normalizeConfidencePercent(technicalDetails?.confidence ?? tokenData?.confidence ?? 0),
+    netBuyFlowUsd10m: Number(technicalDetails?.netBuyFlowUsd10m || tokenData?.netBuyFlowUsd10m || 0),
+  };
+}
+
+function isStrongMomentumSnapshot(metrics = {}) {
+  return Number(metrics.priceChange24h || 0) > 0
+    && Number(metrics.buyRatioRecentPct || 0) >= 52
+    && Number(metrics.volumeSpike || 0) >= 1.1
+    && Number(metrics.netBuyFlowUsd10m || 0) > 0;
+}
+
+function normalizeConfidencePercent(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return 0;
+  return n <= 1 ? n * 100 : n;
+}
+
+function normalizeRotationVolumeSpike(value) {
+  const spike = Number(value || 0);
+  if (!Number.isFinite(spike) || spike <= 0) return 0;
+  if (spike <= 10) return spike;
+  return Math.min(10, 1 + (Math.log10(spike) * 3));
+}
+
+function buildMomentumState(previousToken = null, metrics = {}) {
+  const historyLimit = Math.max(3, Number(config.execution?.momentumRotationHistoryLimit || 5));
+  const previousHistory = Array.isArray(previousToken?.momentumState?.history)
+    ? previousToken.momentumState.history
+    : [];
+  const entry = {
+    ts: new Date().toISOString(),
+    priceChange24h: round(metrics.priceChange24h || 0, 2),
+    buyRatioRecentPct: round(metrics.buyRatioRecentPct || 0, 2),
+    volumeSpike: round(metrics.volumeSpike || 0, 3),
+    confidence: round(normalizeConfidencePercent(metrics.confidence || 0), 2),
+    netBuyFlowUsd10m: round(metrics.netBuyFlowUsd10m || 0, 2),
+    strong: isStrongMomentumSnapshot(metrics),
+  };
+  const history = previousHistory.concat(entry).slice(-historyLimit);
+  const current = history[history.length - 1] || entry;
+  const prior = history[history.length - 2] || null;
+  const deltaPriceChange24h = prior ? Number(current.priceChange24h || 0) - Number(prior.priceChange24h || 0) : 0;
+  const deltaVolumeSpike = prior ? Number(current.volumeSpike || 0) - Number(prior.volumeSpike || 0) : 0;
+  const deltaBuyRatioRecentPct = prior ? Number(current.buyRatioRecentPct || 0) - Number(prior.buyRatioRecentPct || 0) : 0;
+  const deltaNetBuyFlowUsd10m = prior ? Number(current.netBuyFlowUsd10m || 0) - Number(prior.netBuyFlowUsd10m || 0) : 0;
+  const accelerationScore =
+    (deltaPriceChange24h * 0.8)
+    + (deltaVolumeSpike * 8)
+    + (deltaBuyRatioRecentPct * 0.9)
+    + Math.max(-12, Math.min(12, deltaNetBuyFlowUsd10m / 2500));
+
+  let consecutiveStrongScans = 0;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (!history[i]?.strong) break;
+    consecutiveStrongScans += 1;
+  }
+
+  return {
+    history,
+    deltaPriceChange24h: round(deltaPriceChange24h, 2),
+    deltaVolumeSpike: round(deltaVolumeSpike, 3),
+    deltaBuyRatioRecentPct: round(deltaBuyRatioRecentPct, 2),
+    deltaNetBuyFlowUsd10m: round(deltaNetBuyFlowUsd10m, 2),
+    accelerationScore: round(accelerationScore, 2),
+    consecutiveStrongScans,
+    strongNow: Boolean(current.strong),
+  };
 }
 
 function updateTrackedToken(chainName, tokenData, evaluation, options = {}) {
@@ -2559,6 +4326,8 @@ function updateTrackedToken(chainName, tokenData, evaluation, options = {}) {
   const key = `${chainName}:${String(tokenData.address || '').toLowerCase()}`;
   const previous = marketState.trackedTokens[key];
   const aiCacheStatus = getAiDecisionCacheStatus(tokenData, evaluation.strategy || 'momentum');
+  const momentumMetrics = buildMomentumMetrics(tokenData, evaluation.details || {});
+  const momentumState = buildMomentumState(previous, momentumMetrics);
   const snapshot = {
     key,
     symbol: tokenData.symbol,
@@ -2591,7 +4360,7 @@ function updateTrackedToken(chainName, tokenData, evaluation, options = {}) {
     aiConfidence: evaluation.aiConfidence || 0,
     aiVerificationStatus: evaluation.details?.aiVerificationStatus || aiCacheStatus.status || 'none',
     aiVerificationQueuedAt: aiCacheStatus.queuedAt || null,
-    notBoughtReason: evaluation.notBoughtReason || previous?.notBoughtReason || '',
+    notBoughtReason: evaluation.notBoughtReason || '',
     lastBuyFailure: evaluation.lastBuyFailure || previous?.lastBuyFailure || '',
     lastBuyFailureAt: evaluation.lastBuyFailureAt || previous?.lastBuyFailureAt || null,
     riskFlags: evaluation.riskFlags || [],
@@ -2600,6 +4369,8 @@ function updateTrackedToken(chainName, tokenData, evaluation, options = {}) {
       slowEma: evaluation.details.slowEma ?? null,
       rsi: evaluation.details.rsi ?? null,
       volumeSpike: evaluation.details.volumeSpike ?? null,
+      buyRatioRecentPct: evaluation.details.buyRatioRecentPct ?? evaluation.details.buyRatio10mPct ?? null,
+      netBuyFlowUsd10m: evaluation.details.netBuyFlowUsd10m ?? null,
       shortSignal: evaluation.details.short?.signal || null,
       mediumSignal: evaluation.details.medium?.signal || null,
       longSignal: evaluation.details.long?.signal || null,
@@ -2607,6 +4378,8 @@ function updateTrackedToken(chainName, tokenData, evaluation, options = {}) {
       triggerTimeframe: evaluation.details.triggerTimeframe || null,
       recentWindowLabel: evaluation.details.recentWindowLabel || null,
     },
+    momentumState,
+    rotationContext: evaluation.details?.rotationContext || null,
     hasOpenPosition: Boolean(portfolio.positions[buildTokenKey(chainName, tokenData.address)]),
     lastScannedAt: new Date().toISOString(),
   };
@@ -2638,7 +4411,60 @@ function updateTrackedToken(chainName, tokenData, evaluation, options = {}) {
       rsi: snapshot.indicators.rsi,
       volumeSpike: snapshot.indicators.volumeSpike,
     });
+
+    // SQL telemetry (gated by SQL_ENABLED)
+    telemetry.logSignal(snapshot, {
+      gate: evaluation?.details || null,
+      rejectReasons: evaluation?.details?.externalReasons || evaluation?.notBoughtReason || null,
+    });
   }
+}
+
+function refreshTrackedOpenPositionSnapshot(chainName, tokenData, position = {}) {
+  const key = `${chainName}:${String(tokenData?.address || position?.address || '').toLowerCase()}`;
+  const previous = marketState.trackedTokens[key] || {};
+  const previousIndicators = previous?.indicators || {};
+  const metrics = buildMomentumMetrics(tokenData, {
+    confidence: previousIndicators.confidence || 0,
+    volumeSpike: tokenData?.volumeSpike ?? previousIndicators.volumeSpike ?? 0,
+    buyRatioRecentPct: tokenData?.buyRatioRecentPct ?? tokenData?.buyRatio10mPct ?? previousIndicators.buyRatioRecentPct ?? 0,
+    netBuyFlowUsd10m: tokenData?.netBuyFlowUsd10m ?? previousIndicators.netBuyFlowUsd10m ?? 0,
+  });
+  const momentumState = buildMomentumState(previous, metrics);
+
+  marketState.trackedTokens[key] = {
+    ...previous,
+    key,
+    symbol: tokenData?.symbol || position?.symbol || previous?.symbol || '',
+    address: tokenData?.address || position?.address || previous?.address || '',
+    chain: CHAIN_LABELS[chainName],
+    chainKey: chainName,
+    strategy: position?.strategy || previous?.strategy || 'momentum',
+    price: round(tokenData?.price || previous?.price || 0, 8),
+    volume24h: round(tokenData?.volume24h || previous?.volume24h || 0),
+    priceChange24h: round(tokenData?.priceChange24h || previous?.priceChange24h || 0, 2),
+    signalSource: previous?.signalSource || 'position_monitor',
+    finalSignal: previous?.finalSignal || 'OPEN',
+    aiReason: previous?.aiReason || '',
+    aiConfidence: normalizeConfidencePercent(previous?.aiConfidence || 0),
+    aiVerificationStatus: previous?.aiVerificationStatus || 'none',
+    aiVerificationQueuedAt: previous?.aiVerificationQueuedAt || null,
+    notBoughtReason: '',
+    lastBuyFailure: previous?.lastBuyFailure || '',
+    lastBuyFailureAt: previous?.lastBuyFailureAt || null,
+    riskFlags: previous?.riskFlags || [],
+    indicators: {
+      ...previousIndicators,
+      confidence: normalizeConfidencePercent(previousIndicators.confidence || 0),
+      volumeSpike: round(metrics.volumeSpike || 0, 3),
+      buyRatioRecentPct: round(metrics.buyRatioRecentPct || 0, 2),
+      netBuyFlowUsd10m: round(metrics.netBuyFlowUsd10m || 0, 2),
+    },
+    momentumState,
+    rotationContext: null,
+    hasOpenPosition: true,
+    lastScannedAt: new Date().toISOString(),
+  };
 }
 
 function recordBrainSuccess(tokenData, aiDecision) {
@@ -2675,21 +4501,30 @@ function buildAiDecisionCacheKey(tokenData, strategyName) {
   return `${chainKey}:${address}:${String(strategyName || 'momentum').toLowerCase()}`;
 }
 
-function getAiDecisionCacheTtlMs() {
+function getAiDecisionCacheTtlMs(strategyName) {
+  const strategy = String(strategyName || '').toLowerCase();
+  // Momentum needs fresh decisions because prices move fast — 5 minute cache is too stale.
+  // Swing can tolerate longer caching because positions are held for hours.
+  if (strategy === 'momentum') {
+    return Math.max(1000, Number(config.ai?.momentumDecisionCacheMs || 300000));
+  }
+  if (strategy === 'swing') {
+    return Math.max(1000, Number(config.ai?.swingDecisionCacheMs || 1800000));
+  }
   return Math.max(1000, Number(config.ai?.decisionCacheMs || 300000));
 }
 
-function hasFreshAiDecision(entry) {
+function hasFreshAiDecision(entry, strategyName) {
   if (!entry || !entry.decision || !Number.isFinite(Number(entry.updatedAt))) {
     return false;
   }
-  return (Date.now() - Number(entry.updatedAt)) <= getAiDecisionCacheTtlMs();
+  return (Date.now() - Number(entry.updatedAt)) <= getAiDecisionCacheTtlMs(strategyName || entry?.strategy);
 }
 
 function scoreAiDecisionCandidate(tokenData, technicalDetails = {}) {
   const triggerTimeframe = String(technicalDetails?.triggerTimeframe || '').toLowerCase();
   const discoveryLane = String(tokenData?.discoveryLane || technicalDetails?.discoveryLane || '').toLowerCase();
-  const confidence = Number(technicalDetails?.confidence || 0);
+  const confidence = normalizeConfidencePercent(technicalDetails?.confidence || 0);
   const volumeSpike = Number(technicalDetails?.volumeSpike || 0);
   const buyRatioRecentPct = Number(technicalDetails?.buyRatioRecentPct || technicalDetails?.buyRatio10mPct || 0);
   const netBuyFlowUsd = Number(technicalDetails?.netBuyFlowUsd10m || 0);
@@ -2697,7 +4532,7 @@ function scoreAiDecisionCandidate(tokenData, technicalDetails = {}) {
   const priceChange24h = Math.abs(Number(tokenData?.priceChange24h || 0));
   const rsiValue = Number(technicalDetails?.rsi || 0);
 
-  let score = confidence * 100;
+  let score = confidence;
   score += Math.min(60, Math.max(0, volumeSpike) * 12);
   score += Math.min(35, Math.max(0, buyRatioRecentPct) * 0.45);
   score += Math.min(25, Math.log10(Math.max(1, liquidityUsd)) * 4);
@@ -2781,7 +4616,7 @@ function getAiDecisionCacheStatus(tokenData, strategyName) {
 function getCachedAiDecision(tokenData, strategyName) {
   const cacheKey = buildAiDecisionCacheKey(tokenData, strategyName);
   const entry = aiDecisionCache.get(cacheKey);
-  return hasFreshAiDecision(entry) ? entry.decision : null;
+  return hasFreshAiDecision(entry, strategyName) ? entry.decision : null;
 }
 
 function pumpAiDecisionQueue() {
@@ -3060,6 +4895,8 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
     privateRouteUsed: Boolean(executionMeta.privateRouteUsed),
     quotedPriceImpactPct: Number.isFinite(Number(executionMeta.quotedPriceImpactPct)) ? round(executionMeta.quotedPriceImpactPct, 4) : null,
     realizedVsQuoteSlippagePct: Number.isFinite(Number(executionMeta.realizedVsQuoteSlippagePct)) ? round(executionMeta.realizedVsQuoteSlippagePct, 4) : null,
+    brainProfileKey: executionMeta.brainProfileKey || undefined,
+    brainMultiplier: Number.isFinite(Number(executionMeta.brainMultiplier)) ? round(executionMeta.brainMultiplier, 4) : undefined,
     executionStatus: executionMeta.executionStatus || undefined,
     recoveredFromFailure: executionMeta.recoveredFromFailure === true ? true : undefined,
     recoverySource: executionMeta.recoverySource || undefined,
@@ -3067,6 +4904,7 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
   };
 
   portfolio.trades.unshift(trade);
+  telemetry.logTradeLedger(trade);
   if (portfolio.trades.length > 250) {
     portfolio.trades.pop();
   }
@@ -3296,15 +5134,14 @@ function buildDashboardState(options = {}) {
     ? marketState.signals.map(toCompactSignal)
     : marketState.signals;
   const performanceGate = risk.checkPerformanceGate(portfolio.stats || {});
-
-  const state = {
-    timestamp: new Date().toISOString(),
-    uptimeSeconds: runtime.uptimeSeconds,
-    totalRuntimeSeconds: runtime.totalRuntimeSeconds,
+  return buildDashboardStatePayload({
+    compact,
+    runtime,
     mode: config.paperTrading ? 'paper' : 'live',
+    health: getHealthStatus(),
     portfolio: getPortfolioSnapshot({ compact }),
     performanceGate,
-    config: {
+    configSnapshot: {
       paperTrading: config.paperTrading,
       paperBalance: config.paperBalance,
       strategy: config.strategy,
@@ -3319,71 +5156,108 @@ function buildDashboardState(options = {}) {
       },
     },
     scanStatus,
-    brain: {
+    brainState: {
       ...brainState,
-      successRate: brainState.callCount > 0
-        ? round((brainState.successCount / brainState.callCount) * 100, 1)
-        : null,
       enabled: config.anthropic.enabled,
       hasApiKey: Boolean(config.anthropic.apiKey),
     },
-    filterStats: {
-      signalDrought: {
-        momentum: Boolean(filterStatsState.signalDrought?.momentum),
-        swing: Boolean(filterStatsState.signalDrought?.swing),
-        global: Boolean(filterStatsState.signalDrought?.global),
-      },
-      consecutiveZeroSignalCycles: {
-        momentum: Number(filterStatsState.consecutiveZeroSignalCycles?.momentum || 0),
-        swing: Number(filterStatsState.consecutiveZeroSignalCycles?.swing || 0),
-      },
-      currentCycle: compact ? undefined : filterStatsState.currentCycle,
-      recentCycles: compact
-        ? undefined
-        : filterStatsState.recentCycles,
-    },
+    round,
+    filterStatsState,
     diagnostics: {
       scanCounterMismatchCount: activeScanCounterMismatches.length,
       scanCounterMismatches: compact ? undefined : activeScanCounterMismatches,
     },
-    market: {
-      trackedTokens,
-      catalystPairs: getPrioritizedKucoinCatalystPairs().slice(0, 20),
-      recentSignals,
-      backtests: compact ? [] : marketState.backtests.slice(0, 5),
-      simulations: compact ? [] : marketState.simulations.slice(0, 5),
-      chainSummary: Object.keys(CHAIN_LABELS).map((chainKey) => {
-        const chainTokens = trackedTokens.filter((token) => token.chainKey === chainKey);
-          const actionableTokens = chainTokens.filter((token) => token.finalSignal !== 'INSUFFICIENT DATA');
-        const chainStrategies = supportsSwingOnChain(chainKey)
-          ? scanStatus[chainKey].strategies
-          : { momentum: scanStatus[chainKey].strategies?.momentum || {} };
-        return {
-          chainKey,
-          name: scanStatus[chainKey].name,
-            tracked: actionableTokens.length,
-            seenTokens: chainTokens.length,
-          discoveredTokens: Number(scanStatus[chainKey].discoveredTokens || 0),
-          evaluatedTokens: Number(scanStatus[chainKey].evaluatedTokens || 0),
-          buySignals: chainTokens.filter((token) => token.finalSignal === 'BUY').length,
-          openPositions: chainTokens.filter((token) => token.hasOpenPosition).length,
-          status: scanStatus[chainKey].status,
-          currentToken: scanStatus[chainKey].currentToken,
-          tokensScanned: scanStatus[chainKey].tokensScanned,
-          lastUpdate: scanStatus[chainKey].lastUpdate,
-          suppressedTokenErrors: scanStatus[chainKey].suppressedTokenErrors || 0,
-          strategies: chainStrategies,
-        };
-      }),
+    agentActions: compact ? getAgentActionFeed(12) : getAgentActionFeed(28),
+    evolutionState: {
+      activeExperiment: marketState.evolution?.activeExperiment
+        ? {
+          id: marketState.evolution.activeExperiment.id,
+          status: marketState.evolution.activeExperiment.status,
+          startedAt: marketState.evolution.activeExperiment.startedAt,
+          changedFiles: marketState.evolution.activeExperiment.changedFiles || [],
+          lastEvaluatedAt: marketState.evolution.activeExperiment.lastEvaluatedAt || null,
+          lastEvaluation: compact ? undefined : marketState.evolution.activeExperiment.lastEvaluation,
+        }
+        : null,
+      lastPromotion: marketState.evolution?.lastPromotion || null,
+      lastRollback: marketState.evolution?.lastRollback || null,
+      liveRollout: marketState.evolution?.liveRollout || null,
+      recentHistory: compact
+        ? (marketState.evolution?.history || []).slice(0, 3)
+        : (marketState.evolution?.history || []).slice(0, 12),
     },
+    trackedTokens,
+    catalystPairs: getPrioritizedKucoinCatalystPairs().slice(0, 20),
+    recentSignals,
+    backtests: compact ? [] : marketState.backtests.slice(0, 5),
+    simulations: compact ? [] : marketState.simulations.slice(0, 5),
+    chainLabels: CHAIN_LABELS,
+    supportsSwingOnChain,
+  });
+}
+
+function getAgentActionFeed(limit = 24) {
+  const actions = [];
+  const now = Date.now();
+
+  const pushAction = (type, text, ts = now) => {
+    const phrase = String(text || '').trim();
+    if (!phrase) return;
+    actions.push({ type: String(type || 'agent'), phrase: phrase.slice(0, 180), ts: Number(ts || now) });
   };
 
-  if (compact) {
-    delete state.config;
-    delete state.scanStatus;
+  const memoryContext = typeof agentMemory?.getContextForAI === 'function'
+    ? (agentMemory.getContextForAI() || {})
+    : {};
+  const intelligenceContext = typeof intelligenceAgent?.getContextForEvolution === 'function'
+    ? (intelligenceAgent.getContextForEvolution() || null)
+    : null;
+
+  (memoryContext.pendingDiscoveries || []).slice(0, 8).forEach((d) => {
+    pushAction('discovery', `Discovery: ${d.theme || 'market'} - ${String(d.insight || '').slice(0, 100)}`);
+  });
+
+  (memoryContext.recentLessons || []).slice(0, 6).forEach((lesson) => {
+    const outcome = String(lesson.outcome || '').toLowerCase() === 'loss' ? 'loss' : 'win';
+    const pnl = Number(lesson.pnl || 0);
+    pushAction('lesson', `Lesson (${outcome}): ${lesson.symbol || 'token'} ${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}`);
+  });
+
+  (memoryContext.blacklistedTokens || []).slice(0, 6).forEach((symbol) => {
+    pushAction('blacklist', `Blacklist active: ${symbol}`);
+  });
+
+  if (intelligenceContext) {
+    if (intelligenceContext.strategyRecommendation?.preferredType) {
+      pushAction(
+        'intelligence',
+        `Intelligence bias: ${intelligenceContext.strategyRecommendation.preferredType}/${intelligenceContext.strategyRecommendation.aggressiveness || 'normal'}`,
+      );
+    }
+    (intelligenceContext.riskWarnings || []).slice(0, 5).forEach((riskText) => {
+      pushAction('risk', `Risk: ${String(riskText || '').slice(0, 120)}`);
+    });
+    (intelligenceContext.selfImprovementInsights || []).slice(0, 5).forEach((insight) => {
+      pushAction('improve', `Improve: ${String(insight?.suggestedAction || insight?.observation || '').slice(0, 120)}`);
+    });
   }
 
-  return state;
+  const latestCycles = [
+    ...((filterStatsState.recentCycles?.momentum || []).slice(0, 2)),
+    ...((filterStatsState.recentCycles?.swing || []).slice(0, 2)),
+  ];
+  latestCycles.forEach((cycle) => {
+    const evaluated = Number(cycle?.evaluated || 0);
+    const technicalBlocked = Number(cycle?.technicalBlocked || 0);
+    if (evaluated > 0 && technicalBlocked > 0) {
+      const blockedPct = ((technicalBlocked / evaluated) * 100).toFixed(1);
+      pushAction('gate', `Gate ${cycle.strategy || 'unknown'}: technical blocked ${technicalBlocked}/${evaluated} (${blockedPct}%)`);
+    }
+  });
+
+  return actions
+    .sort((left, right) => Number(right.ts || 0) - Number(left.ts || 0))
+    .slice(0, Math.max(4, Number(limit || 24)));
 }
 
 async function initializeExchanges() {
@@ -3446,7 +5320,7 @@ async function rankBscMomentumUniverse(exchange, candidates = []) {
   const maxRankDurationMs = Math.max(5000, Number(config.discovery?.bscTopUniverseMaxRankDurationMs || 90000));
   const startedAt = Date.now();
 
-  const uniqueCandidates = [...new Set(candidates)].slice(0, 1200);
+  const uniqueCandidates = [...new Set(candidates)].slice(0, 3000);
   const rankedCore = [];
   const rankedExploration = [];
   const rankedBorderline = [];
@@ -3484,6 +5358,12 @@ async function rankBscMomentumUniverse(exchange, candidates = []) {
       const liquidityUsd = Number(token.liquidityUsd || 0);
       const volume24h = Number(token.volume24h || token.volume24hUsd || 0);
       const listingAgeDays = Number(token.listingAgeDays || 0);
+      const listingAgeHours = listingAgeDays * 24;
+      token.tokenAgeBucket = listingAgeHours > 0 && listingAgeHours < 24
+        ? 'new'
+        : listingAgeHours < 168
+        ? 'emerging'
+        : 'established';
       const legitimacy = Boolean(token.coingeckoId || token.listedOnCoinGecko || token.listedOnCoinMarketCap);
 
       if (maxAgeDays > 0 && listingAgeDays > maxAgeDays) {
@@ -3705,11 +5585,14 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
   if (!forcePollingOnly && wsTokens.length > 0) {
     if (mode === 'hybrid') {
       const defaultHybridTimeoutMs = Math.max(50, Number(config.discovery?.hybridPollTimeoutMs || 300));
-      // KuCoin REST polling can be slower due market/depth calls; allow a longer wait so the
-      // momentum universe is not starved by websocket-only fallbacks.
-      const hybridPollTimeoutMs = chainName === 'kucoin'
-        ? Math.max(defaultHybridTimeoutMs, 6000)
-        : defaultHybridTimeoutMs;
+      // KuCoin and BSC polling can be materially slower on cold starts.
+      // Give them longer to return so momentum discovery is not starved after restarts.
+      let hybridPollTimeoutMs = defaultHybridTimeoutMs;
+      if (chainName === 'kucoin') {
+        hybridPollTimeoutMs = Math.max(defaultHybridTimeoutMs, 6000);
+      } else if (chainName === 'bsc') {
+        hybridPollTimeoutMs = Math.max(defaultHybridTimeoutMs, Number(config.bot?.bscHybridPollTimeoutMs || 10000));
+      }
       const raceResult = await Promise.race([
         pollingPromise,
         new Promise((resolve) => setTimeout(() => resolve(null), hybridPollTimeoutMs)),
@@ -3734,9 +5617,12 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
   }
 
   const defaultPollTimeoutMs = Math.max(250, Number(config.discovery?.pollTimeoutMs || 4000));
-  const pollTimeoutMs = chainName === 'kucoin'
-    ? Math.max(defaultPollTimeoutMs, 10000)
-    : defaultPollTimeoutMs;
+  let pollTimeoutMs = defaultPollTimeoutMs;
+  if (chainName === 'kucoin') {
+    pollTimeoutMs = Math.max(defaultPollTimeoutMs, 10000);
+  } else if (chainName === 'bsc') {
+    pollTimeoutMs = Math.max(defaultPollTimeoutMs, Number(config.bot?.bscDiscoveryPollTimeoutMs || 90000));
+  }
   const timedPollingResult = await Promise.race([
     pollingPromise,
     new Promise((resolve) => setTimeout(() => resolve(null), pollTimeoutMs)),
@@ -3815,6 +5701,13 @@ async function scanChain(chainName, exchange, strategyName = 'momentum', options
   status.lastUpdate = new Date().toISOString();
   scanStatus[chainName].suppressedTokenErrors = 0;
   syncChainScanStatus(chainName);
+
+  // Reset tracked tokens data for this chain before scan
+  for (const key of Object.keys(marketState.trackedTokens || {})) {
+    if (key.startsWith(`${chainName}:`)) {
+      marketState.trackedTokens[key].finalSignal = 'SCANNING';
+    }
+  }
 
   try {
     if (chainName === 'kucoin' && typeof exchange.refreshTickers === 'function') {
@@ -3917,6 +5810,213 @@ async function scanChain(chainName, exchange, strategyName = 'momentum', options
   }
 }
 
+async function applyIntelligentModelReview({
+  chainName,
+  tokenKey,
+  tokenData,
+  strategyName,
+  evaluation,
+  exchange,
+}) {
+  if (!config.ml?.enabled && !config.sentimentEngine?.enabled && !config.hybridAgent?.enabled && !config.rl?.enabled) {
+    return null;
+  }
+  const baseConfidence = Number(evaluation?.details?.confidence || 0);
+  const strongMomentum = Number(tokenData?.priceChange24h || 0) >= 3 || Number(evaluation?.details?.volumeSpike || 0) >= 1.2;
+  const shouldRun = evaluation?.signal === 'BUY' || baseConfidence >= 60 || strongMomentum;
+  if (!shouldRun) {
+    return null;
+  }
+
+  const localPriceHistory = strategy.priceHistory?.[tokenKey] || [];
+  const localVolumeHistory = strategy.volumeHistory?.[tokenKey] || [];
+  const sentimentSnapshot = config.sentimentEngine?.enabled !== false
+    ? await fetchTokenSentiment({
+      symbol: tokenData.symbol,
+      chainKey: chainName,
+      tokenData,
+      logger,
+      modelRegistry,
+    }).catch((error) => {
+      logger.debug(`Sentiment snapshot skipped for ${tokenData.symbol}: ${error.message}`);
+      return null;
+    })
+    : null;
+
+  const featureSnapshot = await buildFeatureSnapshot({
+    chainName,
+    tokenData,
+    strategyName,
+    evaluation,
+    localPriceHistory,
+    localVolumeHistory,
+    sentimentSnapshot,
+  }).catch((error) => {
+    logger.debug(`Feature snapshot skipped for ${tokenData.symbol}: ${error.message}`);
+    return null;
+  });
+
+  if (featureSnapshot) {
+    modelRegistry.recordFeatureSnapshot(featureSnapshot).catch((error) => {
+      logger.debug(`Feature snapshot persistence failed for ${tokenData.symbol}: ${error.message}`);
+    });
+    evaluation.details.modelFeatureCoverage = featureSnapshot.coverage;
+    evaluation.details.modelFeatureBars = featureSnapshot.barCount;
+    evaluation.details.modelFeatureSource = featureSnapshot.source;
+    evaluation.details.featureSnapshot = featureSnapshot.features;
+  }
+
+  if (sentimentSnapshot) {
+    evaluation.details.sentimentSnapshot = {
+      signal: sentimentSnapshot.signal,
+      confidence: sentimentSnapshot.confidence,
+      aggregateScore: sentimentSnapshot.aggregateScore,
+      newsCount: sentimentSnapshot.newsCount,
+      redditCount: sentimentSnapshot.redditCount,
+    };
+  }
+
+  // Order book imbalance — bid/ask depth ratio leads trade-flow data by ~30s.
+  // Only available on KuCoin (CEX) for now; DEX would require pool reserves probe.
+  if (chainName === 'kucoin' && typeof exchange?.getOrderBookImbalance === 'function') {
+    const obSym = tokenData.address || `${String(tokenData.symbol).toUpperCase()}/USDT`;
+    const imbalance = await exchange.getOrderBookImbalance(obSym).catch(() => null);
+    if (imbalance) {
+      evaluation.details.bookImbalance = {
+        ratio: Number(imbalance.ratio.toFixed(3)),
+        skewPct: Number(imbalance.skewPct.toFixed(2)),
+        bidUsd: Math.round(imbalance.bidUsd),
+        askUsd: Math.round(imbalance.askUsd),
+      };
+    }
+  }
+
+  // Live regime detection — feeds AI, lessons, rotation scoring
+  const liveRegime = localPriceHistory && localPriceHistory.length >= 22
+    ? computeRegime(localPriceHistory, localVolumeHistory || [])
+    : { label: 'unknown', family: 'unknown', confidence: 0, realizedVol: 0, momentum: 0 };
+  if (!evaluation.details.marketRegime) {
+    evaluation.details.marketRegime = liveRegime.label;
+  }
+  evaluation.details.regimeFamily = liveRegime.family;
+  evaluation.details.regimeConfidence = liveRegime.confidence;
+  if (!Number.isFinite(evaluation.details.realizedVolPct) || evaluation.details.realizedVolPct === 0) {
+    evaluation.details.realizedVolPct = liveRegime.realizedVol;
+  }
+
+  // Regime-adaptive parameter overlay: in high volatility, loosen RSI band and reduce
+  // volume-spike requirement (everything spikes); in low volatility, tighten both.
+  // These overrides are applied as advisory hints in evaluation.details — strategies
+  // and AI input read them downstream rather than mutating the strategy's base config.
+  if (config.risk?.regimeAdaptiveParamsEnabled !== false) {
+    const realizedVol = Number(liveRegime.realizedVol || evaluation.details.realizedVolPct || 0);
+    let regimeAdjustments = null;
+    if (realizedVol >= 5) {
+      regimeAdjustments = {
+        regime: 'high_vol',
+        rsiBuyMinDelta: -5,        // loosen lower bound
+        rsiBuyMaxDelta: +5,        // loosen upper bound
+        volumeSpikeMultiplierFactor: 0.85, // require less spike
+        confidenceFloorDelta: +5,  // be stricter on AI confidence
+      };
+    } else if (realizedVol >= 2) {
+      regimeAdjustments = {
+        regime: 'medium_vol',
+        rsiBuyMinDelta: 0,
+        rsiBuyMaxDelta: 0,
+        volumeSpikeMultiplierFactor: 1.0,
+        confidenceFloorDelta: 0,
+      };
+    } else if (realizedVol > 0) {
+      regimeAdjustments = {
+        regime: 'low_vol',
+        rsiBuyMinDelta: +3,        // tighten lower bound
+        rsiBuyMaxDelta: -3,        // tighten upper bound
+        volumeSpikeMultiplierFactor: 1.15, // require more spike
+        confidenceFloorDelta: -3,  // looser on AI confidence (rare opps)
+      };
+    }
+    if (regimeAdjustments) {
+      evaluation.details.regimeAdaptiveAdjustments = regimeAdjustments;
+    }
+  }
+
+  const hybridDecision = featureSnapshot && config.hybridAgent?.enabled !== false
+    ? await runHybridDecision({
+      registry: modelRegistry,
+      rlPolicyManager,
+      logger,
+      tokenData,
+      strategyName,
+      evaluation,
+      featureSnapshot,
+      sentimentSnapshot,
+    }).catch((error) => {
+      logger.debug(`Hybrid decision skipped for ${tokenData.symbol}: ${error.message}`);
+      return null;
+    })
+    : null;
+
+  if (hybridDecision) {
+    evaluation.details.hybridDecision = {
+      taskClass: hybridDecision.taskClass,
+      regimeFamily: hybridDecision.regimeFamily,
+      finalSignal: hybridDecision.finalSignal,
+      confidence: hybridDecision.confidence,
+      aggregateScore: hybridDecision.aggregateScore,
+      route: hybridDecision.route,
+    };
+    evaluation.details.mlPredictions = hybridDecision.predictions || [];
+
+    if (
+      config.hybridAgent?.allowDirectEntryFromHybrid !== false
+      && evaluation.signal !== 'BUY'
+      && hybridDecision.finalSignal === 'BUY'
+      && Number(hybridDecision.confidence || 0) >= Number(config.hybridAgent?.minConfidence || 0.28)
+      && Number(hybridDecision.aggregateScore || 0) >= Number(config.ml?.directBuyThreshold || 0.68)
+    ) {
+      evaluation.signal = 'BUY';
+      evaluation.details.hybridPromotedSignal = true;
+      evaluation.details.hybridReason = 'hybrid_direct_entry';
+    }
+
+    if (
+      config.hybridAgent?.allowVetoFromHybrid !== false
+      && evaluation.signal === 'BUY'
+      && hybridDecision.finalSignal !== 'BUY'
+      && Number(hybridDecision.aggregateScore || 0) <= Number(config.ml?.vetoThreshold || 0.42)
+    ) {
+      evaluation.signal = 'HOLD';
+      evaluation.details.hybridVetoedSignal = true;
+      evaluation.details.hybridReason = 'hybrid_veto';
+      evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'hybrid_veto'])];
+    }
+
+    // AI-primary mode: if AI confidence is very high, override technical blocks
+    const aiPrimaryEnabled = process.env.AI_PRIMARY_MODE === 'true' || config.execution?.aiPrimaryDecisionEnabled === true;
+    const aiConfidence = Number(hybridDecision?.confidence || evaluation.details?.aiConfidence || 0);
+    const aiPrimaryThreshold = Number(config.execution?.aiPrimaryConfidenceThreshold || 0.80);
+
+    if (
+      aiPrimaryEnabled
+      && evaluation.signal === 'HOLD'
+      && hybridDecision?.finalSignal === 'BUY'
+      && aiConfidence >= aiPrimaryThreshold
+    ) {
+      evaluation.signal = 'BUY';
+      evaluation.details.aiPrimaryOverride = true;
+      evaluation.details.aiPrimaryReason = `AI confidence ${(aiConfidence * 100).toFixed(0)}% >= ${(aiPrimaryThreshold * 100).toFixed(0)}% threshold`;
+      logger.info(`[AI-Primary] Override to BUY for ${tokenData.symbol}: ${evaluation.details.aiPrimaryReason}`);
+    }
+  }
+
+  return {
+    sentimentSnapshot,
+    featureSnapshot,
+    hybridDecision,
+  };
+}
+
 async function processToken(chainName, exchange, tokenAddress, options = {}) {
   const tokenDataFetchTimeoutMs = Math.max(1000, Number(config.risk?.tokenDataFetchTimeoutMs || 5000));
   const tokenData = await withTimeout(
@@ -3959,88 +6059,27 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
   };
 
   const scanStrategy = String(options.scanStrategy || '').toLowerCase();
-  const scanState = getStrategyScanStatus(chainName, scanStrategy);
-  if (scanState) {
-    scanState.currentToken = `${tokenData.symbol} (${tokenAddress})`;
-    scanState.currentPair = tokenData.pairAddress || tokenData.pair || '-';
-    scanState.lastUpdate = new Date().toISOString();
-    if (scanStrategy) {
-      syncChainScanStatus(chainName);
-    }
-  }
-  strategy.recordTick(tokenKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
+  updateTokenScanState(chainName, tokenAddress, tokenData, scanStrategy);
+  recordStrategyTick(tokenKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
 
   const openPosition = portfolio.positions[tokenKey];
   if (openPosition) {
     openPosition.currentPrice = Number(tokenData.price);
     openPosition.lastSeenAt = new Date().toISOString();
+    refreshTrackedOpenPositionSnapshot(chainName, tokenData, openPosition);
     // Exit evaluation is handled exclusively by runStrategyExitCycle to prevent concurrent double-sells.
     return;
   }
 
   // Change 3: AMM reserve-imbalance filter — block tokens with extreme pool imbalance.
-  if (tokenData.reserveImbalanced) {
-    logger.debug(`Skipping ${tokenData.symbol} (${chainName}): reserve imbalance ratio ${(tokenData.reserveRatio || 0).toFixed(0)}`);
-    trackInsufficient('reserve_imbalance');
+  if (!await runTokenEligibilityGates(chainName, exchange, tokenAddress, tokenData, trackInsufficient)) {
     return;
   }
 
-  if (chainName === 'bsc') {
-    const requireTaxData = config.execution?.bscRequireTaxData !== false;
-    const taxDataAvailable = tokenData.taxDataAvailable !== false && tokenData.taxDataAvailable != null
-      ? Boolean(tokenData.taxDataAvailable)
-      : (tokenData.buyTax !== null || tokenData.sellTax !== null);
-    const buyTaxPct = Number(tokenData.buyTax);
-    const sellTaxPct = Number(tokenData.sellTax);
-    const maxBuyTaxPct = Math.max(0, Number(config.execution?.bscMaxBuyTaxPct || 0));
-    const maxSellTaxPct = Math.max(0, Number(config.execution?.bscMaxSellTaxPct || 0));
-
-    if (requireTaxData && !taxDataAvailable) {
-      logger.warn(`Skipping ${tokenData.symbol} (${chainName}): token tax data unavailable`);
-      trackInsufficient('tax_data_unavailable');
-      return;
-    }
-    if (Number.isFinite(buyTaxPct) && buyTaxPct > maxBuyTaxPct) {
-      logger.warn(`Skipping ${tokenData.symbol} (${chainName}): buy tax ${buyTaxPct.toFixed(2)}% exceeds limit ${maxBuyTaxPct.toFixed(2)}%`);
-      trackInsufficient('buy_tax_too_high');
-      return;
-    }
-    if (Number.isFinite(sellTaxPct) && sellTaxPct > maxSellTaxPct) {
-      logger.warn(`Skipping ${tokenData.symbol} (${chainName}): sell tax ${sellTaxPct.toFixed(2)}% exceeds limit ${maxSellTaxPct.toFixed(2)}%`);
-      trackInsufficient('sell_tax_too_high');
-      return;
-    }
-  }
+  
 
   // Change 1: Round-trip friction pre-check — block tokens where implied tax/friction exceeds threshold.
-  if ((chainName === 'bsc' || chainName === 'base') && !tokenData.isHoneypot && typeof exchange.checkRoundTripFriction === 'function') {
-    const frictionResult = await exchange.checkRoundTripFriction(tokenAddress, 0.01).catch(() => ({ blocked: false }));
-    if (frictionResult.blocked) {
-      logger.warn(`Skipping ${tokenData.symbol} (${chainName}): ${frictionResult.reason} (${(frictionResult.frictionPct || 0).toFixed(1)}%)`);
-      trackInsufficient('round_trip_friction');
-      return;
-    }
-    tokenData.roundTripFrictionPassed = true;
-    tokenData.roundTripFrictionPct = Number(frictionResult.frictionPct || 0);
-  }
-
-  if (
-    chainName === 'bsc'
-    && config.execution?.requirePrivateTxForBsc
-    && !config.paperTrading
-    && typeof exchange.hasPrivateTxRoute === 'function'
-    && !exchange.hasPrivateTxRoute()
-  ) {
-    logger.warn(`Skipping ${tokenData.symbol} (bsc): private transaction route required but unavailable`);
-    trackInsufficient('private_route_required');
-    return;
-  }
-  if (chainName === 'bsc') {
-    tokenData.privateRouteVerified = !config.execution?.requirePrivateTxForBsc
-      || config.paperTrading
-      || typeof exchange.hasPrivateTxRoute !== 'function'
-      || exchange.hasPrivateTxRoute();
-  }
+  
 
   const applicability = strategy.determineApplicableStrategies(tokenData);
   if (chainName === 'bsc' && applicability.momentumLane && !tokenData.discoveryLane) {
@@ -4060,6 +6099,14 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     const evaluation = await strategy.evaluateForStrategy(tokenKey, strategyName, tokenData);
     if (!evaluation.details) evaluation.details = {};
     evaluation.details.discoveryLane = evaluation.details.discoveryLane || tokenData.discoveryLane || applicability.momentumLane || null;
+    await applyIntelligentModelReview({
+      chainName,
+      tokenKey,
+      tokenData,
+      strategyName,
+      evaluation,
+      exchange,
+    });
     const cycleStats = filterStatsState.currentCycle?.[strategyName] || null;
     let aiBlockedThisToken = false;
     const isBscRelaxedContinuation = strategyName === 'momentum'
@@ -4079,106 +6126,20 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
       }
     }
 
-    if (evaluation.signal !== 'BUY') {
-      removeAiDecisionQueueCandidate(tokenData, strategyName);
-    }
+    ({ finalSignal, signalSource, aiBlockedThisToken } = await applyAiReviewToEvaluation({
+      chainName,
+      tokenData,
+      strategyName,
+      evaluation,
+      cycleStats,
+      isBscRelaxedContinuation,
+    }));
 
-    if (config.anthropic.enabled && evaluation.signal === 'BUY') {
-      if (Date.now() >= aiCircuit.cooldownUntil) {
-        const baseAiFloor = Number(config.strategies?.[strategyName]?.aiConfidenceFloor || config.risk.aiConfidenceFloor || 70);
-        const hourlyWinRateAdjustment = getHourlyWinRateAdjustment(strategyName);
-        const strategyAiFloor = Math.max(0, Math.min(100, baseAiFloor + Number(hourlyWinRateAdjustment.adjustmentPct || 0)));
-        evaluation.details.hourlyWinRateAdjustment = hourlyWinRateAdjustment;
-        cacheAiDecisionCandidate(tokenData, {
-          ...evaluation.details,
-          signal: evaluation.signal,
-          strategy: strategyName,
-          confidenceFloor: strategyAiFloor,
-        }, strategyName, {
-          source: chainName === 'bsc' ? 'bsc_buy_candidate' : 'buy_candidate',
-        });
-        let aiBypassedForLatency = false;
-        const aiInput = {
-          ...evaluation.details,
-          signal: evaluation.signal,
-          strategy: strategyName,
-          confidenceFloor: strategyAiFloor,
-        };
-        const useNonBlockingAi = config.execution?.aiNonBlocking !== false
-          || (strategyName === 'momentum' && config.execution?.momentumAiNonBlocking !== false);
-        const aiDecision = useNonBlockingAi
-          ? (() => {
-            queueAiDecisionRefresh(tokenData, aiInput, strategyName);
-            const cachedDecision = getCachedAiDecision(tokenData, strategyName);
-            if (!cachedDecision) {
-              aiBypassedForLatency = true;
-            }
-            return cachedDecision;
-          })()
-          : await AITradeBrain.evaluateToken(tokenData, aiInput);
-
-        if (aiDecision && aiDecision.signal) {
-          aiCircuit.failures = 0;
-          finalSignal = aiDecision.signal;
-          signalSource = 'AI';
-          evaluation.details.aiReason = aiDecision.reason;
-          evaluation.details.aiConfidence = aiDecision.confidence;
-          evaluation.details.aiRiskFlags = aiDecision.riskFlags;
-          recordBrainSuccess(tokenData, aiDecision);
-
-          if (Number(aiDecision.confidence || 0) < strategyAiFloor) {
-            evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_confidence_floor'])];
-            if (isBscRelaxedContinuation) {
-              finalSignal = evaluation.signal;
-              signalSource = 'technical';
-              evaluation.details.aiReason = evaluation.details.aiReason || 'bsc_relaxed_continuation_ai_advisory';
-              logger.info(`AI advisory only for ${tokenData.symbol}: BSC relaxed continuation kept technical BUY despite confidence ${Number(aiDecision.confidence || 0).toFixed(0)}% < floor ${strategyAiFloor.toFixed(0)}%`);
-            } else {
-              finalSignal = 'HOLD';
-              if (cycleStats) {
-                cycleStats.aiBlocked += 1;
-                aiBlockedThisToken = true;
-                incrementRejectReason(cycleStats, 'aiHold');
-              }
-            }
-          } else if (isBscRelaxedContinuation && aiDecision.signal !== 'BUY') {
-            finalSignal = evaluation.signal;
-            signalSource = 'technical';
-            evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_advisory_only'])];
-            evaluation.details.aiReason = evaluation.details.aiReason || 'bsc_relaxed_continuation_ai_advisory';
-            logger.info(`AI advisory only for ${tokenData.symbol}: BSC relaxed continuation kept technical BUY despite AI ${aiDecision.signal}`);
-          }
-        } else if (config.anthropic.apiKey && !aiBypassedForLatency) {
-          aiCircuit.failures += 1;
-          if (aiCircuit.failures >= config.bot.aiFailureThreshold) {
-            aiCircuit.cooldownUntil = Date.now() + (config.bot.aiFailureCooldownSeconds * 1000);
-            aiCircuit.failures = 0;
-            recordBrainFailure(`AI circuit opened for ${config.bot.aiFailureCooldownSeconds}s`);
-          } else {
-            recordBrainFailure('AI response unavailable');
-          }
-        } else if (aiBypassedForLatency) {
-          evaluation.details.aiReason = 'ai_cached_decision_pending';
-          evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_cached_decision_pending'])];
-          finalSignal = 'HOLD';
-          if (cycleStats) {
-            cycleStats.aiBlocked += 1;
-            aiBlockedThisToken = true;
-            incrementRejectReason(cycleStats, 'aiPending');
-          }
-        }
-        evaluation.details.aiVerificationStatus = getAiDecisionCacheStatus(tokenData, strategyName).status;
-      } else {
-        // Expected behavior: AI in cooldown, using technical signal. Log debug only.
-        logger.debug(`AI in cooldown; using technical signal for ${strategyName} (not a failure)`);
-        evaluation.details.aiVerificationStatus = getAiDecisionCacheStatus(tokenData, strategyName).status;
-      }
-    } else {
-      refreshBrainAvailability();
-      evaluation.details.aiVerificationStatus = getAiDecisionCacheStatus(tokenData, strategyName).status;
-    }
-
-    if (strategyName === 'momentum' && evaluation.details.triggerTimeframe === 'extreme_24h_momentum') {
+    if (
+      strategyName === 'momentum'
+      && evaluation.details.triggerTimeframe === 'extreme_24h_momentum'
+      && evaluation.details.aiReason !== 'ai_pending_advisory_only'
+    ) {
       const aiApprovedExtremeMove = signalSource === 'AI' && finalSignal === 'BUY';
       if (!aiApprovedExtremeMove) {
         finalSignal = 'HOLD';
@@ -4228,36 +6189,386 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     tokenData.aiReason = evaluation.details.aiReason;
     tokenData.aiConfidence = evaluation.details.aiConfidence;
     tokenData.entryTriggerTimeframe = evaluation.details.triggerTimeframe || 'unknown';
+    tokenData.brainArchetype = evaluation.details.brainArchetype || 'canonical_momentum_baseline';
+    tokenData.brainProfileKey = evaluation.details.brainProfileKey || null;
     tokenData.marketRegime = evaluation.details.marketRegime || null;
     tokenData.realizedVolPct = Number(evaluation.details.realizedVolPct);
+    tokenData.finalSignal = finalSignal;
+    tokenData.patternAnalysis = evaluation.details.patternAnalysis || null;
+    tokenData.externalSignal = evaluation.details.externalSignal || null;
+    const activeRollout = getActivePromotionRolloutContext();
+    if (activeRollout) {
+      const tokenRegimeFamily = classifyRegimeFamily(tokenData.marketRegime || '');
+      const regimeMatch = activeRollout.regimeFamily === 'unknown'
+        || tokenRegimeFamily === 'unknown'
+        || tokenRegimeFamily === activeRollout.regimeFamily;
+      if (activeRollout.stage === 'canary_live') {
+        tokenData._promotionRolloutMultiplier = Math.max(0.05, Math.min(1, activeRollout.canaryLiveSizePct / 100));
+        tokenData._promotionRolloutStage = 'canary_live';
+        tokenData._promotionRolloutRegimeMatch = regimeMatch;
+        if (!regimeMatch) {
+          logger.info(`Skipping ${tokenData.symbol}: rollout regime mismatch (${tokenRegimeFamily} vs ${activeRollout.regimeFamily})`);
+          continue;
+        }
+      } else if (activeRollout.stage === 'scaled_live') {
+        tokenData._promotionRolloutMultiplier = 1;
+        tokenData._promotionRolloutStage = 'scaled_live';
+      }
+    }
+
+    // Recovery mode size multiplier – applied in guardian.positionSize()
+    const _rm = getRecoveryMode();
+    tokenData._recoveryMultiplier = _rm.active ? _rm.sizeMultiplier : 1;
+    tokenData._recoverySeverity = _rm.active ? _rm.severity : 'none';
+    // Macro intelligence size multiplier — bullish market allows slightly larger positions
+    tokenData._macroSizeMultiplier = Number(evaluation.details.macroSizeMultiplier || 1);
+
+    const proposal = buildDecisionProposal({
+      chainName,
+      tokenData,
+      strategyName,
+      signalSource,
+      evaluation,
+    });
+    const proposalDecisionId = queueDecisionTelemetry({
+      stage: 'proposal',
+      tokenData,
+      chainName,
+      strategyName,
+      signalSource,
+      proposal,
+      finalAction: 'PROPOSE',
+      approved: false,
+      reason: evaluation.details.aiReason || `${signalSource} BUY candidate`,
+      status: 'proposed',
+    });
 
     const riskCheck = await risk.canTrade(tokenData, strategy.priceHistory || {}, strategyName);
-    if (!riskCheck.allowed) {
-      logger.warn(`Trade blocked for ${tokenData.symbol} (${strategyName}): ${riskCheck.reason}`);
-      recordTradeBlockState(
-        chainName,
-        tokenData,
-        strategyName,
-        evaluation.signal,
-        signalSource,
-        riskCheck.reason,
-        { riskFlags: [riskCheck.code || riskCheck.reason].filter(Boolean) }
-      );
-      if (cycleStats) {
-        cycleStats.riskBlocked += 1;
-        incrementRejectReason(cycleStats, classifyRejectReason(riskCheck.code || riskCheck.reason));
+    const riskReview = buildDecisionRiskReview({
+      chainName,
+      tokenData,
+      strategyName,
+      riskCheck,
+      evaluation,
+    });
+    queueDecisionTelemetry({
+      stage: 'risk',
+      tokenData,
+      chainName,
+      strategyName,
+      signalSource,
+      proposal,
+      riskReview,
+      finalAction: riskCheck.allowed ? 'RISK_PASS' : 'RISK_REJECT',
+      approved: Boolean(riskCheck.allowed),
+      reason: riskCheck.reason || 'risk reviewed',
+      status: riskCheck.allowed ? 'passed' : 'blocked',
+    });
+    const decisionResult = await handleApprovedTradeDecision({
+      chainName,
+      exchange,
+      tokenData,
+      strategyName,
+      evaluation,
+      signalSource,
+      cycleStats,
+      proposalDecisionId,
+      proposal,
+      riskReview,
+      riskCheck,
+    });
+    if (decisionResult === 'bought') {
+      return;
+    }
+    continue;
+  }
+}
+
+function scoreMomentumCandidate(tokenData = {}, technicalDetails = {}) {
+  const metrics = buildMomentumMetrics(tokenData, technicalDetails);
+  const trackedKey = `${normalizeChainKey(tokenData?.chainKey || tokenData?.chain)}:${String(tokenData?.address || '').toLowerCase()}`;
+  const tracked = marketState.trackedTokens?.[trackedKey] || null;
+  const momentumState = tracked?.momentumState || buildMomentumState(null, metrics);
+  const priceChange24h = Math.abs(Number(metrics.priceChange24h || 0));
+  const buyRatioRecentPct = Number(metrics.buyRatioRecentPct || 0);
+  const volumeSpike = normalizeRotationVolumeSpike(metrics.volumeSpike || 0);
+  const confidence = normalizeConfidencePercent(metrics.confidence || 0);
+  const netBuyFlowUsd10m = Number(metrics.netBuyFlowUsd10m || 0);
+  let score =
+    (priceChange24h * 0.8)
+    + (Math.max(0, buyRatioRecentPct - 50) * 1.1)
+    + (Math.max(0, volumeSpike) * 6)
+    + (Math.log10(Math.max(1, netBuyFlowUsd10m + 1)) * 5)
+    + (confidence * 0.2);
+  score += Math.max(0, Number(momentumState.accelerationScore || 0)) * 1.2;
+  score += Math.max(0, Number(momentumState.consecutiveStrongScans || 0) - 1) * 6;
+  // Age penalty: stale flat positions score lower, making them easier rotation targets
+  const posOpenedAtMs = Date.parse(position.openedAt || '') || 0;
+  const posHoursHeld = posOpenedAtMs > 0 ? (Date.now() - posOpenedAtMs) / 3_600_000 : 0;
+  if (posHoursHeld > 4 && pnlPct <= 0) {
+    score -= Math.min(20, (posHoursHeld - 4) * 1.5);
+  }
+  if (priceChange24h >= Number(config.execution?.momentumRotationExtendedMovePct || 30)
+    && Number(momentumState.deltaVolumeSpike || 0) <= 0
+    && Number(momentumState.deltaBuyRatioRecentPct || 0) <= 0) {
+    score -= 12;
+  }
+  return Number.isFinite(score) ? score : 0;
+}
+
+function scoreOpenMomentumPosition(position = {}, currentTokenData = null) {
+  const trackedKey = `${normalizeChainKey(position.chainKey || position.chain)}:${String(position.address || '').toLowerCase()}`;
+  const tracked = marketState.trackedTokens?.[trackedKey] || {};
+  const liveMetrics = currentTokenData ? buildMomentumMetrics(currentTokenData, tracked?.indicators || {}) : null;
+  const currentPrice = Number(position.currentPrice || tracked.price || position.entryPrice || 0);
+  const entryPrice = Number(position.entryPrice || 0);
+  const pnlPct = entryPrice > 0 && currentPrice > 0
+    ? ((currentPrice - entryPrice) / entryPrice) * 100
+    : 0;
+  const priceChange24h = Math.abs(Number(liveMetrics?.priceChange24h ?? tracked.priceChange24h ?? 0));
+  const confidence = normalizeConfidencePercent(liveMetrics?.confidence ?? tracked?.indicators?.confidence ?? 0);
+  const volumeSpike = normalizeRotationVolumeSpike(liveMetrics?.volumeSpike ?? tracked?.indicators?.volumeSpike ?? 0);
+  const momentumState = liveMetrics ? buildMomentumState(tracked, liveMetrics) : (tracked?.momentumState || {});
+  const accelerationScore = Number(momentumState.accelerationScore || 0);
+  const consecutiveStrongScans = Number(momentumState.consecutiveStrongScans || 0);
+  const weakening = accelerationScore < 0
+    && (
+      Number(momentumState.deltaVolumeSpike || 0) < 0
+      || Number(momentumState.deltaBuyRatioRecentPct || 0) < 0
+      || Number(momentumState.deltaNetBuyFlowUsd10m || 0) < 0
+    );
+  const healthyPnlPct = Number(config.execution?.momentumRotationHealthyPnlPct || 2);
+  const healthy = pnlPct >= healthyPnlPct && accelerationScore >= 0 && consecutiveStrongScans >= 2;
+  const score = (priceChange24h * 0.75)
+    + (pnlPct * 0.4)
+    + (confidence * 0.2)
+    + (Math.max(0, volumeSpike) * 5)
+    + (Math.max(-10, accelerationScore) * 0.8)
+    + (Math.max(0, consecutiveStrongScans - 1) * 4);
+  return {
+    score: Number.isFinite(score) ? score : 0,
+    pnlPct: Number.isFinite(pnlPct) ? pnlPct : 0,
+    weakening,
+    healthy,
+    accelerationScore,
+    consecutiveStrongScans,
+    components: {
+      priceChange24h: round(priceChange24h, 2),
+      pnlPct: round(pnlPct, 2),
+      confidence: round(confidence, 2),
+      volumeSpike: round(volumeSpike, 3),
+      accelerationScore: round(accelerationScore, 2),
+      consecutiveStrongScans,
+    },
+  };
+}
+
+async function tryRotateForStrongerMomentum(candidateTokenData, strategyName, evaluationDetails = {}, options = {}) {
+  if (String(strategyName || '').toLowerCase() !== 'momentum') {
+    return { rotated: false, reason: 'rotation only supported for momentum strategy' };
+  }
+
+  const blockCode = String(options.blockCode || '').toLowerCase();
+  const sameChainOnly = Boolean(options.sameChainOnly);
+  if (blockCode === 'portfolio_heat' && config.execution?.heatAwareMomentumRotationEnabled === false) {
+    return {
+      rotated: false,
+      reason: 'candidate stronger but heat-rotation disabled',
+      context: {
+        blockCode,
+        sameChainOnly: true,
+      },
+    };
+  }
+
+  const openStrategyPositions = Object.values(portfolio.positions || {}).filter(
+    (position) => String(position?.strategy || 'momentum').toLowerCase() === 'momentum'
+  );
+  if (!openStrategyPositions.length) {
+    return { rotated: false, reason: 'no momentum positions available for rotation' };
+  }
+
+  const candidateKey = `${normalizeChainKey(candidateTokenData?.chainKey || candidateTokenData?.chain)}:${String(candidateTokenData?.address || '').toLowerCase()}`;
+  const candidateTracked = marketState.trackedTokens?.[candidateKey] || null;
+  const candidateMomentumState = candidateTracked?.momentumState || buildMomentumState(null, buildMomentumMetrics(candidateTokenData, evaluationDetails));
+  const candidateScore = scoreMomentumCandidate(candidateTokenData, evaluationDetails);
+  const minScoreEdge = Math.max(1, Number(config.execution?.momentumRotationMinScoreEdge || 12));
+  const maxRotationLossPct = Math.abs(Number(config.execution?.momentumRotationMaxLossPct || 4));
+  const requiredPersistenceScans = Math.max(2, Number(config.execution?.momentumRotationPersistenceScans || 2));
+  const minAccelerationScore = Number(config.execution?.momentumRotationMinAccelerationScore || 2);
+
+  const rankedCandidates = openStrategyPositions
+    .filter((position) => {
+      if (!sameChainOnly) return true;
+      return normalizeChainKey(position.chainKey || position.chain) === normalizeChainKey(candidateTokenData?.chainKey || candidateTokenData?.chain);
+    });
+  const ranked = (await Promise.all(rankedCandidates.map(async (position) => {
+      const positionChain = normalizeChainKey(position.chainKey || position.chain);
+      const positionExchange = exchanges[positionChain];
+      let freshTokenData = null;
+      if (positionExchange) {
+        freshTokenData = await withTimeout(
+          positionExchange.getTokenData(position.address),
+          Math.max(1500, Number(config.risk?.tokenDataFetchTimeoutMs || 5000)),
+          `Rotation score data fetch timed out for ${position.symbol || position.address}`
+        ).catch(() => null);
       }
-      continue;
-    }
+      if (freshTokenData?.price) {
+        freshTokenData.address = freshTokenData.address || position.address;
+        freshTokenData.chainKey = positionChain;
+        freshTokenData.chain = CHAIN_LABELS[positionChain];
+        refreshTrackedOpenPositionSnapshot(positionChain, freshTokenData, position);
+      }
+      const scored = scoreOpenMomentumPosition(position, freshTokenData);
+      return {
+        position,
+        score: scored.score,
+        pnlPct: scored.pnlPct,
+        weakening: scored.weakening,
+        healthy: scored.healthy,
+        accelerationScore: scored.accelerationScore,
+        consecutiveStrongScans: scored.consecutiveStrongScans,
+        components: scored.components,
+      };
+    })))
+    .filter((entry) => entry.pnlPct >= -maxRotationLossPct)
+    .sort((a, b) => {
+      if (a.pnlPct !== b.pnlPct) return a.pnlPct - b.pnlPct;
+      return a.score - b.score;
+    });
 
-    if (cycleStats) {
-      cycleStats.passed += 1;
-    }
+  const weakest = ranked[0];
+  if (!weakest) {
+    return {
+      rotated: false,
+      reason: sameChainOnly
+        ? 'candidate stronger but no same-chain position eligible for heat rotation'
+        : 'no eligible momentum position available for rotation',
+      context: {
+        candidateScore: round(candidateScore, 2),
+        candidateAccelerationScore: candidateMomentumState.accelerationScore,
+        candidateConsecutiveStrongScans: candidateMomentumState.consecutiveStrongScans,
+      },
+    };
+  }
 
-    await executeBuy(chainName, exchange, tokenData, strategyName);
+  if (candidateScore < (weakest.score + minScoreEdge)) {
+    return {
+      rotated: false,
+      reason: `candidate not stronger enough than weakest position (${candidateScore.toFixed(1)} vs ${(weakest.score + minScoreEdge).toFixed(1)} required)`,
+      context: {
+        candidateScore: round(candidateScore, 2),
+        weakestScore: round(weakest.score, 2),
+        weakestPnlPct: round(weakest.pnlPct, 2),
+        weakestSymbol: weakest.position?.symbol || weakest.position?.address || null,
+        weakestComponents: weakest.components || null,
+        candidateComponents: {
+          priceChange24h: round(Math.abs(Number(candidateTokenData?.priceChange24h || 0)), 2),
+          confidence: round(normalizeConfidencePercent(evaluationDetails?.confidence ?? candidateTokenData?.confidence ?? 0), 2),
+          volumeSpike: round(normalizeRotationVolumeSpike(evaluationDetails?.volumeSpike ?? candidateTokenData?.volumeSpike ?? 0), 3),
+          accelerationScore: round(Number(candidateMomentumState.accelerationScore || 0), 2),
+          consecutiveStrongScans: Number(candidateMomentumState.consecutiveStrongScans || 0),
+        },
+      },
+    };
+  }
 
-    // Prevent dual ownership of same token across strategies.
-    return;
+  if (Number(candidateMomentumState.accelerationScore || 0) < minAccelerationScore) {
+    return {
+      rotated: false,
+      reason: `candidate stronger but acceleration still weak (${Number(candidateMomentumState.accelerationScore || 0).toFixed(1)})`,
+      context: {
+        candidateScore: round(candidateScore, 2),
+        candidateAccelerationScore: candidateMomentumState.accelerationScore,
+        candidateConsecutiveStrongScans: candidateMomentumState.consecutiveStrongScans,
+        weakestScore: round(weakest.score, 2),
+      },
+    };
+  }
+
+  if (Number(candidateMomentumState.consecutiveStrongScans || 0) < requiredPersistenceScans) {
+    return {
+      rotated: false,
+      reason: `candidate stronger but not persistent yet (${Number(candidateMomentumState.consecutiveStrongScans || 0)}/${requiredPersistenceScans} strong scans)`,
+      context: {
+        candidateScore: round(candidateScore, 2),
+        candidateAccelerationScore: candidateMomentumState.accelerationScore,
+        candidateConsecutiveStrongScans: candidateMomentumState.consecutiveStrongScans,
+        weakestScore: round(weakest.score, 2),
+      },
+    };
+  }
+
+  const weakestOpenedAtMs = Date.parse(weakest.position.openedAt || '') || 0;
+  const weakestHoursHeld = weakestOpenedAtMs > 0 ? (Date.now() - weakestOpenedAtMs) / 3_600_000 : 0;
+  const weakestIsStale = weakestHoursHeld >= 4 && weakest.pnlPct <= 0;
+  if ((!weakest.weakening || weakest.healthy) && !weakestIsStale) {
+    return {
+      rotated: false,
+      reason: 'candidate stronger but weakest current position still healthy',
+      context: {
+        candidateScore: round(candidateScore, 2),
+        weakestScore: round(weakest.score, 2),
+        weakestPnlPct: round(weakest.pnlPct, 2),
+        weakestAccelerationScore: round(weakest.accelerationScore, 2),
+        weakestConsecutiveStrongScans: weakest.consecutiveStrongScans,
+      },
+    };
+  }
+
+  const weakestChain = normalizeChainKey(weakest.position.chainKey || weakest.position.chain);
+  const weakestExchange = exchanges[weakestChain];
+  if (!weakestExchange) {
+    return { rotated: false, reason: 'rotation venue unavailable for weakest position' };
+  }
+
+  const exitTokenData = await withTimeout(
+    weakestExchange.getTokenData(weakest.position.address),
+    Math.max(1500, Number(config.risk?.tokenDataFetchTimeoutMs || 5000)),
+    `Rotation sell data fetch timed out for ${weakest.position.symbol || weakest.position.address}`
+  ).catch(() => null);
+
+  const fallbackExitToken = {
+    symbol: weakest.position.symbol,
+    address: weakest.position.address,
+    chainKey: weakestChain,
+    chain: CHAIN_LABELS[weakestChain],
+    price: Number(weakest.position.currentPrice || weakest.position.entryPrice || 0),
+  };
+
+  try {
+    logger.info(
+      `Momentum rotation: replacing ${weakest.position.symbol || weakest.position.address} ` +
+      `(score=${weakest.score.toFixed(1)}, pnl=${weakest.pnlPct.toFixed(2)}%) with ` +
+      `${candidateTokenData.symbol} (score=${candidateScore.toFixed(1)})`
+    );
+    await executeSell(
+      weakestChain,
+      weakestExchange,
+      exitTokenData || fallbackExitToken,
+      weakest.position,
+      1,
+      'ROTATE_STRONGER_MOMENTUM'
+    );
+    return {
+      rotated: true,
+      reason: 'rotated into stronger momentum candidate',
+      context: {
+        candidateScore: round(candidateScore, 2),
+        weakestScore: round(weakest.score, 2),
+        weakestPnlPct: round(weakest.pnlPct, 2),
+      },
+    };
+  } catch (error) {
+    logger.warn(`Momentum rotation failed: ${error.message}`);
+    return {
+      rotated: false,
+      reason: `rotation attempt failed: ${error.message}`,
+      context: {
+        candidateScore: round(candidateScore, 2),
+        weakestScore: round(weakest.score, 2),
+      },
+    };
   }
 }
 
@@ -4274,7 +6585,8 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
   const staleData = Boolean(options.staleData);
   const currentProfit = (tokenData.price - position.entryPrice) / position.entryPrice;
   const strategyName = position.strategy || 'momentum';
-  const strategySellTiers = config.strategies?.[strategyName]?.sellTiers || config.strategy.sellTiers;
+  const strategySellTiersRaw = config.strategies?.[strategyName]?.sellTiers || config.strategy?.sellTiers;
+  const strategySellTiers = Array.isArray(strategySellTiersRaw) ? strategySellTiersRaw : [];
   const strategyCfg = config.strategies?.[strategyName] || {};
 
   const trailingStartMultiplier = Number(strategyCfg.trailingActivationMultiplier || config.risk.trailingStopAfterMultiplier || 2);
@@ -4284,11 +6596,20 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
   // With stale data only evaluate stop-loss and trailing-stop; skip strategy exit and take-profit tiers.
   let exitSignal = null;
   if (!staleData) {
-    exitSignal = strategy.evaluateExitForStrategy(position.strategyKey || buildTokenKey(chainName, tokenData.address), strategyName, tokenData, position);
-    if (exitSignal?.shouldExit) {
-      logger.info(`STRATEGY EXIT triggered for ${tokenData.symbol} [${strategyName}]: ${exitSignal.reason}`);
-      await executeSell(chainName, exchange, tokenData, position, 1, exitSignal.reason);
-      return;
+    try {
+      exitSignal = strategy.evaluateExitForStrategy(
+        position.strategyKey || buildTokenKey(chainName, tokenData.address),
+        strategyName,
+        tokenData,
+        position
+      );
+      if (exitSignal?.shouldExit) {
+        logger.info(`STRATEGY EXIT triggered for ${tokenData.symbol} [${strategyName}]: ${exitSignal.reason}`);
+        await executeSell(chainName, exchange, tokenData, position, 1, exitSignal.reason);
+        return;
+      }
+    } catch (error) {
+      logger.warn(`Strategy exit evaluation failed for ${tokenData.symbol} [${strategyName}]: ${error.message}`);
     }
   }
 
@@ -4332,6 +6653,50 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
     );
     await executeSell(chainName, exchange, tokenData, position, 1, 'TIME_STOP');
     return;
+  }
+
+  // 4-hour minimum hold: if held >= minHoldHours with no profit, exit
+  const minHoldHours = Number(strategyCfg.minHoldHours ?? 4);
+  const hoursInTrade = minutesInTrade / 60;
+  if (hoursInTrade >= minHoldHours && currentProfit <= 0) {
+    logger.info(
+      `MIN_HOLD_NO_GAIN exit for ${tokenData.symbol} [${strategyName}]: ` +
+      `held ${hoursInTrade.toFixed(1)}h, pnl ${(currentProfit * 100).toFixed(2)}%`
+    );
+    await executeSell(chainName, exchange, tokenData, position, 1, 'MIN_HOLD_NO_GAIN');
+    return;
+  }
+
+  // Graduated stale-drift exit: positions that are slightly profitable but going
+  // nowhere lock up capital indefinitely. Force them out so capital can rotate.
+  // Tiers (configurable):
+  //   12h+ held with <1% gain   -> exit (totally flat)
+  //   24h+ held with <3% gain   -> exit (anemic momentum)
+  //   48h+ held with <8% gain   -> exit (capital trapped, opportunity cost)
+  const staleDriftEnabled = config.risk?.staleDriftExitEnabled !== false;
+  if (staleDriftEnabled && currentProfit > 0) {
+    const tier1Hours = Number(config.risk?.staleDriftTier1Hours || 12);
+    const tier1MinProfit = Number(config.risk?.staleDriftTier1MinProfitPct || 1) / 100;
+    const tier2Hours = Number(config.risk?.staleDriftTier2Hours || 24);
+    const tier2MinProfit = Number(config.risk?.staleDriftTier2MinProfitPct || 3) / 100;
+    const tier3Hours = Number(config.risk?.staleDriftTier3Hours || 48);
+    const tier3MinProfit = Number(config.risk?.staleDriftTier3MinProfitPct || 8) / 100;
+    let triggered = null;
+    if (hoursInTrade >= tier3Hours && currentProfit < tier3MinProfit) {
+      triggered = `${tier3Hours}h with only ${(currentProfit * 100).toFixed(2)}% < ${(tier3MinProfit * 100).toFixed(0)}%`;
+    } else if (hoursInTrade >= tier2Hours && currentProfit < tier2MinProfit) {
+      triggered = `${tier2Hours}h with only ${(currentProfit * 100).toFixed(2)}% < ${(tier2MinProfit * 100).toFixed(0)}%`;
+    } else if (hoursInTrade >= tier1Hours && currentProfit < tier1MinProfit) {
+      triggered = `${tier1Hours}h with only ${(currentProfit * 100).toFixed(2)}% < ${(tier1MinProfit * 100).toFixed(0)}%`;
+    }
+    if (triggered) {
+      logger.info(
+        `STALE_DRIFT exit for ${tokenData.symbol} [${strategyName}]: ${triggered} ` +
+        `(held ${hoursInTrade.toFixed(1)}h)`
+      );
+      await executeSell(chainName, exchange, tokenData, position, 1, 'STALE_DRIFT');
+      return;
+    }
   }
 
   if (staleData) {
@@ -4394,6 +6759,15 @@ async function checkExitConditions(chainName, exchange, tokenData, position, opt
       await executeSell(chainName, exchange, tokenData, position, tier.sellPct, `SELL_TIER_${tierIndex + 1}`);
       return;
     }
+  }
+
+  // Orphaned-tiers guard: all tiers triggered but no sells recorded → force full exit
+  const allTiersTriggered = strategySellTiers.length > 0 && strategySellTiers.every((_, i) => position.triggeredSellTiers[i]);
+  const noSellsRecorded = Object.keys(position.realizedPnlByTier || {}).length === 0;
+  if (allTiersTriggered && noSellsRecorded && !position.exitInProgress) {
+    logger.warn(`[Exit] ORPHANED TIERS for ${tokenData.symbol}: all ${strategySellTiers.length} tiers triggered but no sells recorded — forcing full exit at ${(currentProfit * 100).toFixed(1)}%`);
+    await executeSell(chainName, exchange, tokenData, position, 1, 'ORPHANED_TIERS_EXIT');
+    return;
   }
 
   if (tokenData.price >= position.takeProfit) {
@@ -4468,8 +6842,13 @@ function shouldExtendMaxHold(position, tokenData, exitSignal, strategyCfg, curre
 }
 
 async function executeBuy(chainName, exchange, tokenData, strategyName = 'momentum') {
-  const calculatedSizeUsd = risk.positionSize(tokenData, strategyName);
-  if (calculatedSizeUsd < 10) {
+  // Smaller-iterations sizing: start small, scale up on wins
+  const useSmallIterations = process.env.USE_POSITION_ITERATIONS !== 'false';
+  const calculatedSizeUsd = useSmallIterations
+    ? positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName)
+    : risk.positionSize(tokenData, strategyName);
+
+  if (calculatedSizeUsd < 6) {
     logger.warn(`Position size $${calculatedSizeUsd.toFixed(2)} too small, skipping`);
     return;
   }
@@ -4477,19 +6856,47 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
   // Anti-pattern evasion: apply position size jitter (±15%) to avoid bot fingerprinting
   const sizeUsd = applyPositionJitter(calculatedSizeUsd, 15);
 
-  // Acquire mutex before any position-count check or portfolio write to prevent
-  // concurrent BUY paths from both passing the limit and both writing positions.
+  // Cross-process coordination:
+  // - Distributed lock prevents live+paper (or two processes) from entering the same token simultaneously.
+  // - Local mutex prevents re-entrancy within a single process.
+  const lockTtlMs = Math.max(5000, Number(process.env.SQL_LOCK_TTL_MS || 30000));
+  const lockKey = `buy:${String(chainName || '').toLowerCase()}:${String(tokenData?.symbol || tokenData?.address || '').toUpperCase()}`.slice(0, 200);
+  const dist = await sqlCoordination.acquireLock(lockKey, { ttlMs: lockTtlMs, waitMs: 0 });
+  if (!dist.ok) {
+    logger.debug(`Distributed lock busy (${lockKey}), skipping buy for ${tokenData.symbol}`);
+    return;
+  }
+
+  const orderId = telemetryUuid();
+  const decisionContext = tokenData._decisionTelemetry || null;
+  const executionDecisionId = telemetryUuid();
+  telemetry.logOrder({
+    order_id: orderId,
+    ts: new Date().toISOString(),
+    chain: tokenData.chain,
+    chain_key: chainName,
+    symbol: tokenData.symbol,
+    address: tokenData.address,
+    side: 'BUY',
+    strategy: strategyName,
+    requested_quote_usd: sizeUsd,
+    expected_price: Number(tokenData.price || 0),
+    status: 'submitted',
+    reason: 'ENTRY',
+    metadata: {
+      discoveryLane: tokenData.discoveryLane || null,
+      signalSource: tokenData.signalSource || null,
+    },
+  });
+
   const release = await positionMutex.lock();
   try {
-    const globalPositions = Object.keys(portfolio.positions).length;
-    if (globalPositions >= config.risk.maxConcurrentPositions) {
-      logger.debug(`Global position limit reached at buy time for ${tokenData.symbol}, skipping`);
-      return;
-    }
-    const strategyPositionCount = Object.values(portfolio.positions).filter((p) => p.strategy === strategyName).length;
-    const strategyLimit = Number(config.strategies?.[strategyName]?.maxConcurrentPositions || 3);
-    if (strategyPositionCount >= strategyLimit) {
-      logger.debug(`Strategy position limit reached for ${strategyName} at buy time on ${tokenData.symbol}, skipping`);
+    const preflight = executionFlow.runBuyPreflightChecks({
+      chainName,
+      tokenData,
+      strategyName,
+    });
+    if (!preflight.ok) {
       return;
     }
 
@@ -4505,285 +6912,53 @@ async function executeBuy(chainName, exchange, tokenData, strategyName = 'moment
     let txResult;
     const expectedEntryPrice = Number(tokenData.price);
     const execTimeoutMs = Math.max(15000, Number(config.execution?.execTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+    txResult = await executeBuyViaVenue({
+      chainName,
+      exchange,
+      tokenData,
+      sizeUsd,
+      strategyName,
+      execTimeoutMs,
+      withTimeout,
+      shouldSplitSolanaTrade,
+      generateSplitTradeSchedule,
+      sleep,
+      getNativeQuote: async (normalizedChain, currentTokenData) => getNativeQuoteOrThrow(normalizedChain, currentTokenData),
+    });
 
-    if (chainName === 'solana') {
-      // Anti-pattern evasion: split large Solana buys into 2-3 smaller txs to avoid detection
-      if (shouldSplitSolanaTrade(sizeUsd, 2000)) {
-        const schedule = generateSplitTradeSchedule(sizeUsd);
-        const results = [];
-        for (const split of schedule) {
-          await sleep(split.delayBeforeMs);
-          const splitResult = await withTimeout(
-            exchange.executeBuy(tokenData.address, split.usdcAmount, { strategyName, splitIndex: split.splitIndex, splitTotal: split.splitTotal }),
-            execTimeoutMs,
-            `Solana buy timed out for ${tokenData.symbol} split ${split.splitIndex}/${split.splitTotal}`
-          );
-          results.push(splitResult);
-        }
-        // Aggregate split results
-        txResult = {
-          txid: results[0]?.txid || `split_${Date.now()}`,
-          filledBaseQty: results.reduce((sum, r) => sum + Number(r?.filledBaseQty || 0), 0),
-          filledQuoteUsd: results.reduce((sum, r) => sum + Number(r?.filledQuoteUsd || 0), 0),
-          splits: results,
-          splitCount: results.length,
-          hasExchangeFilledData: results.some(r => r?.hasExchangeFilledData),
-        };
-      } else {
-        txResult = await withTimeout(
-          exchange.executeBuy(tokenData.address, sizeUsd, { strategyName }),
-          execTimeoutMs,
-          `Solana buy timed out for ${tokenData.symbol}`
-        );
-      }
-    } else if (chainName === 'kucoin') {
-      txResult = await withTimeout(
-        exchange.executeBuy(tokenData.address, sizeUsd, { strategyName }),
-        execTimeoutMs,
-        `KuCoin buy timed out for ${tokenData.symbol}`
-      );
-    } else {
-      const maxNativePriceAgeMs = Math.max(1000, Number(config.risk?.maxNativePriceAgeMs || 120000));
-      let nativePrice;
-      if (chainName === 'bsc') {
-        const cached = exchanges.bsc.getCachedBnbPrice();
-        if (!Number.isFinite(cached.price) || cached.price <= 0 || cached.cachedAt === null || (Date.now() - cached.cachedAt) > maxNativePriceAgeMs) {
-          logger.error('native price unavailable or stale — buy aborted', {
-            reason: 'native price unavailable or stale — buy aborted',
-            chain: chainName,
-            symbol: tokenData.symbol,
-            cachedAt: cached.cachedAt,
-          });
-          return;
-        }
-        nativePrice = cached.price;
-      } else {
-        const cached = exchanges.base.getCachedEthPrice();
-        if (!Number.isFinite(cached.price) || cached.price <= 0 || cached.cachedAt === null || (Date.now() - cached.cachedAt) > maxNativePriceAgeMs) {
-          logger.error('native price unavailable or stale — buy aborted', {
-            reason: 'native price unavailable or stale — buy aborted',
-            chain: chainName,
-            symbol: tokenData.symbol,
-            cachedAt: cached.cachedAt,
-          });
-          return;
-        }
-        nativePrice = cached.price;
-      }
-      const nativeAmount = sizeUsd / nativePrice;
-      txResult = await withTimeout(
-        exchange.executeBuy(tokenData.address, nativeAmount, { strategyName }),
-        execTimeoutMs,
-        `${chainName} buy timed out for ${tokenData.symbol}`
-      );
-    }
-
-    if (txResult?.txid) {
-      const requiredConfirmations = chainName === 'bsc'
-        ? Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2))
-        : (chainName === 'base' ? Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2)) : 1);
-      setExecutionJournalState(txResult.txid, {
-        status: 'confirmed',
-        type: 'BUY',
-        chain: chainName,
-        chainKey: chainName,
-        symbol: tokenData.symbol,
-        address: tokenData.address,
-        blockNumber: Number(txResult?.blockNumber || 0) || null,
-        confirmations: Number(txResult?.confirmations || 0) || null,
-        requiredConfirmations,
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    const realizedEntryPrice = extractExecutionPriceUsd(txResult, expectedEntryPrice);
-    const inferredHasExchangeFilledData = [
-      txResult?.filledBaseQty,
-      txResult?.filledQuantity,
-      txResult?.filledQty,
-      txResult?.executedBaseQty,
-      txResult?.filledQuoteUsd,
-      txResult?.filledQuoteQty,
-      txResult?.executedQuoteUsd,
-      txResult?.cost,
-    ].some((value) => Number.isFinite(Number(value)) && Number(value) > 0);
-    const hasExchangeFilledData = typeof txResult?.hasExchangeFilledData === 'boolean'
-      ? txResult.hasExchangeFilledData
-      : inferredHasExchangeFilledData;
-    const requestedQuoteUsd = Number(sizeUsd);
-    let filledQuoteUsd = extractFilledQuoteUsd(txResult, requestedQuoteUsd);
-    let filledBaseQty = extractFilledBaseQty(txResult, 0);
-
-    if (filledBaseQty <= 0 && filledQuoteUsd > 0 && realizedEntryPrice > 0) {
-      filledBaseQty = filledQuoteUsd / realizedEntryPrice;
-    }
-    if (filledQuoteUsd <= 0 && filledBaseQty > 0 && realizedEntryPrice > 0) {
-      filledQuoteUsd = filledBaseQty * realizedEntryPrice;
-    }
-    if (filledBaseQty <= 0 && realizedEntryPrice > 0) {
-      filledBaseQty = requestedQuoteUsd / realizedEntryPrice;
-    }
-    // When exchange fill evidence is incomplete, prefer conservative accounting from confirmed base fill
-    // instead of assuming the full requested quote notional was spent.
-    if (!hasExchangeFilledData && filledBaseQty > 0 && realizedEntryPrice > 0) {
-      filledQuoteUsd = Math.min(requestedQuoteUsd, filledBaseQty * realizedEntryPrice);
-    }
-    if (filledQuoteUsd <= 0) {
-      filledQuoteUsd = requestedQuoteUsd;
-    }
-    if (!hasExchangeFilledData) {
-      logger.warn(`BUY fill reconciliation fallback used for ${tokenData.symbol} on ${chainName} (exchange did not provide confirmed fill amounts)`);
-    }
-
-    const strictIncompleteFillMode = config.execution?.failClosedOnIncompleteFill !== false
-      && !config.paperTrading
-      && (chainName === 'bsc' || chainName === 'base');
-    if (strictIncompleteFillMode && !hasExchangeFilledData) {
-      const reason = `Incomplete fill evidence for live ${chainName.toUpperCase()} BUY ${tokenData.symbol}; fail-closed to avoid balance drift`;
-      if (txResult?.txid) {
-        setExecutionJournalState(txResult.txid, {
-          status: 'needs_reconciliation',
-          reason,
-        });
-      }
-      logger.error(reason);
-      await sendErrorAlert(reason);
-      if (!portfolio.safeMode) {
-        await enterSafeMode(reason);
-      }
+    const finalizeResult = await executionFlow.finalizeBuyExecution({
+      chainName,
+      exchange,
+      tokenData,
+      strategyName,
+      txResult,
+      sizeUsd,
+      calculatedSizeUsd,
+      entryDelayMs,
+      expectedEntryPrice,
+      orderId,
+      executionDecisionId,
+      decisionContext,
+    });
+    if (finalizeResult?.aborted) {
       return;
     }
-
-    const realizedVsQuoteSlippagePct = Number(txResult?.realizedVsQuoteSlippagePct);
-    const quotedPriceImpactPct = Number(txResult?.quotedPriceImpactPct);
-    if (chainName === 'solana' && Number.isFinite(realizedVsQuoteSlippagePct) && Number.isFinite(quotedPriceImpactPct)) {
-      const maxDriftPct = Math.max(0, Number(config.execution?.solanaMaxRealizedVsQuotedSlippagePct || 1.5));
-      if (realizedVsQuoteSlippagePct > maxDriftPct) {
-        logger.warn(
-          `Solana quote/execution drift for ${tokenData.symbol}: quoted impact ${quotedPriceImpactPct.toFixed(2)}%, ` +
-          `realized-vs-quote slippage ${realizedVsQuoteSlippagePct.toFixed(2)}% (> ${maxDriftPct.toFixed(2)}%)`
-        );
-      }
-    }
-
-    const entrySlippageBps = calcSlippageBps(expectedEntryPrice, realizedEntryPrice);
-    if (entrySlippageBps !== null) {
-      recordSlippageSample(strategyName, entrySlippageBps);
-      refreshPerformanceMetrics();
-    }
-
-    const quantity = filledBaseQty;
-    const tokenKey = buildTokenKey(chainName, tokenData.address);
-    const fillDiscrepancyPct = calcDiscrepancyPct(requestedQuoteUsd, filledQuoteUsd);
-
-    portfolio.balance -= filledQuoteUsd;
-    portfolio.positions[tokenKey] = {
-      key: tokenKey,
-      address: tokenData.address,
-      chain: tokenData.chain,
-      chainKey: chainName,
-      strategyKey: tokenData.strategyKey || tokenKey,
-      strategy: strategyName,
-      symbol: tokenData.symbol,
-      entryPrice: realizedEntryPrice,
-      currentPrice: realizedEntryPrice,
-      quantity,
-      initialSizeUsd: filledQuoteUsd,
-      costBasisUsd: filledQuoteUsd,
-      requestedEntryUsd: requestedQuoteUsd,
-      filledEntryUsd: filledQuoteUsd,
-      requestedEntryQuantity: realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity,
-      filledEntryQuantity: quantity,
-      entryFillDiscrepancyPct: fillDiscrepancyPct,
-      stopLoss: risk.stopLossPrice(realizedEntryPrice, strategyName),
-      takeProfit: risk.takeProfitPrice(realizedEntryPrice, strategyName),
-      openedAt: new Date().toISOString(),
-      txid: txResult.txid,
-      entryBlockNumber: Number.isFinite(Number(txResult?.blockNumber)) ? Number(txResult.blockNumber) : null,
-      entryConfirmations: Number.isFinite(Number(txResult?.confirmations)) ? Number(txResult.confirmations) : null,
-      entryPrivateRouteUsed: Boolean(txResult?.privateRouteUsed),
-      signalSource: tokenData.signalSource || 'technical',
-      triggerTimeframe: tokenData.entryTriggerTimeframe || null,
-      discoveryLane: tokenData.discoveryLane || null,
-      aiReason: tokenData.aiReason || '',
-      aiConfidence: tokenData.aiConfidence || 0,
-      pairAddress: tokenData.pairAddress || null,
-      entryLiquidityUsd: Number(tokenData.liquidityUsd || 0),
-      entryTopHoldersPct: Number(tokenData.topHoldersPct || 0),
-      entryBuyRatioPct10m: (() => {
-        const buys = Number(tokenData.buyTx10m || 0);
-        const sells = Number(tokenData.sellTx10m || 0);
-        const total = buys + sells;
-        return total > 0 ? (buys / total) * 100 : 0;
-      })(),
-      entryRecentWindowMinutes: Number(tokenData.recentTxWindowMinutes || 0) || null,
-      entryBuyRatioRecentPct: Number(tokenData.buyRatioRecentPct || 0) || null,
-      entryHolderCount: Number(tokenData.holderCount || 0),
-      highestPrice: realizedEntryPrice,
-      antiPatternInfo: {
-        positionJitterApplied: sizeUsd !== calculatedSizeUsd,
-        positionJitterPct: sizeUsd !== calculatedSizeUsd ? ((sizeUsd - calculatedSizeUsd) / calculatedSizeUsd) * 100 : 0,
-        entryDelayApplied: entryDelayMs > 0,
-        entryDelayMs,
-        splitTrade: txResult?.splitCount ? { count: txResult.splitCount, results: txResult.splits } : null,
-      },
-      trailingStop: null,
-      tierLocalHigh: realizedEntryPrice,
-      triggeredSellTiers: {},
-      tierDelayedAt: {},
-      partialFillRetry: false,
-      exitInProgress: false,
-      realizedPnlByTier: {},
-      realizedPnl: 0,
-    };
-
-    portfolio.strategies[strategyName].positions[tokenKey] = portfolio.positions[tokenKey];
-  ensureLiquiditySentinel(chainName, tokenData.pairAddress);
-
-    if (chainName === 'bsc') {
-      const requestedEntryQuantity = realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity;
-      const realizedFillPct = requestedEntryQuantity > 0 ? (quantity / requestedEntryQuantity) * 100 : 100;
-      const minFillPctOfExpected = Math.max(0, Math.min(100, Number(config.execution?.bscMinFillPctOfExpected || 0)));
-      if (requestedEntryQuantity > 0 && realizedFillPct < minFillPctOfExpected) {
-        const reason = `entry fill ${realizedFillPct.toFixed(2)}% below minimum ${minFillPctOfExpected.toFixed(2)}%`;
-        logger.error(`BSC catastrophic fill detected for ${tokenData.symbol}: ${reason}`);
-        recordTradeBlockState(chainName, tokenData, strategyName, tokenData.signalSource || 'BUY', tokenData.signalSource || 'technical', reason, {
-          riskFlags: ['entry_fill_below_minimum'],
-        });
-        await sendErrorAlert(`BSC catastrophic fill for ${tokenData.symbol}: ${reason}`);
-        await executeSell(chainName, exchange, tokenData, portfolio.positions[tokenKey], 1, 'ENTRY_FILL_GUARD');
-        return;
-      }
-    }
-
-    portfolio.stats.executions += 1;
-    portfolio.strategies[strategyName].stats.executions += 1;
-    recordPortfolioSnapshot('buy');
-    logTrade('BUY', tokenData, quantity, filledQuoteUsd, txResult.txid, null, portfolio.positions[tokenKey].signalSource, 'ENTRY', {
-      expectedPrice: expectedEntryPrice,
-      realizedPrice: realizedEntryPrice,
-      slippageBps: entrySlippageBps,
-      requestedQuantity: realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity,
-      filledQuantity: quantity,
-      requestedValueUsd: requestedQuoteUsd,
-      filledValueUsd: filledQuoteUsd,
-      fillDiscrepancyPct,
-      quotedPriceImpactPct,
-      realizedVsQuoteSlippagePct,
-      blockNumber: txResult?.blockNumber,
-      confirmations: txResult?.confirmations,
-      privateRouteUsed: txResult?.privateRouteUsed,
-    }, strategyName);
-    await saveState();
-    await sendTradeAlert('BUY', tokenData, filledQuoteUsd);
   } catch (error) {
-    recordExchangeFailure(chainName, error.message);
-    recordBuyFailureState(chainName, tokenData, error.message);
-    logger.error(`BUY execution failed for ${tokenData.symbol}: ${error.message}`);
-    await sendErrorAlert(`BUY failed for ${tokenData.symbol}: ${error.message}`);
+    await executionFlow.handleBuyExecutionFailure({
+      chainName,
+      tokenData,
+      strategyName,
+      error,
+      orderId,
+      executionDecisionId,
+      decisionContext,
+      lockKey,
+    });
   }
   } finally {
+    delete tokenData._decisionTelemetry;
     release();
+    await dist.release();
   }
 }
 
@@ -4799,189 +6974,17 @@ async function finalizeSellExecution({
   requestedFraction = 1,
 }) {
   ensureStatsShape();
-
-  const strategyStats = portfolio.strategies?.[strategyName]?.stats;
-  if (!strategyStats) {
-    throw new Error(`Missing strategy stats bucket for ${strategyName}`);
-  }
-
-  const positionQuantityBefore = Number(position?.quantity || 0);
-  if (!Number.isFinite(positionQuantityBefore) || positionQuantityBefore <= 0) {
-    throw new Error(`Cannot finalize SELL for ${tokenData?.symbol || position?.symbol || position?.address}: no position quantity`);
-  }
-
-  if (txResult?.txid) {
-    const requiredConfirmations = chainName === 'bsc'
-      ? Math.max(1, Number(config.execution?.requiredConfirmationsBsc || 2))
-      : (chainName === 'base' ? Math.max(1, Number(config.execution?.requiredConfirmationsBase || 2)) : 1);
-    setExecutionJournalState(txResult.txid, {
-      status: 'confirmed',
-      type: 'SELL',
-      chain: chainName,
-      chainKey: chainName,
-      symbol: tokenData.symbol,
-      address: tokenData.address,
-      blockNumber: Number(txResult?.blockNumber || 0) || null,
-      confirmations: Number(txResult?.confirmations || 0) || null,
-      requiredConfirmations,
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  const realizedExitPrice = extractExecutionPriceUsd(txResult, expectedExitPrice);
-  const inferredHasExchangeFilledData = [
-    txResult?.filledBaseQty,
-    txResult?.filledQuantity,
-    txResult?.filledQty,
-    txResult?.executedBaseQty,
-    txResult?.filledQuoteUsd,
-    txResult?.filledQuoteQty,
-    txResult?.executedQuoteUsd,
-    txResult?.cost,
-  ].some((value) => Number.isFinite(Number(value)) && Number(value) > 0);
-  const hasExchangeFilledData = typeof txResult?.hasExchangeFilledData === 'boolean'
-    ? txResult.hasExchangeFilledData
-    : inferredHasExchangeFilledData;
-
-  const requestedQty = Number(quantityRequested || (positionQuantityBefore * requestedFraction) || 0);
-  let filledBaseQty = extractFilledBaseQty(txResult, requestedQty);
-  if (!Number.isFinite(filledBaseQty) || filledBaseQty <= 0) {
-    filledBaseQty = requestedQty;
-  }
-  if (filledBaseQty > positionQuantityBefore && positionQuantityBefore > 0) {
-    filledBaseQty = positionQuantityBefore;
-  }
-
-  let filledQuoteUsd = extractFilledQuoteUsd(txResult, 0);
-  if (!Number.isFinite(filledQuoteUsd) || filledQuoteUsd <= 0) {
-    filledQuoteUsd = filledBaseQty * realizedExitPrice;
-  }
-
-  if (!hasExchangeFilledData) {
-    logger.warn(`SELL fill reconciliation fallback used for ${tokenData.symbol} on ${chainName} (exchange did not provide confirmed fill amounts)`);
-  }
-
-  const filledFraction = positionQuantityBefore > 0
-    ? Math.max(0, Math.min(1, filledBaseQty / positionQuantityBefore))
-    : requestedFraction;
-  const costBasisPortion = Number(position.costBasisUsd || 0) * filledFraction;
-
-  const exitSlippageBps = calcSlippageBps(expectedExitPrice, realizedExitPrice);
-  if (exitSlippageBps !== null) {
-    recordSlippageSample(strategyName, exitSlippageBps);
-  }
-
-  const proceedsUsd = filledQuoteUsd;
-  const pnl = proceedsUsd - costBasisPortion;
-  const fillDiscrepancyPct = calcDiscrepancyPct(requestedQty, filledBaseQty);
-
-  portfolio.balance += proceedsUsd;
-  portfolio.stats.totalPnl += pnl;
-  strategyStats.totalPnl += pnl;
-  if (pnl >= 0) {
-    portfolio.stats.grossProfit += pnl;
-    strategyStats.grossProfit += pnl;
-  } else {
-    portfolio.stats.grossLoss += Math.abs(pnl);
-    strategyStats.grossLoss += Math.abs(pnl);
-  }
-
-  position.quantity = Math.max(0, Number(position.quantity || 0) - filledBaseQty);
-  position.costBasisUsd = Math.max(0, Number(position.costBasisUsd || 0) - costBasisPortion);
-  position.currentPrice = realizedExitPrice;
-  position.realizedPnl = Number(position.realizedPnl || 0) + pnl;
-
-  const quantityDustThreshold = Math.max(0.000001, positionQuantityBefore * 0.0001);
-  const costBasisDustThreshold = Math.max(0.01, Number(position.initialSizeUsd || 0) * 0.0001);
-  const nearFullSellRequested = requestedFraction >= 0.999999;
-
-  position.partialFillRetry = Boolean(nearFullSellRequested && position.quantity > quantityDustThreshold);
-  position.lastExitReconciliation = {
+  return executionFlow.finalizeSellExecutionState({
+    chainName,
+    tokenData,
+    position,
+    txResult,
     reason,
-    timestamp: new Date().toISOString(),
-    requestedQuantity: requestedQty,
-    filledQuantity: filledBaseQty,
-    remainingQuantity: position.quantity,
-    requestedValueUsd: requestedQty * realizedExitPrice,
-    filledValueUsd: proceedsUsd,
-    remainingCostBasisUsd: position.costBasisUsd,
-    discrepancyPct: fillDiscrepancyPct,
-    partialFillRetry: position.partialFillRetry,
-    recoveredFromTradeHistory: Boolean(txResult?.recoveredFromTradeHistory),
-  };
-
-  if (position.partialFillRetry) {
-    logger.warn(
-      `Partial full-exit fill for ${tokenData.symbol} on ${chainName}: requested=${requestedQty.toFixed(8)}, ` +
-      `filled=${filledBaseQty.toFixed(8)}, remaining=${position.quantity.toFixed(8)}. Marked for retry.`
-    );
-  }
-
-  if (String(reason || '').startsWith('SELL_TIER_')) {
-    position.realizedPnlByTier = position.realizedPnlByTier || {};
-    position.realizedPnlByTier[reason] = Number(position.realizedPnlByTier[reason] || 0) + pnl;
-  }
-
-  const fullyClosed = position.quantity <= quantityDustThreshold || position.costBasisUsd <= costBasisDustThreshold;
-
-  if (fullyClosed) {
-    position.partialFillRetry = false;
-    const positionKey = position.key || buildTokenKey(chainName, tokenData.address);
-    const finalTradePnl = Number(position.realizedPnl || 0);
-    delete portfolio.positions[positionKey];
-    delete portfolio.strategies[strategyName].positions[positionKey];
-    releaseLiquiditySentinel(chainName, position.pairAddress);
-    strategy.clearHistory(position.strategyKey || positionKey);
-    portfolio.stats.closedTrades += 1;
-    strategyStats.closedTrades += 1;
-    if (finalTradePnl >= 0) {
-      portfolio.stats.wins += 1;
-      strategyStats.wins += 1;
-      portfolio.stats.consecutiveLosses = 0;
-      strategyStats.consecutiveLosses = 0;
-    } else {
-      portfolio.stats.losses += 1;
-      strategyStats.losses += 1;
-      portfolio.stats.consecutiveLosses = Number(portfolio.stats.consecutiveLosses || 0) + 1;
-      portfolio.stats.maxConsecutiveLosses = Math.max(
-        Number(portfolio.stats.maxConsecutiveLosses || 0),
-        Number(portfolio.stats.consecutiveLosses || 0)
-      );
-      strategyStats.consecutiveLosses = Number(strategyStats.consecutiveLosses || 0) + 1;
-      strategyStats.maxConsecutiveLosses = Math.max(
-        Number(strategyStats.maxConsecutiveLosses || 0),
-        Number(strategyStats.consecutiveLosses || 0)
-      );
-    }
-  }
-
-  portfolio.stats.executions += 1;
-  strategyStats.executions += 1;
-  position.exitInProgress = false;
-  refreshPerformanceMetrics();
-  recordPortfolioSnapshot(fullyClosed ? 'close' : 'partial');
-  logTrade('SELL', tokenData, filledBaseQty, proceedsUsd, txResult.txid, pnl, position.signalSource || 'technical', reason, {
-    expectedPrice: expectedExitPrice,
-    realizedPrice: realizedExitPrice,
-    slippageBps: exitSlippageBps,
-    requestedQuantity: requestedQty,
-    filledQuantity: filledBaseQty,
-    requestedValueUsd: requestedQty * realizedExitPrice,
-    filledValueUsd: proceedsUsd,
-    fillDiscrepancyPct,
-    blockNumber: txResult?.blockNumber,
-    confirmations: txResult?.confirmations,
-    privateRouteUsed: txResult?.privateRouteUsed,
-  }, strategyName);
-  await saveState();
-  await sendTradeAlert('SELL', tokenData, proceedsUsd, pnl);
-
-  return {
-    proceedsUsd,
-    pnl,
-    filledBaseQty,
-    fullyClosed,
-  };
+    strategyName,
+    expectedExitPrice,
+    quantityRequested,
+    requestedFraction,
+  });
 }
 
 function isAmbiguousSellFailure(errorText = '') {
@@ -5039,11 +7042,13 @@ async function executeSell(chainName, exchange, tokenData, position, sellPct = 1
   try {
     const sellTimeoutMs = Math.max(15000, Number(config.execution?.sellTimeoutMs || config.execution?.buyTimeoutMs || 30000));
 
-    const txResult = await withTimeout(
-      exchange.executeSell(tokenData.address, quantityToSell),
-      sellTimeoutMs,
-      `Sell execution timed out for ${tokenData.symbol} after ${sellTimeoutMs}ms`
-    );
+    const txResult = await executeSellViaVenue({
+      exchange,
+      tokenData,
+      quantityToSell,
+      execTimeoutMs: sellTimeoutMs,
+      withTimeout,
+    });
     await finalizeSellExecution({
       chainName,
       tokenData,
@@ -5080,49 +7085,16 @@ async function executeSell(chainName, exchange, tokenData, position, sellPct = 1
       return;
     }
 
-    recordExchangeFailure(chainName, error.message);
-    logger.error(`SELL execution failed for ${tokenData.symbol}: ${error.message}`);
-    const recentFailedExitExists = Array.isArray(portfolio.trades) && portfolio.trades.some((trade) => {
-      if (!trade || trade.type !== 'SELL_FAILED') return false;
-      if (String(trade.address || '').toLowerCase() !== String(tokenData.address || '').toLowerCase()) return false;
-      if (String(trade.reason || '') !== String(reason || '')) return false;
-      const ageMs = Date.now() - Date.parse(trade.timestamp || 0);
-      return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 15 * 60 * 1000;
+    await executionFlow.handleSellExecutionFailure({
+      chainName,
+      exchange,
+      tokenData,
+      position,
+      quantityToSell,
+      strategyName,
+      reason,
+      error,
     });
-    if (!recentFailedExitExists) {
-      const attemptedQuantity = Number(quantityToSell || position?.quantity || 0);
-      const attemptedPrice = Number(tokenData.price || position?.currentPrice || position?.entryPrice || 0);
-      logTrade(
-        'SELL_FAILED',
-        tokenData,
-        attemptedQuantity,
-        attemptedQuantity > 0 && attemptedPrice > 0 ? attemptedQuantity * attemptedPrice : null,
-        null,
-        null,
-        position?.signalSource || 'technical',
-        reason || errorText,
-        {
-          error: errorText,
-          requestedQuantity: attemptedQuantity,
-          requestedValueUsd: attemptedQuantity > 0 && attemptedPrice > 0 ? attemptedQuantity * attemptedPrice : null,
-        },
-        strategyName
-      );
-    }
-    const kucoinInsufficientBalance = chainName === 'kucoin' && /balance insufficient|\b200004\b/i.test(errorText);
-    if (kucoinInsufficientBalance) {
-      logger.warn(`Detected KuCoin balance mismatch on SELL for ${tokenData.symbol}; forcing immediate balance/state reconciliation`);
-      await updateWalletBalance().catch((syncErr) => {
-        logger.error(`Forced wallet balance refresh after sell failure failed: ${syncErr.message}`);
-      });
-      await reconcileWalletPositions().catch((syncErr) => {
-        logger.error(`Forced wallet reconciliation after sell failure failed: ${syncErr.message}`);
-      });
-      await saveState().catch((syncErr) => {
-        logger.error(`State save after sell-failure reconciliation failed: ${syncErr.message}`);
-      });
-    }
-    await sendErrorAlert(`SELL failed for ${tokenData.symbol}: ${error.message}`);
   } finally {
     if (position && typeof position === 'object') {
       position.exitInProgress = false;
@@ -5131,255 +7103,31 @@ async function executeSell(chainName, exchange, tokenData, position, sellPct = 1
 }
 
 function getTradePositionKey(trade = {}) {
-  const chainKey = normalizeChainKey(trade.chainKey || trade.chain);
-  const address = String(trade.address || '').trim().toLowerCase();
-  const strategyName = String(trade.strategy || 'momentum').toLowerCase();
-  if (!chainKey || !address) return '';
-  return `${chainKey}:${address}:${strategyName}`;
+  return tradeRepairHelpers.getTradePositionKey(trade);
 }
 
 function getTradeRepairSignature(trade = {}) {
-  return [
-    String(trade.timestamp || ''),
-    String(trade.type || ''),
-    normalizeChainKey(trade.chainKey || trade.chain),
-    String(trade.address || '').trim().toLowerCase(),
-    String(trade.strategy || 'momentum').toLowerCase(),
-    String(trade.reason || ''),
-  ].join('|');
+  return tradeRepairHelpers.getTradeRepairSignature(trade);
 }
 
 function patchTradeCopiesBySignature(signature, mutator) {
-  const targets = [
-    portfolio.trades,
-    ...Object.values(portfolio.strategies || {}).map((bucket) => bucket?.trades),
-  ];
-
-  for (const list of targets) {
-    if (!Array.isArray(list)) continue;
-    for (const trade of list) {
-      if (!trade || getTradeRepairSignature(trade) !== signature) continue;
-      mutator(trade);
-    }
-  }
+  return tradeRepairHelpers.patchTradeCopiesBySignature(signature, mutator);
 }
 
 function getLotStateBeforeTrade(targetTrade) {
-  const chronological = [...(portfolio.trades || [])]
-    .filter((trade) => trade && typeof trade === 'object')
-    .sort((left, right) => {
-      const l = Date.parse(left.timestamp || '') || 0;
-      const r = Date.parse(right.timestamp || '') || 0;
-      return l - r;
-    });
-  const lotStates = new Map();
-
-  for (const trade of chronological) {
-    if (trade === targetTrade) {
-      const current = lotStates.get(getTradePositionKey(trade)) || { qty: 0, cost: 0 };
-      return {
-        openQtyBefore: Number(current.qty || 0),
-        openCostBefore: Number(current.cost || 0),
-      };
-    }
-
-    const key = getTradePositionKey(trade);
-    if (!key) continue;
-
-    const current = lotStates.get(key) || { qty: 0, cost: 0 };
-    if (trade.type === 'BUY') {
-      current.qty += extractFilledBaseQty(trade, Number(trade.quantity || 0));
-      current.cost += extractFilledQuoteUsd(trade, Number(trade.valueUsd || 0));
-    } else if (trade.type === 'SELL') {
-      const soldQty = Math.min(extractFilledBaseQty(trade, Number(trade.quantity || 0)), current.qty);
-      const soldFraction = current.qty > 0 ? Math.max(0, Math.min(1, soldQty / current.qty)) : 0;
-      current.cost = Math.max(0, current.cost - (current.cost * soldFraction));
-      current.qty = Math.max(0, current.qty - soldQty);
-    }
-
-    lotStates.set(key, current);
-  }
-
-  return { openQtyBefore: 0, openCostBefore: 0 };
+  return tradeRepairHelpers.getLotStateBeforeTrade(targetTrade);
 }
 
 function applyRecoveredClosedTradeStats(strategyName, pnl, proceedsUsd = 0, options = {}) {
-  ensureStatsShape();
-  const strategyStats = portfolio.strategies?.[strategyName]?.stats;
-  if (!strategyStats) return;
-
-  if (options.applyCashLedger !== false && Number.isFinite(Number(proceedsUsd)) && Number(proceedsUsd) > 0) {
-    portfolio.balance += Number(proceedsUsd);
-  }
-
-  portfolio.stats.totalPnl += pnl;
-  strategyStats.totalPnl += pnl;
-  if (pnl >= 0) {
-    portfolio.stats.grossProfit += pnl;
-    strategyStats.grossProfit += pnl;
-  } else {
-    portfolio.stats.grossLoss += Math.abs(pnl);
-    strategyStats.grossLoss += Math.abs(pnl);
-  }
-
-  portfolio.stats.closedTrades += 1;
-  strategyStats.closedTrades += 1;
-  portfolio.stats.executions += 1;
-  strategyStats.executions += 1;
-
-  if (pnl >= 0) {
-    portfolio.stats.wins += 1;
-    strategyStats.wins += 1;
-    portfolio.stats.consecutiveLosses = 0;
-    strategyStats.consecutiveLosses = 0;
-  } else {
-    portfolio.stats.losses += 1;
-    strategyStats.losses += 1;
-    portfolio.stats.consecutiveLosses = Number(portfolio.stats.consecutiveLosses || 0) + 1;
-    portfolio.stats.maxConsecutiveLosses = Math.max(
-      Number(portfolio.stats.maxConsecutiveLosses || 0),
-      Number(portfolio.stats.consecutiveLosses || 0)
-    );
-    strategyStats.consecutiveLosses = Number(strategyStats.consecutiveLosses || 0) + 1;
-    strategyStats.maxConsecutiveLosses = Math.max(
-      Number(strategyStats.maxConsecutiveLosses || 0),
-      Number(strategyStats.consecutiveLosses || 0)
-    );
-  }
+  return tradeRepairHelpers.applyRecoveredClosedTradeStats(strategyName, pnl, proceedsUsd, options);
 }
 
 function recoverSellFailureTrade(failedTrade, recoveredTxResult, options = {}) {
-  if (!failedTrade || failedTrade.type !== 'SELL_FAILED') return false;
-
-  const strategyName = String(failedTrade.strategy || 'momentum').toLowerCase();
-  const requestedQty = Number(failedTrade.requestedQuantity || failedTrade.quantity || 0);
-  let recoveredQty = extractFilledBaseQty(recoveredTxResult, requestedQty);
-  if (!Number.isFinite(recoveredQty) || recoveredQty <= 0) {
-    return false;
-  }
-
-  const { openQtyBefore, openCostBefore } = getLotStateBeforeTrade(failedTrade);
-  if (!Number.isFinite(openQtyBefore) || openQtyBefore <= 0 || !Number.isFinite(openCostBefore) || openCostBefore <= 0) {
-    logger.warn(`Skipping SELL_FAILED repair for ${failedTrade.symbol}: could not reconstruct pre-sell cost basis`);
-    return false;
-  }
-
-  recoveredQty = Math.min(recoveredQty, openQtyBefore);
-  const realizedPrice = extractExecutionPriceUsd(recoveredTxResult, Number(failedTrade.expectedPrice || failedTrade.price || 0));
-  let proceedsUsd = extractFilledQuoteUsd(recoveredTxResult, 0);
-  if (!Number.isFinite(proceedsUsd) || proceedsUsd <= 0) {
-    proceedsUsd = recoveredQty * realizedPrice;
-  }
-  if (!Number.isFinite(proceedsUsd) || proceedsUsd <= 0) {
-    logger.warn(`Skipping SELL_FAILED repair for ${failedTrade.symbol}: missing recovered proceeds`);
-    return false;
-  }
-
-  const filledFraction = openQtyBefore > 0 ? Math.max(0, Math.min(1, recoveredQty / openQtyBefore)) : 0;
-  const costBasisPortion = openCostBefore * filledFraction;
-  const pnl = proceedsUsd - costBasisPortion;
-  const expectedPrice = Number(failedTrade.expectedPrice || failedTrade.price || realizedPrice || 0);
-  const slippageBps = calcSlippageBps(expectedPrice, realizedPrice);
-  const fillDiscrepancyPct = calcDiscrepancyPct(requestedQty || recoveredQty, recoveredQty);
-  const signature = getTradeRepairSignature(failedTrade);
-  const recoveredTimestamp = recoveredTxResult.timestamp || failedTrade.timestamp || new Date().toISOString();
-
-  patchTradeCopiesBySignature(signature, (trade) => {
-    trade.type = 'SELL';
-    trade.txid = recoveredTxResult.txid || trade.txid || null;
-    trade.timestamp = recoveredTimestamp;
-    trade.price = realizedPrice > 0 ? round(realizedPrice, 8) : trade.price;
-    trade.pnl = round(pnl);
-    trade.quantity = round(recoveredQty, 6);
-    trade.valueUsd = round(proceedsUsd);
-    trade.expectedPrice = expectedPrice > 0 ? round(expectedPrice, 8) : null;
-    trade.realizedPrice = realizedPrice > 0 ? round(realizedPrice, 8) : null;
-    trade.slippageBps = slippageBps === null ? null : round(slippageBps, 2);
-    trade.requestedQuantity = requestedQty > 0 ? round(requestedQty, 8) : trade.requestedQuantity || null;
-    trade.filledQuantity = round(recoveredQty, 8);
-    trade.requestedValueUsd = Number.isFinite(Number(trade.requestedValueUsd))
-      ? trade.requestedValueUsd
-      : (requestedQty > 0 && expectedPrice > 0 ? round(requestedQty * expectedPrice) : null);
-    trade.filledValueUsd = round(proceedsUsd);
-    trade.fillDiscrepancyPct = fillDiscrepancyPct === null ? null : round(fillDiscrepancyPct, 4);
-    trade.executionStatus = 'confirmed';
-    trade.recoveredFromFailure = true;
-    trade.recoverySource = 'exchange_trade_history';
-    if (Number.isFinite(Number(recoveredTxResult.blockNumber))) {
-      trade.blockNumber = Number(recoveredTxResult.blockNumber);
-    }
-    if (Number.isFinite(Number(recoveredTxResult.confirmations))) {
-      trade.confirmations = Number(recoveredTxResult.confirmations);
-    }
-  });
-
-  if (recoveredTxResult?.txid) {
-    setExecutionJournalState(recoveredTxResult.txid, {
-      status: 'confirmed',
-      type: 'SELL',
-      chain: normalizeChainKey(failedTrade.chainKey || failedTrade.chain),
-      chainKey: normalizeChainKey(failedTrade.chainKey || failedTrade.chain),
-      symbol: failedTrade.symbol,
-      address: failedTrade.address,
-      blockNumber: Number(recoveredTxResult?.blockNumber || 0) || null,
-      confirmations: Number(recoveredTxResult?.confirmations || 0) || null,
-      createdAt: recoveredTimestamp,
-    });
-  }
-
-  applyRecoveredClosedTradeStats(strategyName, pnl, proceedsUsd, options);
-  logger.warn(`Recovered historical SELL for ${failedTrade.symbol}: PnL ${pnl >= 0 ? '+' : ''}$${round(pnl).toFixed(2)}`);
-  return true;
+  return tradeRepairHelpers.recoverSellFailureTrade(failedTrade, recoveredTxResult, options);
 }
 
 async function repairAmbiguousKucoinSellFailures(options = {}) {
-  const kucoinExchange = exchanges?.kucoin;
-  if (!kucoinExchange || typeof kucoinExchange.findRecentTradeFill !== 'function') {
-    return 0;
-  }
-
-  const candidates = [...(portfolio.trades || [])]
-    .filter((trade) => {
-      if (!trade || trade.type !== 'SELL_FAILED') return false;
-      if (normalizeChainKey(trade.chainKey || trade.chain) !== 'kucoin') return false;
-      if (!trade.address) return false;
-      const positionKey = buildTokenKey('kucoin', trade.address);
-      if (portfolio.positions?.[positionKey]) return false;
-      const failedAtMs = Date.parse(trade.timestamp || '') || 0;
-      return !portfolio.trades.some((other) => {
-        if (!other || other === trade || other.type !== 'SELL') return false;
-        if (String(other.address || '').toLowerCase() !== String(trade.address || '').toLowerCase()) return false;
-        if (String(other.strategy || 'momentum').toLowerCase() !== String(trade.strategy || 'momentum').toLowerCase()) return false;
-        const otherAtMs = Date.parse(other.timestamp || '') || 0;
-        return otherAtMs >= failedAtMs - 60_000;
-      });
-    })
-    .sort((left, right) => (Date.parse(left.timestamp || '') || 0) - (Date.parse(right.timestamp || '') || 0));
-
-  let repaired = 0;
-  const consumedTxids = new Set();
-
-  for (const trade of candidates) {
-    const tradeTimestampMs = Date.parse(trade.timestamp || '') || Date.now();
-    const expectedQty = Number(trade.requestedQuantity || trade.quantity || 0);
-    const recoveredTxResult = await kucoinExchange.findRecentTradeFill(trade.address, 'sell', expectedQty, {
-      sinceMs: Math.max(0, tradeTimestampMs - 60_000),
-      lookbackMs: 20 * 60 * 1000,
-      targetTimestampMs: tradeTimestampMs,
-    });
-    if (!recoveredTxResult?.txid || consumedTxids.has(String(recoveredTxResult.txid))) continue;
-    if (!recoverSellFailureTrade(trade, recoveredTxResult, options)) continue;
-    consumedTxids.add(String(recoveredTxResult.txid));
-    repaired += 1;
-  }
-
-  if (repaired > 0) {
-    refreshPerformanceMetrics();
-    recordPortfolioSnapshot('repair_sell_failure');
-    await saveState();
-  }
-
-  return repaired;
+  return tradeRepairHelpers.repairAmbiguousKucoinSellFailures(options);
 }
 
 function resetPaperPortfolio(balance) {
@@ -5406,211 +7154,39 @@ function resetPaperPortfolio(balance) {
 }
 
 async function runBacktestRequest(payload) {
-  const tokenAddress = String(payload.tokenAddress || '').trim();
-  const chainKey = normalizeChainKey(payload.chain);
-  const strategyName = String(payload.strategy || 'momentum').toLowerCase();
-  const strategyCfg = config.strategies?.[strategyName] || config.strategies?.momentum;
-  const backtestMode = String(payload.mode || 'standard').toLowerCase();
-
-  if (!strategyCfg) {
-    throw new Error(`Unknown backtest strategy: ${strategyName}`);
-  }
-  
-  if (!tokenAddress && backtestMode !== 'portfolio') {
-    return null;
-  }
-
-  const priceHistory = backtestMode !== 'portfolio' ? getHistorySeries(strategy.priceHistory, chainKey, tokenAddress) : [];
-  const volumeHistory = backtestMode !== 'portfolio' ? getHistorySeries(strategy.volumeHistory, chainKey, tokenAddress) : [];
-
-  const baseOptions = {
-    startingBalance: Number(payload.startingBalance || config.paperBalance || 10000),
-    tradePct: Number(payload.tradePct || 0.05),
-    riskSettings: config.risk,
-    entrySlippagePct: Number(payload.entrySlippagePct ?? 0.8),
-    exitSlippagePct: Number(payload.exitSlippagePct ?? 1.2),
-    entryFeePct: Number(payload.entryFeePct ?? 0.15),
-    exitFeePct: Number(payload.exitFeePct ?? 0.15),
-    outageChancePct: Number(payload.outageChancePct ?? 0.5),
-    ruinDrawdownLimitPct: Number(payload.ruinDrawdownLimitPct ?? config.backtest?.monteCarloRuinThresholdPct ?? config.risk?.dailyDrawdownLimitPct ?? 15),
-    monteCarloRuns: Number(payload.monteCarloRuns ?? 2000),
-    seed: Number(payload.seed || 1337),
-    chainKey: chainKey || 'solana',
-    strategySettings: strategyCfg,
-    historyLength: Number(payload.historyLength || 200),
-  };
-
-  let result = null;
-
-  // Select backtest mode
-  switch (backtestMode) {
-    case 'portfolio':
-      result = runPortfolioBacktest((priceHist, volHist, stratSettings, opts) => {
-        return runBacktest(priceHist, volHist, stratSettings, opts);
-      }, baseOptions);
-      break;
-
-    case 'walk_forward':
-      result = runWalkForwardBacktest(priceHistory, volumeHistory, strategyCfg, {
-        ...baseOptions,
-        trainPct: Number(payload.trainPct || 0.7),
-        validatePct: Number(payload.validatePct || 0.15),
-      });
-      break;
-
-    case 'regime':
-      result = runRegimeSpecificBacktest(priceHistory, volumeHistory, strategyCfg, {
-        ...baseOptions,
-        targetRegime: String(payload.targetRegime || 'uptrend'),
-        regimeWindowBars: Number(payload.regimeWindowBars || 20),
-      });
-      break;
-
-    case 'regime_aware':
-      result = runBacktestWithRegimes(priceHistory, volumeHistory, strategyCfg, {
-        ...baseOptions,
-        regimeWindowBars: Number(payload.regimeWindowBars || 20),
-      });
-      break;
-
-    case 'standard':
-    default:
-      result = runBacktest(priceHistory, volumeHistory, strategyCfg, baseOptions);
-  }
-
-  if (!result) {
-    return null;
-  }
-
-  const tracked = backtestMode !== 'portfolio' ? getTrackedTokens().find((token) => token.address.toLowerCase() === tokenAddress.toLowerCase()) : null;
-  const response = {
-    tokenAddress: backtestMode === 'portfolio' ? 'portfolio_6_assets' : tokenAddress,
-    symbol: backtestMode === 'portfolio' ? 'PORTFOLIO' : (tracked?.symbol || tokenAddress.slice(0, 10)),
-    chain: backtestMode === 'portfolio' ? 'multi' : (tracked?.chain || null),
-    strategy: strategyName,
-    backtestMode,
-    historyBars: backtestMode === 'portfolio' ? baseOptions.historyLength : priceHistory.length,
-    generatedAt: new Date().toISOString(),
-    ...result,
-  };
-
-  marketState.backtests.unshift(response);
-  if (marketState.backtests.length > 10) {
-    marketState.backtests.pop();
-  }
-
-  return response;
+  return researchHandlers.runBacktestRequest(payload);
 }
 
 async function seedBacktestData(priceHistory, volumeHistory, tokenAddress, chain) {
-  const { seedHistoricalData } = require('./utils/backtest-utils');
-  
-  const result = seedHistoricalData(priceHistory, volumeHistory, tokenAddress, chain, strategy.priceHistory);
-  
-  if (result.success) {
-    // Also store volume history with matching key
-    const key = `${String(chain).toLowerCase()}:${String(tokenAddress).toLowerCase()}`;
-    strategy.volumeHistory = strategy.volumeHistory || {};
-    strategy.volumeHistory[key] = volumeHistory.slice();
-    
-    logger.info(`Backtest data seeded for ${tokenAddress} on ${chain}: ${result.dataPoints} bars`);
-  }
-  
-  return result;
+  return researchHandlers.seedBacktestData(priceHistory, volumeHistory, tokenAddress, chain);
+}
+
+async function ensureResearchHistory(tokenAddress, chainKey) {
+  return researchHandlers.ensureResearchHistory(tokenAddress, chainKey);
+}
+
+async function runHyperoptRequest(payload) {
+  return researchHandlers.runHyperoptRequest(payload);
+}
+
+async function runValidationRequest(payload) {
+  return researchHandlers.runValidationRequest(payload);
+}
+
+async function runPositionResearchRequest(payload) {
+  return researchHandlers.runPositionResearchRequest(payload);
+}
+
+function getResearchTargets() {
+  return researchHandlers.getResearchTargets();
 }
 
 async function runSimulationRequest(payload) {
-  const result = runPaperSimulation({
-    scenario: String(payload.scenario || 'bull'),
-    periods: Number(payload.periods || 160),
-    startPrice: Number(payload.startPrice || 1),
-    baseVolume: Number(payload.baseVolume || 100000),
-    seed: payload.seed || `sim-${Date.now()}`,
-    strategySettings: config.strategy,
-    riskSettings: config.risk,
-    startingBalance: Number(payload.startingBalance || config.paperBalance || 10000),
-    tradePct: Number(payload.tradePct || 0.05),
-  });
-
-  if (!result) {
-    return null;
-  }
-
-  const response = {
-    generatedAt: new Date().toISOString(),
-    ...result,
-  };
-
-  marketState.simulations.unshift({
-    generatedAt: response.generatedAt,
-    scenario: response.scenario,
-    tradeCount: response.tradeCount,
-    totalReturn: response.totalReturn,
-    winRate: response.winRate,
-  });
-  if (marketState.simulations.length > 10) {
-    marketState.simulations.pop();
-  }
-
-  return response;
+  return researchHandlers.runSimulationRequest(payload);
 }
 
 async function previewAiSignal(payload) {
-  const chainKey = normalizeChainKey(payload.chain);
-  const tokenAddress = String(payload.tokenAddress || '').trim();
-  const strategyName = String(payload.strategy || 'momentum').toLowerCase();
-
-  if (!chainKey || !tokenAddress || !exchanges[chainKey]) {
-    return null;
-  }
-
-  const tokenData = await exchanges[chainKey].getTokenData(tokenAddress);
-  if (!tokenData) {
-    return null;
-  }
-
-  tokenData.address = tokenData.address || tokenAddress;
-  tokenData.chainKey = chainKey;
-  tokenData.chain = CHAIN_LABELS[chainKey];
-  tokenData.strategyKey = buildTokenKey(chainKey, tokenData.address);
-
-  const evaluation = await strategy.evaluateForStrategy(tokenData.strategyKey, strategyName, tokenData);
-  if (!evaluation.details) evaluation.details = {};
-  let aiDecision = null;
-
-  if (config.anthropic.enabled && config.anthropic.apiKey) {
-    aiDecision = await AITradeBrain.evaluateToken(tokenData, {
-      ...evaluation.details,
-      signal: evaluation.signal,
-      strategy: strategyName,
-      confidenceFloor: Number(config.strategies?.[strategyName]?.aiConfidenceFloor || config.risk.aiConfidenceFloor || 70),
-    });
-
-    if (aiDecision) {
-      recordBrainSuccess(tokenData, aiDecision);
-    } else {
-      recordBrainFailure('AI preview unavailable');
-    }
-  } else {
-    refreshBrainAvailability();
-  }
-
-  return {
-    token: {
-      symbol: tokenData.symbol,
-      address: tokenData.address,
-      chain: tokenData.chain,
-      price: round(tokenData.price, 8),
-      liquidityUsd: round(tokenData.liquidityUsd || 0),
-      volume24h: round(tokenData.volume24h || 0),
-      priceChange24h: round(tokenData.priceChange24h || 0, 2),
-    },
-    technical: {
-      signal: evaluation.signal,
-      details: evaluation.details,
-    },
-    ai: aiDecision,
-  };
+  return researchHandlers.previewAiSignal(payload);
 }
 
 function onConfigUpdated() {
@@ -5644,6 +7220,10 @@ function clearLoopSchedulers() {
     realtimeStopTimer,
     swingWatchlistRefreshTimer,
     walletBalanceRefreshTimer,
+    bscNativePriceRefreshTimer,
+    selfEvolutionTimer,
+    intelligenceTimer,
+    rlTrainingTimer,
   ].forEach((timer) => {
     if (timer) clearInterval(timer);
   });
@@ -5656,6 +7236,10 @@ function clearLoopSchedulers() {
   realtimeStopTimer = null;
   swingWatchlistRefreshTimer = null;
   walletBalanceRefreshTimer = null;
+  bscNativePriceRefreshTimer = null;
+  selfEvolutionTimer = null;
+  intelligenceTimer = null;
+  rlTrainingTimer = null;
 }
 
 function getMsUntilNextDailyReset(now = new Date()) {
@@ -5700,8 +7284,6 @@ async function runStrategyScanCycle(strategyName) {
     return;
   }
 
-  // Item 9: skip new-entry scans outside configured UTC trading windows.
-  // Exit checks (runStrategyExitCycle) run independently and are unaffected.
   if (!isWithinTradingWindow()) {
     logger.debug(`[${strategyName}] Outside trading window — skipping entry scan`);
     return;
@@ -5709,40 +7291,81 @@ async function runStrategyScanCycle(strategyName) {
 
   startFilterCycle(strategyName);
   const cycleStats = filterStatsState.currentCycle?.[strategyName] || null;
+  const discoveryTimeoutMs = Math.max(15_000, Number(config.bot?.scanDiscoveryTimeoutMs || 120_000));
+  const chainDiscoveryTimeoutMs = {
+    solana: Math.max(15_000, Number(config.bot?.solanaScanDiscoveryTimeoutMs || discoveryTimeoutMs)),
+    bsc: Math.max(15_000, Number(config.bot?.bscScanDiscoveryTimeoutMs || discoveryTimeoutMs)),
+    kucoin: Math.max(15_000, Number(config.bot?.kucoinScanDiscoveryTimeoutMs || discoveryTimeoutMs)),
+  };
+  const stateSaveTimeoutMs = Math.max(5_000, Number(config.bot?.stateSaveTimeoutMs || 20_000));
+
   loopLocks[lockKey] = true;
   refreshScanInFlightFlag();
   try {
     if (strategyName === 'momentum') {
-      // Run KuCoin on an independent lock so long KuCoin scans do not block
-      // fresh momentum cycles for Solana/BSC/Base.
-      const kucoinScanPromise = runDetachedKucoinMomentumScan(cycleStats).catch((error) => {
-        logger.error(`Detached KuCoin momentum scan failed: ${error.message}`);
-      });
+      const chainScans = [
+        ['solana', exchanges.solana],
+        ['bsc', exchanges.bsc],
+        ['kucoin', exchanges.kucoin],
+      ].filter(([chainName]) => isStrategyScanEnabled(chainName, strategyName));
 
-      await Promise.allSettled([
-        ...(isStrategyScanEnabled('solana', strategyName) ? [scanChain('solana', exchanges.solana, strategyName, { cycleStats })] : []),
-        ...(isStrategyScanEnabled('bsc', strategyName) ? [scanChain('bsc', exchanges.bsc, strategyName, { cycleStats })] : []),
-        ...(isStrategyScanEnabled('base', strategyName) ? [scanChain('base', exchanges.base, strategyName, { cycleStats })] : []),
-        kucoinScanPromise,
-      ]);
-    } else {
-      const kucoinScanGate = shouldPauseKucoinEntryScans();
-      if (kucoinScanGate.paused) {
-        logger.info(
-          `KuCoin ${strategyName} entry scan paused: ${kucoinScanGate.reason}. ` +
-          `Resuming warm-up ${(kucoinScanGate.msUntilReset / 60000).toFixed(0)}m before daily reset.`
-        );
-      } else {
-      await Promise.allSettled([
-        ...(isStrategyScanEnabled('kucoin', strategyName) ? [scanChain('kucoin', exchanges.kucoin, strategyName, { cycleStats })] : []),
-      ]);
-      }
+      await Promise.allSettled(
+        chainScans.map(([chainName, exchange]) => withTimeout(
+          scanChain(chainName, exchange, strategyName, { cycleStats }),
+          chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs,
+          `${chainName} ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs}ms`
+        ))
+      ).then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            const [chainName] = chainScans[index];
+            logger.error(`${chainName} ${strategyName} scan failed`, {
+              reason: result.reason?.message || String(result.reason || 'unknown_error'),
+            });
+          }
+        });
+      });
+    } else if (strategyName === 'swing' && isStrategyScanEnabled('kucoin', strategyName)) {
+      await withTimeout(
+        scanChain('kucoin', exchanges.kucoin, strategyName, { cycleStats }),
+        chainDiscoveryTimeoutMs.kucoin,
+        `kucoin ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs.kucoin}ms`
+      ).catch((error) => {
+        logger.error(`kucoin ${strategyName} scan failed`, { reason: error.message });
+      });
     }
+
     recordPortfolioSnapshot(`scan_${strategyName}`);
-    await saveState();
+    await withTimeout(
+      saveState(),
+      stateSaveTimeoutMs,
+      `saveState timed out after ${stateSaveTimeoutMs}ms`
+    );
     loopLastCompletedAt[lockKey] = Date.now();
   } finally {
     finalizeFilterCycle(strategyName);
+    
+    // Set scan status back to idle for all chains
+    if (strategyName === 'momentum') {
+      ['solana', 'bsc', 'kucoin'].forEach(chainName => {
+        if (isStrategyScanEnabled(chainName, strategyName)) {
+          const status = getStrategyScanStatus(chainName, strategyName);
+          status.status = 'idle';
+          status.currentToken = '-';
+          status.lastUpdate = new Date().toISOString();
+          syncChainScanStatus(chainName);
+        }
+      });
+    } else if (strategyName === 'swing') {
+      if (isStrategyScanEnabled('kucoin', strategyName)) {
+        const status = getStrategyScanStatus('kucoin', strategyName);
+        status.status = 'idle';
+        status.currentToken = '-';
+        status.lastUpdate = new Date().toISOString();
+        syncChainScanStatus('kucoin');
+      }
+    }
+    
     loopLocks[lockKey] = false;
     refreshScanInFlightFlag();
   }
@@ -5776,6 +7399,47 @@ async function runDetachedKucoinMomentumScan(cycleStats = null) {
   }
 }
 
+/**
+ * Evict positions that have been in stuckPositions for > STUCK_EVICTION_HOURS hours.
+ * Moves them out of portfolio.positions into untrackedWalletPositions so slots are freed.
+ */
+function evictStuckPositions() {
+  const STUCK_EVICTION_HOURS = Number(process.env.STUCK_POSITION_EVICTION_HOURS || 2);
+  const nowMs = Date.now();
+  const stuck = portfolio.stuckPositions || {};
+  let evicted = 0;
+  for (const [key, meta] of Object.entries(stuck)) {
+    if (!portfolio.positions?.[key]) {
+      delete portfolio.stuckPositions[key];
+      logger.info(`[StuckEvict] Cleared stale stuck flag for ${meta.symbol} (${key}) because no in-state position remains.`);
+      continue;
+    }
+    const stuckMs = nowMs - Date.parse(meta.stuckAt || 0);
+    if (stuckMs < STUCK_EVICTION_HOURS * 3_600_000) continue;
+    const pos = portfolio.positions[key];
+    // Move to untrackedWalletPositions so the value is still visible on the dashboard
+    if (!portfolio.untrackedWalletPositions) portfolio.untrackedWalletPositions = {};
+    portfolio.untrackedWalletPositions[key] = {
+      symbol: meta.symbol,
+      chainKey: meta.chainKey,
+      address: meta.address,
+      estimatedValueUsd: meta.estimatedValueUsd,
+      reason: 'stuck_evicted',
+      evictedAt: new Date().toISOString(),
+      originalPosition: pos,
+    };
+    delete portfolio.positions[key];
+    evicted++;
+    logger.warn(
+      `[StuckEvict] Evicted ${meta.symbol} (${key}) from positions after ${(stuckMs / 3_600_000).toFixed(1)}h stuck. ` +
+      `EstValue ~$${Number(meta.estimatedValueUsd || 0).toFixed(2)}. Slot freed.`
+    );
+  }
+  if (evicted > 0) {
+    saveState();
+  }
+}
+
 async function runStrategyExitCycle(strategyName) {
   const lockKey = strategyName === 'swing' ? 'swingExit' : 'momentumExit';
   if (loopLocks[lockKey]) {
@@ -5788,9 +7452,20 @@ async function runStrategyExitCycle(strategyName) {
       return;
     }
 
+    // Free slots held by positions that have been stuck (unsellable) for too long
+    evictStuckPositions();
+
+    const strategyStats = portfolio.strategies?.[strategyName]?.stats || null;
+    const cycleExitStats = {
+      attempted: 0,
+      skipped: 0,
+      errors: 0,
+      completed: 0,
+    };
+
     // Reset stale-data skip counter unconditionally so a cycle with no positions clears stale alerts.
-    if (portfolio.strategies?.[strategyName]?.stats) {
-      portfolio.strategies[strategyName].stats.skippedExitChecks = 0;
+    if (strategyStats) {
+      strategyStats.skippedExitChecks = 0;
     }
 
     const positions = Object.values(portfolio.positions || {}).filter(
@@ -5805,6 +7480,7 @@ async function runStrategyExitCycle(strategyName) {
 
     await Promise.allSettled(positions.map(async (position) => {
       try {
+        cycleExitStats.attempted += 1;
         const chainName = normalizeChainKey(position.chainKey || position.chain);
         const exchange = exchanges[chainName];
         if (!exchange || !isExchangeAvailable(chainName)) {
@@ -5845,9 +7521,10 @@ async function runStrategyExitCycle(strategyName) {
               address: position.address,
               reason: 'market data unavailable',
             });
-            if (portfolio.strategies?.[strategyName]?.stats) {
-              portfolio.strategies[strategyName].stats.skippedExitChecks =
-                Number(portfolio.strategies[strategyName].stats.skippedExitChecks || 0) + 1;
+            cycleExitStats.skipped += 1;
+            if (strategyStats) {
+              strategyStats.skippedExitChecks =
+                Number(strategyStats.skippedExitChecks || 0) + 1;
             }
             return;
           }
@@ -5858,9 +7535,8 @@ async function runStrategyExitCycle(strategyName) {
         tokenData.chain = CHAIN_LABELS[chainName];
         tokenData.strategyKey = position.strategyKey || buildTokenKey(chainName, tokenData.address);
 
-        await strategy.refreshHistoryFromCandles(tokenData.strategyKey, tokenData, strategyName);
-
-        strategy.recordTick(tokenData.strategyKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
+        recordStrategyTick(tokenData.strategyKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
+        refreshTrackedOpenPositionSnapshot(chainName, tokenData, position);
 
         if (position.partialFillRetry) {
           logger.warn(`Retrying exit for partially filled position ${position.symbol || position.address} on ${chainName}`);
@@ -5869,12 +7545,14 @@ async function runStrategyExitCycle(strategyName) {
         }
 
         await checkExitConditions(chainName, exchange, tokenData, position, { staleData: Boolean(tokenData._stale) });
+        cycleExitStats.completed += 1;
       } catch (error) {
-        if (portfolio.strategies?.[strategyName]?.stats) {
-          portfolio.strategies[strategyName].stats.skippedExitChecks =
-            Number(portfolio.strategies[strategyName].stats.skippedExitChecks || 0) + 1;
-          portfolio.strategies[strategyName].stats.exitErrorCount =
-            Number(portfolio.strategies[strategyName].stats.exitErrorCount || 0) + 1;
+        cycleExitStats.errors += 1;
+        if (strategyStats) {
+          strategyStats.skippedExitChecks =
+            Number(strategyStats.skippedExitChecks || 0) + 1;
+          strategyStats.exitErrorCount =
+            Number(strategyStats.exitErrorCount || 0) + 1;
         }
         logger.error(`Exit check failed`, {
           strategy: strategyName,
@@ -5885,6 +7563,17 @@ async function runStrategyExitCycle(strategyName) {
         });
       }
     }));
+
+    // Self-heal degradation counters after clean exit cycles.
+    if (strategyStats) {
+      const hadCleanCycle = cycleExitStats.errors === 0 && cycleExitStats.skipped === 0 && cycleExitStats.completed > 0;
+      if (hadCleanCycle) {
+        strategyStats.exitErrorCount = 0;
+      } else if (cycleExitStats.errors === 0 && Number(strategyStats.exitErrorCount || 0) > 0) {
+        strategyStats.exitErrorCount = Math.max(0, Number(strategyStats.exitErrorCount || 0) - 1);
+      }
+    }
+
     loopLastCompletedAt[lockKey] = Date.now();
   } catch (error) {
     logger.error(`${strategyName} exit cycle failed: ${error.message}`);
@@ -5979,7 +7668,7 @@ async function runRealtimeRiskStopCycle() {
           tokenData.strategyKey = position.strategyKey || buildTokenKey(chainName, tokenData.address);
         }
 
-        strategy.recordTick(tokenData.strategyKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
+        recordStrategyTick(tokenData.strategyKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
 
         const strategyName = position.strategy || 'momentum';
         const strategyCfg = config.strategies?.[strategyName] || {};
@@ -6002,6 +7691,20 @@ async function runRealtimeRiskStopCycle() {
           }
           logger.warn(`FAST STOP LOSS triggered for ${tokenData.symbol}: price ${Number(tokenData.price).toFixed(8)} <= stop ${Number(position.stopLoss).toFixed(8)}${tokenData._oracle ? ' (oracle)' : ''}`);
           await executeSell(chainName, exchange, tokenData, position, 1, tokenData._oracle ? 'ORACLE_STOP_LOSS' : 'FAST_STOP_LOSS');
+          return;
+        }
+
+        // Disaster-floor safety net: if a position drops more than disasterStopPct from entry,
+        // exit immediately even if the configured stopLoss is misconfigured/missing.
+        // This prevents catastrophic losses when stopLoss never gets set or is set wrong.
+        const disasterStopPct = Number(config.risk?.disasterStopPct || 25);
+        const entryPrice = Number(position.entryPrice || 0);
+        if (entryPrice > 0 && tokenData.price > 0) {
+          const lossPct = ((entryPrice - tokenData.price) / entryPrice) * 100;
+          if (lossPct >= disasterStopPct) {
+            logger.warn(`DISASTER STOP triggered for ${tokenData.symbol}: down ${lossPct.toFixed(2)}% from entry (>= ${disasterStopPct}%)`);
+            await executeSell(chainName, exchange, tokenData, position, 1, 'DISASTER_STOP');
+          }
         }
       } catch (error) {
         logger.debug(`Realtime stop check error: ${error.message}`);
@@ -6075,6 +7778,287 @@ async function refreshSwingWatchlists() {
   }
 }
 
+async function runMarketIntelligenceCycle() {
+  if (loopLocks.intelligence) return;
+  loopLocks.intelligence = true;
+  try {
+    const openPositionSummary = Object.values(portfolio.positions || {})
+      .map((p) => `${p.symbol}(${p.chain}) entry=$${Number(p.entryPrice || 0).toFixed(4)}`)
+      .join(', ') || 'none';
+
+    const result = await intelligenceAgent.runCycle(portfolio.stats || {}, openPositionSummary);
+    if (result?.synthesized && result.report) {
+      await saveState().catch((e) => logger.error(`State save after intelligence cycle: ${e.message}`));
+    }
+  } catch (err) {
+    logger.error(`Intelligence cycle error: ${err.message}`);
+  } finally {
+    loopLocks.intelligence = false;
+  }
+}
+
+function getChainPerformanceSnapshot() {
+  const out = {};
+  for (const [strategyName, strategyStats] of Object.entries(portfolio.strategies || {})) {
+    const positions = Object.values(strategyStats.positions || {});
+    const byChain = {};
+    for (const position of positions) {
+      const chain = String(position.chain || 'unknown');
+      byChain[chain] = (byChain[chain] || 0) + 1;
+    }
+    out[strategyName] = {
+      openPositions: positions.length,
+      byChain,
+      closedTrades: Number(strategyStats.closedTrades || 0),
+      wins: Number(strategyStats.wins || 0),
+      losses: Number(strategyStats.losses || 0),
+    };
+  }
+  return out;
+}
+
+function getSignalQualitySnapshot() {
+  const recentSignals = marketState.signals.slice(0, 80);
+  const buySignals = recentSignals.filter((signal) => signal.finalSignal === 'BUY');
+  const losingClosures = (portfolio.trades || [])
+    .filter((trade) => String(trade.side || '').toUpperCase() === 'SELL' && Number(trade.pnl || 0) < 0)
+    .slice(0, 40);
+  const falsePositiveRatePct = buySignals.length > 0
+    ? (losingClosures.length / buySignals.length) * 100
+    : 0;
+  return {
+    signalCount: recentSignals.length,
+    buySignalCount: buySignals.length,
+    falsePositiveRatePct: Number(falsePositiveRatePct.toFixed(2)),
+  };
+}
+
+function getFillQualitySnapshot() {
+  const tradeRows = (portfolio.trades || []).slice(0, 60);
+  const withSlippage = tradeRows.filter((trade) => Number.isFinite(Number(trade.slippageBps)));
+  const withDiscrepancy = tradeRows.filter((trade) => Number.isFinite(Number(trade.fillDiscrepancyPct)));
+  const avgSlippagePct = withSlippage.length
+    ? withSlippage.reduce((sum, trade) => sum + (Number(trade.slippageBps || 0) / 100), 0) / withSlippage.length
+    : 0;
+  const avgFillDiscrepancyPct = withDiscrepancy.length
+    ? withDiscrepancy.reduce((sum, trade) => sum + Number(trade.fillDiscrepancyPct || 0), 0) / withDiscrepancy.length
+    : 0;
+  return {
+    sampleSize: tradeRows.length,
+    avgSlippagePct: Number(avgSlippagePct.toFixed(4)),
+    avgFillDiscrepancyPct: Number(avgFillDiscrepancyPct.toFixed(4)),
+  };
+}
+
+const tradeRepairHelpers = createTradeRepairHelpers({
+  portfolio,
+  logger,
+  exchanges,
+  config,
+  normalizeChainKey,
+  buildTokenKey,
+  ensureStatsShape,
+  extractFilledBaseQty,
+  extractFilledQuoteUsd,
+  extractExecutionPriceUsd,
+  calcSlippageBps,
+  calcDiscrepancyPct,
+  round,
+  setExecutionJournalState,
+  refreshPerformanceMetrics,
+  recordPortfolioSnapshot,
+  saveState: (...args) => saveState(...args),
+});
+
+const researchHandlers = createResearchHandlers({
+  config,
+  logger,
+  marketState,
+  strategy,
+  exchanges,
+  CHAIN_LABELS,
+  normalizeChainKey,
+  buildTokenKey,
+  getTrackedTokens,
+  getPortfolioSnapshot,
+  getHistorySeries,
+  getOhlcvSeries,
+  runBacktest,
+  runBacktestWithRegimes,
+  runWalkForwardBacktest,
+  runRegimeSpecificBacktest,
+  runPortfolioBacktest,
+  runPaperSimulation,
+  runHyperopt,
+  runValidation,
+  buildBaseBacktestOptions,
+  AITradeBrain,
+  recordBrainSuccess,
+  recordBrainFailure,
+  refreshBrainAvailability,
+  round,
+});
+
+const selfEvolutionOrchestration = createSelfEvolutionOrchestration({
+  config,
+  logger,
+  marketState,
+  portfolio,
+  filterStatsState,
+  operationalDiagnostics,
+  intelligenceAgent,
+  agentMemory,
+  getHealthStatus,
+  getChainPerformanceSnapshot,
+  getSignalQualitySnapshot,
+  getFillQualitySnapshot,
+  telemetry,
+  evolutionGovernor,
+  selfEvolution,
+  evolutionValidator,
+  strategyLab,
+  saveState: (...args) => saveState(...args),
+  shutdownAndExit: (...args) => shutdownAndExit(...args),
+  LIVE_ROLLOUT_PATH,
+  execFileSync,
+  processExecPath: process.execPath,
+  rollbackScriptPath: path.join(PROJECT_ROOT, 'scripts', 'rollback-live-promotion.js'),
+  projectRoot: PROJECT_ROOT,
+  pathModule: path,
+  loopLocks,
+  strategyVersionId: CURRENT_STRATEGY_VERSION_ID,
+  strategyVersionHash: CURRENT_STRATEGY_VERSION_HASH,
+});
+
+const statePersistence = createStatePersistence({
+  logger,
+  telemetry,
+  portfolio,
+  risk,
+  strategy,
+  marketState,
+  config,
+  BOT_PROFILE,
+  BOT_DATA_DIR,
+  DATA_DIR_ABS,
+  STATE_PATH,
+  MARKET_STATE_PATH,
+  STATE_BACKUP_PATH,
+  MARKET_STATE_BACKUP_PATH,
+  STATE_TMP_PATH,
+  MARKET_STATE_TMP_PATH,
+  SELF_EVOLUTION_HISTORY_PATH,
+  recordRuntimeDelta,
+  setStatePersistenceError,
+  getStatePersistenceError: () => statePersistenceError,
+  getSaveFailureCount: () => saveFailureCount,
+  setSaveFailureCount: (value) => { saveFailureCount = Number(value || 0); },
+  agentMemory,
+  ensureRuntimeStateShape,
+  ensureLearningStateShape,
+  ensureStatsShape,
+  refreshPerformanceMetrics,
+  normalizeChainKey,
+  buildTokenKey,
+  enterSafeMode: (...args) => enterSafeMode(...args),
+});
+
+const scanOrchestration = createScanOrchestration({
+  logger,
+  config,
+  exchanges,
+  marketState,
+  scanStatus,
+  filterStatsState,
+  loopLocks,
+  loopLastCompletedAt,
+  getStrategyScanStatus,
+  isExchangeAvailable,
+  syncChainScanStatus,
+  getTokensForStrategy,
+  refreshKucoinCatalystCache,
+  getPrioritizedKucoinCatalystPairs,
+  getBscDiscoveryRankSummary,
+  getRotatingScanWindow,
+  sleep,
+  processToken: (...args) => processToken(...args),
+  withTimeout,
+  recordExchangeSuccess,
+  recordExchangeFailure,
+  isWithinTradingWindow,
+  startFilterCycle,
+  finalizeFilterCycle,
+  isStrategyScanEnabled,
+  recordPortfolioSnapshot,
+  saveState: (...args) => saveState(...args),
+  refreshScanInFlightFlag,
+  shouldPauseKucoinEntryScans,
+});
+
+function getSelfEvolutionContext() {
+  return selfEvolutionOrchestration.getSelfEvolutionContext();
+}
+
+async function evaluateActiveEvolutionExperiment() {
+  return selfEvolutionOrchestration.evaluateActiveEvolutionExperiment();
+}
+
+async function evaluateLivePromotionHealth() {
+  return selfEvolutionOrchestration.evaluateLivePromotionHealth();
+}
+
+async function runSelfEvolutionCycle() {
+  return selfEvolutionOrchestration.runSelfEvolutionCycle();
+}
+
+async function trainPaperRlPolicy() {
+  if (config.paperTrading !== true || config.rl?.enabled === false || config.rl?.paperTrainingEnabled === false) {
+    return null;
+  }
+
+  const featureSeries = buildFeatureSeriesFromHistories(
+    strategy.priceHistory || {},
+    strategy.volumeHistory || {},
+    Number(config.rl?.trainingSeriesLimit || 12)
+  );
+
+  if (featureSeries.length < 100) {
+    logger.debug(`[RL] Skipping paper RL training: only ${featureSeries.length} feature rows available`);
+    return null;
+  }
+
+  const policy = trainQPolicy(featureSeries, {
+    episodes: Number(config.rl?.trainingEpisodes || 24),
+    environment: {
+      feePct: Number(config.execution?.slippageBps || 100) / 100,
+      drawdownPenalty: 0.4,
+      churnPenalty: 0.04,
+      holdBonus: 0.01,
+    },
+  });
+
+  const policyId = await modelRegistry.upsertRlPolicy({
+    policyName: 'paper_rl_default',
+    botProfile: 'paper',
+    stage: 'paper_training',
+    status: 'active',
+    policy,
+    metrics: {
+      featureRows: featureSeries.length,
+      stateCount: policy.stateCount,
+      episodes: policy.episodes,
+    },
+  }).catch((error) => {
+    logger.warn(`[RL] paper policy persistence failed: ${error.message}`);
+    return null;
+  });
+
+  if (policyId) {
+    logger.info(`[RL] Paper policy refreshed | rows=${featureSeries.length} states=${policy.stateCount} episodes=${policy.episodes}`);
+  }
+  return { policyId, featureRows: featureSeries.length, stateCount: policy.stateCount };
+}
+
 function restartLoopSchedulers() {
   clearLoopSchedulers();
 
@@ -6092,6 +8076,7 @@ function restartLoopSchedulers() {
   const swingExitMs = Math.max(30 * 60_000, Number(config.bot.swingExitCheckMinutes || 60) * 60_000);
   const swingRefreshMs = Math.max(6 * 60 * 60_000, Number(config.bot.swingWatchlistRefreshHours || 24) * 60 * 60_000);
   const realtimeStopMs = Math.max(2_000, Number(config.risk?.realtimeStopCheckSeconds || 8) * 1000);
+  const selfEvolutionMs = Math.max(10 * 60_000, Number(config.selfEvolution?.intervalMinutes || 180) * 60_000);
 
   momentumScanTimer = setInterval(() => {
     runStrategyScanCycle('momentum').catch((error) => logger.error(`Momentum scan loop error: ${error.message}`));
@@ -6126,7 +8111,79 @@ function restartLoopSchedulers() {
     updateWalletBalance().catch((error) => logger.error(`Wallet balance refresh loop error: ${error.message}`));
   }, walletBalanceRefreshMs);
 
+  const bscNativePriceRefreshMs = Math.max(15_000, Number(config.risk?.nativePriceRefreshSeconds || 45) * 1000);
+  bscNativePriceRefreshTimer = setInterval(() => {
+    refreshBscNativePrice().catch((error) => logger.warn(`BSC native price refresh loop error: ${error.message}`));
+  }, bscNativePriceRefreshMs);
+
+  if (config.selfEvolution?.enabled === true) {
+    selfEvolutionTimer = setInterval(() => {
+      runSelfEvolutionCycle().catch((error) => logger.error(`Self-evolution scheduler error: ${error.message}`));
+    }, selfEvolutionMs);
+  }
+
+  // Market intelligence cycle: every 30 minutes by default
+  const intelligenceMs = Math.max(15 * 60_000, Number(process.env.INTELLIGENCE_INTERVAL_MINUTES || 30) * 60_000);
+  if (process.env.INTELLIGENCE_ENABLED !== 'false') {
+    intelligenceTimer = setInterval(() => {
+      runMarketIntelligenceCycle().catch((error) => logger.error(`Intelligence scheduler error: ${error.message}`));
+    }, intelligenceMs);
+  }
+
+  if (config.paperTrading === true && config.rl?.enabled !== false && config.rl?.paperTrainingEnabled !== false) {
+    const rlTrainingMs = Math.max(15 * 60_000, Number(config.rl?.trainingIntervalMinutes || 45) * 60_000);
+    rlTrainingTimer = setInterval(() => {
+      trainPaperRlPolicy().catch((error) => logger.error(`Paper RL training scheduler error: ${error.message}`));
+    }, rlTrainingMs);
+  }
+
+  // RL Online updater: update Q-table from live trades every 5 minutes
+  if (config.rl?.enabled !== false) {
+    setInterval(async () => {
+      try {
+        const recentClosed = Object.values(portfolio.closedTrades || {})
+          .filter((t) => Date.now() - (t.closedAt || 0) < 10 * 60_000)
+          .slice(-20);
+
+        for (const trade of recentClosed) {
+          if (!trade._rlOnlineProcessed) {
+            const tradeOutcome = {
+              symbol: trade.symbol,
+              symbols: [trade.symbol],
+              chain: trade.chain,
+              strategy: trade.strategy,
+              pnl: trade.realizedPnl || 0,
+              sizeUsd: trade.initialSizeUsd || 0,
+              confidence: trade.aiConfidence || 0.5,
+              priceChange24h: trade.priceChange24h || 0,
+              holdMinutes: (trade.closedAt - trade.entryAt) / 60_000 || 0,
+              portfolio,
+              volatilityClass: portfolio.volatilityClass || 'normal',
+            };
+            rlOnlineUpdater.updateFromTrade(tradeOutcome);
+            trade._rlOnlineProcessed = true;
+          }
+        }
+
+        const stats = rlOnlineUpdater.getStats();
+        if (stats.stateCount > 0) {
+          logger.debug(`[RLOnline] Q-table: ${stats.stateCount} states, ${stats.actionCount} actions, avg Q=${stats.avgQValue.toFixed(2)}`);
+        }
+      } catch (err) {
+        logger.debug(`RL online update error: ${err.message}`);
+      }
+    }, 5 * 60_000);
+  }
+
+  if (config.ml?.autoTrainingEnabled !== false) {
+    const mlTrainingMs = Math.max(60 * 60_000, Number(config.ml?.autoTrainingIntervalMinutes || 360) * 60_000);
+    setInterval(() => {
+      modelRegistry.runAutoTraining().catch((error) => logger.error(`ML auto-training scheduler error: ${error.message}`));
+    }, mlTrainingMs);
+  }
+
   // Boot cycles immediately.
+  evictStuckPositions(); // free any slots occupied by honeypot/stuck positions before first scan
   runStrategyScanCycle('momentum').catch((error) => logger.error(`Initial momentum scan failed: ${error.message}`));
   runStrategyScanCycle('swing').catch((error) => logger.error(`Initial swing scan failed: ${error.message}`));
   runStrategyExitCycle('momentum').catch((error) => logger.error(`Initial momentum exit check failed: ${error.message}`));
@@ -6134,8 +8191,104 @@ function restartLoopSchedulers() {
   if (config.risk?.realtimeStopLossEnabled !== false) {
     runRealtimeRiskStopCycle().catch((error) => logger.error(`Initial realtime stop check failed: ${error.message}`));
   }
+  if (config.selfEvolution?.enabled === true) {
+    // Delay initial self-evolution by 2 min to avoid Groq rate-limit collision at startup
+    setTimeout(() => {
+      runSelfEvolutionCycle().catch((error) => logger.error(`Initial self-evolution cycle failed: ${error.message}`));
+    }, 2 * 60_000);
+  }
+  // Boot intelligence cycle immediately (non-blocking)
+  if (process.env.INTELLIGENCE_ENABLED !== 'false') {
+    setTimeout(() => {
+      runMarketIntelligenceCycle().catch((error) => logger.error(`Initial intelligence cycle failed: ${error.message}`));
+    }, 3 * 60_000); // 3-min delay so startup Groq calls don't rate-limit intelligence
+  }
+
+  if (config.paperTrading === true && config.rl?.enabled !== false && config.rl?.paperTrainingEnabled !== false) {
+    setTimeout(() => {
+      trainPaperRlPolicy().catch((error) => logger.error(`Initial paper RL training failed: ${error.message}`));
+    }, 90_000);
+  }
+
+  if (config.ml?.autoTrainingEnabled !== false) {
+    setTimeout(() => {
+      modelRegistry.runAutoTraining().catch((error) => logger.error(`Initial ML auto-training failed: ${error.message}`));
+    }, 5 * 60_000);
+  }
+
+  // Weekly model retraining schedule
+  if (config.ml?.weeklyRetrainingEnabled !== false || process.env.ML_WEEKLY_RETRAINING_ENABLED === 'true') {
+    try {
+      const scheduleWeeklyRetraining = () => {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const hourOfDay = now.getHours();
+
+        // Schedule for Sunday at 2 AM UTC (low-traffic time)
+        const scheduledDayOfWeek = 0; // Sunday
+        const scheduledHour = 2;
+        const scheduledMinute = 15;
+
+        let nextRun = new Date(now);
+        const currentDayOfWeek = nextRun.getUTCDay();
+        const daysUntilSunday = (scheduledDayOfWeek - currentDayOfWeek + 7) % 7;
+        nextRun.setUTCDate(nextRun.getUTCDate() + daysUntilSunday);
+        nextRun.setUTCHours(scheduledHour, scheduledMinute, 0, 0);
+
+        // If the target time has already passed today (or it's the same time), schedule for next week
+        if (nextRun <= now) {
+          nextRun.setUTCDate(nextRun.getUTCDate() + 7);
+        }
+
+        const delayMs = nextRun.getTime() - now.getTime();
+
+        logger.info(`[Weekly Retraining] Scheduled for ${nextRun.toISOString()} (in ${(delayMs / 3600000).toFixed(1)} hours)`);
+
+        setTimeout(async () => {
+          logger.info('[Weekly Retraining] Starting weekly model retraining cycle...');
+
+          try {
+            // Retrain models on accumulated data
+            const retrainingResult = await modelRegistry.runWeeklyRetraining?.() ||
+              await modelRegistry.runAutoTraining?.().catch((error) => {
+                logger.error(`Weekly retraining failed: ${error.message}`);
+                return null;
+              });
+
+            if (retrainingResult) {
+              logger.info(`[Weekly Retraining] Cycle completed successfully`);
+              sendHeartbeat(`✅ Weekly model retraining completed`).catch(() => {});
+            }
+          } catch (err) {
+            logger.error(`[Weekly Retraining] Cycle failed: ${err.message}`);
+            sendErrorAlert(`Weekly model retraining failed: ${err.message}`).catch(() => {});
+          }
+
+          // Schedule next week's retraining
+          scheduleWeeklyRetraining();
+        }, delayMs);
+      };
+
+      scheduleWeeklyRetraining();
+    } catch (err) {
+      logger.warn(`[Weekly Retraining] Setup failed: ${err.message}`);
+    }
+  }
+
+  setTimeout(() => {
+    refreshBscNativePrice().catch((error) => logger.warn(`Initial BSC native price refresh failed: ${error.message}`));
+  }, 5_000);
 
   startOracleStopWatchers();
+}
+
+async function refreshBscNativePrice() {
+  if (!exchanges?.bsc || typeof exchanges.bsc.getBnbPrice !== 'function') {
+    return null;
+  }
+  const price = await exchanges.bsc.getBnbPrice();
+  loopLastCompletedAt.bscNativePriceRefresh = Date.now();
+  return price;
 }
 
 async function updateWalletBalance() {
@@ -6253,11 +8406,62 @@ async function main() {
 
   refreshBrainAvailability();
   await loadState();
+  const sqlSelfTest = await runSqlSelfTest(logger);
+  sqlRuntimeState.selfTestOk = Boolean(sqlSelfTest?.ok);
+  sqlRuntimeState.selfTestReason = sqlSelfTest?.reason || (sqlSelfTest?.enabled === false ? 'sql_disabled' : 'ok');
+  sqlRuntimeState.lastSelfTestAt = new Date().toISOString();
+  if (sqlSelfTest?.enabled !== false) {
+    const sqlStatus = getSqlStatus();
+    logger.info(
+      `[SQL] startup self-test ${sqlSelfTest.ok ? 'passed' : 'failed'} | ` +
+      `db=${sqlStatus.databaseName || 'unknown'} explicitDb=${sqlStatus.databaseExplicit ? 'yes' : 'no'} ` +
+      `schema=${sqlStatus.schemaReady ? 'ready' : 'not_ready'}`
+    );
+  }
+  await agentMemory.load();
+  await modelRegistry.ensureReady().catch((error) => {
+    logger.warn(`[ModelRegistry] startup ensure failed: ${error.message}`);
+    return null;
+  });
+  let addedKnowledge = 0;
+  if (typeof agentMemory.ensureChartPatternPlaybook === 'function') {
+    addedKnowledge += agentMemory.ensureChartPatternPlaybook();
+  }
+  if (typeof agentMemory.ensureCoreTrainingPlaybook === 'function') {
+    addedKnowledge += agentMemory.ensureCoreTrainingPlaybook();
+  }
+  if (addedKnowledge > 0) {
+    logger.info(`[AgentMemory] Seeded ${addedKnowledge} operator training knowledge entries`);
+    await agentMemory.saveIfDirty();
+  }
   ensureStatsShape();
   refreshPerformanceMetrics();
+  await telemetry.startRun({
+    configHash: CURRENT_STRATEGY_VERSION_HASH,
+    meta: {
+      profile: BOT_PROFILE,
+      dataDir: BOT_DATA_DIR,
+      paperTrading: Boolean(config.paperTrading),
+      port: config.bot?.port,
+    },
+  });
+  telemetry.logStrategyVersion({
+    version_id: CURRENT_STRATEGY_VERSION_ID,
+    version_hash: CURRENT_STRATEGY_VERSION_HASH,
+    bot_profile: BOT_PROFILE,
+    source_profile: BOT_PROFILE,
+    stage: config.paperTrading ? 'paper_active' : 'live_active',
+    config_hash: CURRENT_STRATEGY_VERSION_HASH,
+    code_hash: CURRENT_STRATEGY_VERSION_HASH,
+    metadata: {
+      paperTrading: Boolean(config.paperTrading),
+      port: config.bot?.port,
+    },
+  });
 
   logger.info('=========================================');
   logger.info(' DEX Trading Bot - Starting up (dual strategy)');
+  logger.info(` Runtime profile: ${BOT_PROFILE} (paper=${config.paperTrading ? 'yes' : 'no'}) dataDir=${BOT_DATA_DIR}`);
   logger.info(`  Mode: ${config.paperTrading ? 'PAPER TRADING' : 'LIVE TRADING'}`);
   logger.info(`  Discovery Mode: ${config.bot.discoveryMode || 'hybrid'}`);
   logger.info(`  Swing: ${config.strategies?.swing?.enabled !== false ? 'enabled' : 'disabled'} | EMA(${config.strategies?.swing?.emaFast}/${config.strategies?.swing?.emaSlow}) | max positions ${config.strategies?.swing?.maxConcurrentPositions}`);
@@ -6269,6 +8473,11 @@ async function main() {
   logger.info(`  Realtime Stop Monitor: ${config.risk?.realtimeStopLossEnabled !== false ? `enabled (${config.risk?.realtimeStopCheckSeconds || 8}s)` : 'disabled'}`);
   logger.info(`  Swing Watchlist Refresh: every ${config.bot.swingWatchlistRefreshHours || 24}h`);
   logger.info(`  AI Brain: ${config.anthropic.enabled ? config.anthropic.model : 'disabled'}`);
+  logger.info(
+    `  Self-Evolution: ${config.selfEvolution?.enabled === true
+      ? `enabled (${config.selfEvolution?.intervalMinutes || 180}m, autoApply=${config.selfEvolution?.autoApply === true ? 'on' : 'off'})`
+      : 'disabled'}`
+  );
   
   // Log external filter configuration
   const filterCfg = config.filters || {};
@@ -6328,13 +8537,17 @@ async function main() {
     getTrackedTokens,
     getDashboardState: buildDashboardState,
     runBacktestRequest,
+    runHyperoptRequest,
+    runValidationRequest,
+    runPositionResearchRequest,
     seedBacktestData,
     runSimulationRequest,
     previewAiSignal,
+    ingestExternalSignal,
+    getResearchTargets,
     resetPaperPortfolio,
     onConfigUpdated,
     getHealthStatus,
-    strategy,
     getFilterStatsHistory: () => {
       const combined = [
         ...(filterStatsState.recentCycles?.momentum || []),
@@ -6355,12 +8568,26 @@ async function main() {
         statePersistenceError: portfolio.statePersistenceError,
       };
     },
+    clearTrackedTokensAndSignals,
+    modelRegistry,
+    getAgentMemoryState: () => agentMemory?.getState?.() || {
+      lessons: 0,
+      recentLessons: [],
+      blacklistedTokens: {},
+    },
   });
   dashboardServer = dashboard?.server;
   dashboardWss = dashboard?.wss;
 
+  // Clear safe mode if it was entered due to state mismatch
+  if (portfolio.safeMode && portfolio.statePersistenceError) {
+    clearSafeModeState();
+  }
+
   restartLoopSchedulers();
   await reconcileExecutionJournal().catch((error) => logger.error(`Initial execution journal reconciliation failed: ${error.message}`));
+  await persistSqlStateSnapshot('startup').catch((error) => logger.warn(`Startup SQL state snapshot failed: ${error.message}`));
+  await syncQueryableSqlState().catch((error) => logger.warn(`Startup SQL queryable state sync failed: ${error.message}`));
 
   setInterval(() => {
     refreshDependencyHealth().catch((error) => logger.error(`Dependency health refresh failed: ${error.message}`));
@@ -6371,16 +8598,178 @@ async function main() {
   }, 5 * 60 * 1000);
 
   setInterval(() => {
+    runSqlSelfTest(logger)
+      .then((result) => {
+        sqlRuntimeState.selfTestOk = Boolean(result?.ok);
+        sqlRuntimeState.selfTestReason = result?.reason || (result?.enabled === false ? 'sql_disabled' : 'ok');
+        sqlRuntimeState.lastSelfTestAt = new Date().toISOString();
+      })
+      .catch((error) => {
+        sqlRuntimeState.selfTestOk = false;
+        sqlRuntimeState.selfTestReason = error.message;
+        sqlRuntimeState.lastSelfTestAt = new Date().toISOString();
+        logger.warn(`SQL self-test refresh failed: ${error.message}`);
+      });
+  }, Math.max(30000, Number(process.env.SQL_SELF_TEST_INTERVAL_MS || 120000)));
+
+  setInterval(() => {
+    syncQueryableSqlState().catch((error) => {
+      logger.warn(`Periodic SQL queryable state sync failed: ${error.message}`);
+    });
+  }, Math.max(30000, Number(process.env.SQL_QUERYABLE_SYNC_MS || 120000)));
+
+  // Periodic SQL position snapshots (best-effort; gated by SQL_ENABLED)
+  setInterval(() => {
+    try {
+      const open = Object.values(portfolio.positions || {});
+      for (const p of open) {
+        if (!p || !p.sqlPositionId) continue;
+        const qty = Number(p.quantity || 0);
+        const price = Number(p.currentPrice || 0);
+        const unrealized = (qty > 0 && price > 0)
+          ? (qty * price) - Number(p.costBasisUsd || 0)
+          : null;
+        telemetry.logPositionSnapshot({
+          position_id: p.sqlPositionId,
+          ts: new Date().toISOString(),
+          price,
+          unrealized_pnl_usd: Number.isFinite(unrealized) ? unrealized : null,
+          highest_price: Number(p.highestPrice || 0) || null,
+          trailing_stop: Number(p.trailingStop || 0) || null,
+          risk_state: {
+            costBasisUsd: p.costBasisUsd,
+            initialSizeUsd: p.initialSizeUsd,
+            openedAt: p.openedAt,
+            lastExitReason: p.lastExitReason,
+          },
+        });
+      }
+    } catch (_) {
+      // ignore
+    }
+  }, Math.max(5000, Number(process.env.SQL_POSITION_SNAPSHOT_MS || 60000)));
+
+  setInterval(() => {
+    persistSqlStateSnapshot('periodic').catch((error) => {
+      logger.warn(`Periodic SQL state snapshot failed: ${error.message}`);
+    });
+  }, Math.max(10000, Number(process.env.SQL_STATE_SNAPSHOT_MS || 120000)));
+
+  setInterval(() => {
     reconcileExecutionJournal().catch((error) => logger.error(`Execution journal reconciliation error: ${error.message}`));
   }, 60 * 1000);
 
+  // Track health status across heartbeat cycles to detect degradation transitions
+  let lastHealthOk = true;
+  let lastHealthDegraded = false;
+  let lastHealthUnhealthyCount = 0;
+
   setInterval(() => {
-    sendHeartbeat().catch((error) => logger.error(`Heartbeat error: ${error.message}`));
+    try {
+      const health = getHealthStatus();
+      const snapshot = getPortfolioSnapshot();
+      const heartbeatStats = {
+        cashBalance: snapshot.cashBalance,
+        equity: snapshot.equity,
+        totalPnl: snapshot.totalPnl,
+        unrealizedPnl: snapshot.unrealizedPnl,
+        openPositionCount: snapshot.openPositionCount,
+        closedTrades: snapshot.closedTrades,
+        wins: snapshot.wins,
+        winRate: snapshot.winRate,
+        grossProfit: snapshot.grossProfit,
+        grossLoss: snapshot.grossLoss,
+        profitFactor: snapshot.profitFactor,
+        healthOk: health.ok,
+        degradedReasons: health.degradedReasons || [],
+        unhealthyReasons: health.unhealthyReasons || [],
+        signalDrought: Boolean(health.signalDrought?.global),
+      };
+      sendHeartbeat(heartbeatStats).catch((error) => logger.error(`Heartbeat error: ${error.message}`));
+
+      // Proactive health degradation alerts
+      const nowUnhealthyCount = (health.unhealthyReasons || []).length;
+      const nowDegraded = (health.degradedReasons || []).length > 0;
+      const nowOk = health.ok;
+      if (!lastHealthOk && nowOk) {
+        sendHealthAlert(health).catch((error) => logger.error(`Health recovered alert error: ${error.message}`));
+      } else if (nowUnhealthyCount > 0 && (nowUnhealthyCount !== lastHealthUnhealthyCount || (!lastHealthOk === nowOk))) {
+        sendHealthAlert(health).catch((error) => logger.error(`Health alert error: ${error.message}`));
+      } else if (nowDegraded && !lastHealthDegraded) {
+        sendHealthAlert(health).catch((error) => logger.error(`Health degraded alert error: ${error.message}`));
+      }
+      lastHealthOk = nowOk;
+      lastHealthDegraded = nowDegraded;
+      lastHealthUnhealthyCount = nowUnhealthyCount;
+    } catch (error) {
+      logger.error(`Heartbeat scheduler error: ${error.message}`);
+    }
   }, 60 * 60 * 1000);
 
   setInterval(() => {
     cleanupNonTradeLogs(logger).catch((error) => logger.error(`Log cleanup scheduler error: ${error.message}`));
   }, getLogCleanupIntervalMs());
+
+  async function runSqlAutoPrune(log) {
+    const { getPool } = require('./utils/sqlServer');
+    const sql = require('mssql');
+    const pool = await getPool(log).catch(() => null);
+    if (!pool) return;
+    const PRUNE = [
+      ['dbo.signals',                12],
+      ['dbo.model_predictions',      24],
+      ['dbo.model_feature_store',    24],
+      ['dbo.multi_agent_decisions',  24],
+      ['dbo.sentiment_snapshots',    24],
+      ['dbo.bot_state_snapshots',    48],
+      ['dbo.decision_log',           72],
+    ];
+    let totalDeleted = 0;
+    for (const [table, hours] of PRUNE) {
+      try {
+        let batch;
+        let deleted = 0;
+        do {
+          const req = new sql.Request(pool);
+          req.input('hours', sql.Int, hours);
+          batch = await req.query(`DELETE TOP (5000) FROM ${table} WHERE ts < DATEADD(hour, -@hours, SYSUTCDATETIME())`);
+          deleted += batch.rowsAffected[0] || 0;
+        } while ((batch.rowsAffected[0] || 0) > 0);
+        if (deleted > 0) {
+          totalDeleted += deleted;
+          log.info(`[SQL prune] ${table}: removed ${deleted} rows older than ${hours}h`);
+        }
+      } catch (err) {
+        log.debug(`[SQL prune] ${table} skipped: ${err.message}`);
+      }
+    }
+    if (totalDeleted > 0) {
+      log.info(`[SQL prune] cycle complete, total ${totalDeleted} rows deleted`);
+    }
+  }
+
+  // SQL telemetry prune — keeps the Agent DB under SQL Express 10GB limit by deleting
+  // high-churn telemetry rows older than per-table retention windows. Runs every hour.
+  // Disabled by default; enable with SQL_AUTO_PRUNE_ENABLED=true in env.
+  if (String(process.env.SQL_AUTO_PRUNE_ENABLED || '').toLowerCase() === 'true') {
+    const sqlPruneIntervalMs = Math.max(15 * 60_000, Number(process.env.SQL_AUTO_PRUNE_INTERVAL_MS || 3600000));
+    setInterval(() => {
+      runSqlAutoPrune(logger).catch((error) => logger.warn(`SQL auto-prune failed: ${error.message}`));
+    }, sqlPruneIntervalMs);
+    logger.info(`SQL auto-prune enabled (every ${Math.round(sqlPruneIntervalMs / 60000)}m)`);
+  }
+
+  // BTC risk-off poller: refreshes BTC price every N minutes (default 5)
+  // and updates a global flag that the approval gate consults to block altcoins
+  // during macro selloffs.
+  if (config.risk?.btcRiskOffEnabled !== false) {
+    const btcPollMs = Math.max(60_000, Number(config.risk?.btcRiskOffPollMinutes || 5) * 60_000);
+    refreshBtcRiskOff().catch(() => {});
+    setInterval(() => {
+      refreshBtcRiskOff().catch((err) => logger.debug(`BTC risk-off poll error: ${err.message}`));
+    }, btcPollMs);
+    logger.info(`BTC risk-off filter enabled (poll every ${Math.round(btcPollMs / 60000)}m, threshold ${config.risk?.btcRiskOffThresholdPct || 2}% in 1h)`);
+  }
 
   cron.schedule('0 0 * * *', () => {
     logger.info('Daily reset - resetting risk guardian drawdown tracker');
@@ -6445,6 +8834,8 @@ async function shutdownAndExit(exitCode, reason, error = null) {
   }
 
   try {
+    await telemetry.endRun({ exitReason: reason });
+    await telemetry.flush();
     await saveState();
   } catch (saveError) {
     logger.error('Unexpected saveState failure during shutdown', {
@@ -6463,13 +8854,29 @@ process.on('SIGTERM', async () => {
   await shutdownAndExit(0, 'Received SIGTERM, saving state before exit...');
 });
 
-process.on('uncaughtException', async (error) => {
-  await shutdownAndExit(1, 'Uncaught exception — runtime crash recovery engaged', error);
+process.on('uncaughtException', (error) => {
+  const errorMsg = error?.message || String(error);
+  const errorStack = error?.stack || '';
+  console.error('UNCAUGHT EXCEPTION DETAILS:', errorMsg);
+  console.error('Stack:', errorStack);
+  logger.error('Uncaught exception — runtime crash recovery engaged', {
+    reason: errorMsg,
+    stack: errorStack,
+  });
+  shutdownAndExit(1, 'Uncaught exception — runtime crash recovery engaged', error).catch(() => {
+    process.exit(1);
+  });
 });
 
-process.on('unhandledRejection', async (reason) => {
+process.on('unhandledRejection', (reason) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
-  await shutdownAndExit(1, 'Unhandled promise rejection — runtime crash recovery engaged', error);
+  logger.error('Unhandled promise rejection — runtime crash recovery engaged', {
+    reason: error?.message,
+    stack: error?.stack,
+  });
+  shutdownAndExit(1, 'Unhandled promise rejection — runtime crash recovery engaged', error).catch(() => {
+    process.exit(1);
+  });
 });
 
 main().catch((error) => {
