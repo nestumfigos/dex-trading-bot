@@ -25,7 +25,12 @@
       "Bash(tee /tmp/bot-final.log)",
       "Bash(tee /tmp/live-bot.log)",
       "Bash(git add *)",
-      "Bash(git commit -m 'Fix: Pass exchange parameter to applyIntelligentModelReview *)"
+      "Bash(git commit -m 'Fix: Pass exchange parameter to applyIntelligentModelReview *)",
+      "Bash(npm start > /tmp/live-bot-final.log 2>&1 & *)",
+      "Bash(git commit -m 'Configure bot chain restrictions: live bot KuCoin only, paper bot all chains *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }

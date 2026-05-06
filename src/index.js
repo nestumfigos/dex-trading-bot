@@ -1439,6 +1439,14 @@ const scanStatus = {
 function isStrategyScanEnabled(chainName, strategyName = 'momentum') {
   const chain = String(chainName || '').toLowerCase();
   const strategy = String(strategyName || 'momentum').toLowerCase();
+  const isLiveBot = !config.paperTrading;
+
+  // Live bot: KuCoin only
+  if (isLiveBot) {
+    return chain === 'kucoin';
+  }
+
+  // Paper bot: all chains
   if (chain === 'base') return false;
   if (strategy === 'swing') return chain === 'kucoin';
   return ['solana', 'bsc', 'kucoin'].includes(chain);
@@ -6842,6 +6850,12 @@ function shouldExtendMaxHold(position, tokenData, exitSignal, strategyCfg, curre
 }
 
 async function executeBuy(chainName, exchange, tokenData, strategyName = 'momentum') {
+  // Live bot: KuCoin only
+  if (!config.paperTrading && chainName !== 'kucoin') {
+    logger.info(`Buy blocked: live bot restricted to KuCoin, ${chainName} not allowed`);
+    return;
+  }
+
   // Smaller-iterations sizing: start small, scale up on wins
   const useSmallIterations = process.env.USE_POSITION_ITERATIONS !== 'false';
   const calculatedSizeUsd = useSmallIterations
