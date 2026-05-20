@@ -938,6 +938,7 @@ function startDashboard(portfolio, ctx) {
       timestamp: state.timestamp,
       swing: strategies.swing || {},
       momentum: strategies.momentum || {},
+      spot_day_bull_flag: strategies.spot_day_bull_flag || {},
       aggregate: {
         openPositionCount: state.portfolio?.openPositionCount,
         totalExecutions: state.portfolio?.totalExecutions,
@@ -948,6 +949,39 @@ function startDashboard(portfolio, ctx) {
         totalPnl: state.portfolio?.totalPnl,
         profitFactor: state.portfolio?.profitFactor,
       },
+    });
+  });
+
+  // Bull-flag setup-level breakdown: counts + PnL by setupType from in-memory portfolio.trades
+  app.get('/api/bull-flag-stats', (req, res) => {
+    const state = ctx.getDashboardState();
+    const trades = state.portfolio?.trades || [];
+    const bullFlagTrades = trades.filter((t) => t?.setupType === 'spot_day_bull_flag');
+    const sells = bullFlagTrades.filter((t) => String(t?.type).toUpperCase() === 'SELL');
+    const wins = sells.filter((t) => Number(t?.pnl || 0) > 0);
+    const losses = sells.filter((t) => Number(t?.pnl || 0) <= 0);
+    const totalPnl = sells.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
+    const grossWins = wins.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
+    const grossLosses = Math.abs(losses.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0));
+    const reasonBreakdown = sells.reduce((acc, t) => {
+      const r = String(t?.reason || 'UNKNOWN');
+      acc[r] = (acc[r] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({
+      timestamp: state.timestamp,
+      totalTrades: bullFlagTrades.length,
+      buys: bullFlagTrades.length - sells.length,
+      sells: sells.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRatePct: sells.length > 0 ? (wins.length / sells.length) * 100 : 0,
+      totalPnlUsd: totalPnl,
+      avgWinUsd: wins.length > 0 ? grossWins / wins.length : 0,
+      avgLossUsd: losses.length > 0 ? grossLosses / losses.length : 0,
+      profitFactor: grossLosses > 0 ? grossWins / grossLosses : (grossWins > 0 ? Infinity : 0),
+      exitReasonBreakdown: reasonBreakdown,
+      enabled: Boolean(state?.config?.strategies?.spot_day_bull_flag?.enabled),
     });
   });
 
