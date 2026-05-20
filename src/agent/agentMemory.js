@@ -123,6 +123,26 @@ class AgentMemory {
         this.logger.warn(`[AgentMemory] Load error (starting fresh): ${err.message}`);
       }
     }
+
+    // Week 11.6 — merge in DB symbol_overrides (action='block') after disk/SQL kv load.
+    // DB overrides are authoritative for cross-bot blacklist coordination.
+    try {
+      const { getPool, isSqlEnabled } = require('../utils/sqlServer');
+      if (isSqlEnabled()) {
+        const pool = await getPool().catch(() => null);
+        if (pool) {
+          const scope = String(process.env.BOT_PROFILE || 'live').toLowerCase();
+          await _blacklistModule.loadFromSqlOverrides({
+            pool,
+            scope,
+            data: this.data,
+            logger: this.logger,
+          });
+        }
+      }
+    } catch (e) {
+      this.logger.warn?.(`[AgentMemory] symbol_overrides load skipped: ${e.message}`);
+    }
   }
 
   async save() {

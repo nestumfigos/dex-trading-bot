@@ -1,6 +1,6 @@
 {
   "name": "dex-momentum-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Momentum trading bot for Jupiter (Solana), PancakeSwap (BSC), BaseSwap (Base)",
   "main": "src/index.js",
   "scripts": {

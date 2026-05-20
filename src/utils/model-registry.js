@@ -725,10 +725,65 @@ VALUES(@decision_id, @bot_profile, @ts, @chain_key, @symbol, @address, @task_cla
   }
 }
 
+// Week 11.8b — persist ML model version to dbo.ml_model_versions table.
+// Mirrors scripts/backfill-model-versions.js INSERT shape so backfill + runtime
+// writes share storage. Idempotent on (name, scope, sha256).
+async function persistModelVersion({
+  name, scope, framework, artifactPath, sha256, metrics, configSnapshot,
+  featureColumns, active = false, activateExclusive = true, logger,
+} = {}) {
+  const log = logger || console;
+  if (!name || !artifactPath) {
+    log.warn?.('[ml_model_versions] persistModelVersion: name + artifactPath required');
+    return null;
+  }
+  try {
+    const { getPool, isSqlEnabled } = require('./sqlServer');
+    if (!isSqlEnabled || !isSqlEnabled()) return null;
+    const pool = await getPool().catch(() => null);
+    if (!pool) return null;
+    const sql = require('mssql');
+
+    // Optionally deactivate prior active row for same (name, scope) before inserting fresh active row
+    if (active && activateExclusive) {
+      const reqDeact = pool.request();
+      reqDeact.input('name', sql.NVarChar(120), name);
+      reqDeact.input('scope', sql.NVarChar(20), scope || 'global');
+      await reqDeact.query(`
+        UPDATE dbo.ml_model_versions
+           SET active = 0, retired_at = SYSUTCDATETIME()
+         WHERE name = @name AND scope = @scope AND active = 1
+      `);
+    }
+
+    const req = pool.request();
+    req.input('name', sql.NVarChar(120), name);
+    req.input('scope', sql.NVarChar(20), scope || 'global');
+    req.input('framework', sql.NVarChar(40), framework || null);
+    req.input('artifact_path', sql.NVarChar(500), artifactPath);
+    req.input('sha256', sql.NVarChar(64), sha256 || null);
+    req.input('metrics_json', sql.NVarChar(sql.MAX), metrics ? safeJson(metrics, 10000) : null);
+    req.input('config_json', sql.NVarChar(sql.MAX), configSnapshot ? safeJson(configSnapshot, 10000) : null);
+    req.input('feature_columns_json', sql.NVarChar(sql.MAX), featureColumns ? safeJson(featureColumns, 10000) : null);
+    req.input('active', sql.Bit, Boolean(active));
+    await req.query(`
+      INSERT INTO dbo.ml_model_versions
+        (name, scope, framework, artifact_path, sha256, metrics_json, config_json, feature_columns_json, active, created_at)
+      VALUES
+        (@name, @scope, @framework, @artifact_path, @sha256, @metrics_json, @config_json, @feature_columns_json, @active, SYSUTCDATETIME());
+    `);
+    return { ok: true };
+  } catch (e) {
+    log.warn?.(`[ml_model_versions] persist failed: ${e?.message || e}`);
+    return null;
+  }
+}
+
 module.exports = {
   ModelRegistry,
   DEFAULT_MODELS,
   DEFAULT_EXTERNAL_MODELS,
   stableId,
   resolveArtifactPath,
+  persistModelVersion,
 };

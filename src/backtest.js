@@ -517,7 +517,54 @@ if (require.main === module) {
   }
 }
 
-module.exports = { runBacktest, runBacktestWithRegimes, runWalkForwardBacktest, runRegimeSpecificBacktest, runPortfolioBacktest };
+// Week 11.8a — persist backtest run summary to dbo.backtest_runs (best-effort).
+// Caller passes result + config snapshot. Returns row id or null on failure.
+async function persistBacktestRun({ result, configSnapshot, scope, strategy, patchId, runId, logger } = {}) {
+  if (!result) return null;
+  const log = logger || console;
+  try {
+    const { getPool, isSqlEnabled } = require('./utils/sqlServer');
+    if (!isSqlEnabled || !isSqlEnabled()) return null;
+    const pool = await getPool().catch(() => null);
+    if (!pool) return null;
+    const sql = require('mssql');
+    const req = pool.request();
+    const tradeCount = Array.isArray(result.trades) ? result.trades.length : 0;
+    const finalEquity = result.finalCapital ?? result.equityCurve?.slice(-1)?.[0]?.equity ?? null;
+    const startingBalance = result.startingBalance ?? null;
+    const winRate = result.winRate ?? null;
+    const totalPnl = result.totalPnl ?? (finalEquity != null && startingBalance != null ? finalEquity - startingBalance : null);
+    const sharpe = result.sharpeRatio ?? null;
+    const maxDD = result.maxDrawdownPct ?? null;
+    const pf = result.profitFactor ?? null;
+    req.input('run_id', sql.UniqueIdentifier, runId || require('crypto').randomUUID());
+    req.input('started_at', sql.DateTime2(3), result.startedAt ? new Date(result.startedAt) : new Date());
+    req.input('finished_at', sql.DateTime2(3), new Date());
+    req.input('scope', sql.NVarChar(20), scope || null);
+    req.input('strategy', sql.NVarChar(40), strategy || null);
+    req.input('status', sql.NVarChar(20), 'completed');
+    req.input('trade_count', sql.Int, tradeCount);
+    req.input('win_rate', sql.Float, Number.isFinite(Number(winRate)) ? Number(winRate) : null);
+    req.input('total_pnl_usd', sql.Float, Number.isFinite(Number(totalPnl)) ? Number(totalPnl) : null);
+    req.input('sharpe_ratio', sql.Float, Number.isFinite(Number(sharpe)) ? Number(sharpe) : null);
+    req.input('max_drawdown_pct', sql.Float, Number.isFinite(Number(maxDD)) ? Number(maxDD) : null);
+    req.input('profit_factor', sql.Float, Number.isFinite(Number(pf)) ? Number(pf) : null);
+    req.input('patch_id', sql.NVarChar(80), patchId || null);
+    req.input('config_json', sql.NVarChar(sql.MAX), configSnapshot ? JSON.stringify(configSnapshot).slice(0, 20000) : null);
+    await req.query(`
+      INSERT INTO dbo.backtest_runs
+        (run_id, started_at, finished_at, scope, strategy, status, trade_count, win_rate, total_pnl_usd, sharpe_ratio, max_drawdown_pct, profit_factor, patch_id, config_json)
+      VALUES
+        (@run_id, @started_at, @finished_at, @scope, @strategy, @status, @trade_count, @win_rate, @total_pnl_usd, @sharpe_ratio, @max_drawdown_pct, @profit_factor, @patch_id, @config_json);
+    `);
+    return { ok: true };
+  } catch (e) {
+    log.warn?.(`[backtest_runs] persist failed: ${e?.message || e}`);
+    return null;
+  }
+}
+
+module.exports = { runBacktest, runBacktestWithRegimes, runWalkForwardBacktest, runRegimeSpecificBacktest, runPortfolioBacktest, persistBacktestRun };
 
 async function sendNvidiaBacktestSummary(backtestResults) {
   const summary = await nvidiaSummarizeBacktest(backtestResults);
