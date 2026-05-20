@@ -125,8 +125,66 @@ async function getQuoteBySymbol(symbol) {
   }
 }
 
+function safeNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function getCoinMarketCapContext(symbol, reference = {}) {
+  if (!hasCoinMarketCapApiKey()) {
+    return {
+      source: 'coinmarketcap',
+      available: false,
+      confirmsMomentum: false,
+      reason: 'disabled_or_missing_api_key',
+    };
+  }
+  try {
+    const data = await coinMarketCapRequest('/v2/cryptocurrency/quotes/latest', {
+      symbol,
+      convert: 'USD',
+    });
+    const entry = extractQuoteEntry(data, String(symbol || '').toUpperCase());
+    const quote = entry?.quote?.USD || {};
+    const price = safeNumber(quote.price, 0);
+    if (!price) {
+      return {
+        source: 'coinmarketcap',
+        available: false,
+        confirmsMomentum: false,
+        reason: 'no_price_in_response',
+      };
+    }
+    const tickerChange = safeNumber(quote.percent_change_24h, 0);
+    const refChange = safeNumber(reference.priceChange24hPct ?? reference.priceChange24h, 0);
+    const confirmsMomentum = Math.sign(tickerChange || refChange) === Math.sign(refChange || tickerChange)
+      && Boolean(tickerChange || refChange);
+    return {
+      source: 'coinmarketcap',
+      available: true,
+      confirmsMomentum: Boolean(confirmsMomentum),
+      price,
+      marketCapUsd: safeNumber(quote.market_cap, 0),
+      volume24hUsd: safeNumber(quote.volume_24h, 0),
+      priceChange1hPct: safeNumber(quote.percent_change_1h, 0),
+      priceChange24hPct: tickerChange,
+      priceChange7dPct: safeNumber(quote.percent_change_7d, 0),
+      rank: safeNumber(entry?.cmc_rank, 0),
+      coinMarketCapId: Number(entry?.id || 0) || null,
+    };
+  } catch (error) {
+    return {
+      source: 'coinmarketcap',
+      available: false,
+      confirmsMomentum: false,
+      reason: error?.message || String(error),
+    };
+  }
+}
+
 module.exports = {
   findListingBySymbol,
   getQuoteBySymbol,
+  getCoinMarketCapContext,
   hasCoinMarketCapApiKey,
 };

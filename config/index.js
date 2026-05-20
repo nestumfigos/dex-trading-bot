@@ -1,6 +1,10 @@
 require('dotenv').config();
 
-const isPaperTrading = process.env.PAPER_TRADING === 'true';
+// BOT_PROFILE=paper forces paper mode even when PAPER_TRADING is unset,
+// so paper-bot operators cannot accidentally route trades to the live exchange
+// just because they forgot the PAPER_TRADING flag.
+const botProfile = String(process.env.BOT_PROFILE || '').toLowerCase();
+const isPaperTrading = process.env.PAPER_TRADING === 'true' || botProfile === 'paper';
 const defaultScanIntervalSeconds = isPaperTrading ? 120 : 75;
 const minLiquidityUsdDefault = parseFloat(process.env.MIN_LIQUIDITY_USD) || 10000;
 const defaultBscMinLiquidityUsd = parseFloat(process.env.BSC_MIN_LIQUIDITY_USD || String(minLiquidityUsdDefault)) || minLiquidityUsdDefault;
@@ -114,6 +118,12 @@ const config = {
     enabled: process.env.COINMARKETCAP_ENABLED !== 'false',
     apiKey: process.env.COINMARKETCAP_API_KEY || '',
     baseUrl: process.env.COINMARKETCAP_BASE_URL || 'https://pro-api.coinmarketcap.com',
+  },
+
+  coinpaprika: {
+    enabled: process.env.COINPAPRIKA_ENABLED !== 'false',
+    baseUrl: process.env.COINPAPRIKA_BASE_URL || 'https://api.coinpaprika.com/v1',
+    snapshotTtlMs: parseInt(process.env.COINPAPRIKA_SNAPSHOT_TTL_MS || '60000', 10),
   },
 
   marketData: {

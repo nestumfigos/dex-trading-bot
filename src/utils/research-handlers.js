@@ -59,6 +59,15 @@ function createResearchHandlers(deps = {}) {
 
     const priceHistory = backtestMode !== 'portfolio' ? getHistorySeries(strategy.priceHistory, chainKey, tokenAddress) : [];
     const volumeHistory = backtestMode !== 'portfolio' ? getHistorySeries(strategy.volumeHistory, chainKey, tokenAddress) : [];
+
+    if (backtestMode !== 'portfolio' && tokenAddress) {
+      const minBars = Math.max(1, Number(config.research?.minHistoryBars || 60));
+      if (priceHistory.length < minBars || volumeHistory.length < minBars) {
+        logger.warn(`Backtest skipped for ${tokenAddress} on ${chainKey}: insufficient history (price=${priceHistory.length}, volume=${volumeHistory.length}, min=${minBars})`);
+        return null;
+      }
+    }
+
     const baseOptions = {
       startingBalance: Number(payload.startingBalance || config.paperBalance || 10000),
       tradePct: Number(payload.tradePct || 0.05),
@@ -81,13 +90,16 @@ function createResearchHandlers(deps = {}) {
       case 'portfolio':
         result = runPortfolioBacktest((priceHist, volHist, stratSettings, opts) => runBacktest(priceHist, volHist, stratSettings, opts), baseOptions);
         break;
-      case 'walk_forward':
+      case 'walk_forward': {
+        const { sendNvidiaBacktestSummary } = require('../backtest');
         result = runWalkForwardBacktest(priceHistory, volumeHistory, strategyCfg, {
           ...baseOptions,
           trainPct: Number(payload.trainPct || 0.7),
           validatePct: Number(payload.validatePct || 0.15),
         });
+        if (result) sendNvidiaBacktestSummary(result).catch(() => {});
         break;
+      }
       case 'regime':
         result = runRegimeSpecificBacktest(priceHistory, volumeHistory, strategyCfg, {
           ...baseOptions,
@@ -118,6 +130,12 @@ function createResearchHandlers(deps = {}) {
       generatedAt: new Date().toISOString(),
       ...result,
     };
+
+    const hasInvalidMetrics = Object.values(response).some((v) => typeof v === 'number' && !Number.isFinite(v));
+    if (hasInvalidMetrics) {
+      logger.warn(`Backtest result for ${tokenAddress} on ${chainKey} contains NaN/Infinity — not storing in marketState`);
+      return response;
+    }
     marketState.backtests.unshift(response);
     if (marketState.backtests.length > 10) marketState.backtests.pop();
     return response;

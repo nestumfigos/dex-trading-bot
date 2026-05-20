@@ -11,7 +11,7 @@ test('research handlers run standard backtest request and store result', async (
   };
 
   const handlers = createResearchHandlers({
-    config: { paperBalance: 1000, risk: {}, strategies: { momentum: { name: 'momentum' } } },
+    config: { paperBalance: 1000, risk: {}, strategies: { momentum: { name: 'momentum' } }, research: { minHistoryBars: 1 } },
     logger: { info() {}, warn() {}, error() {} },
     marketState,
     strategy,

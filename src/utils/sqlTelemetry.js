@@ -10,15 +10,60 @@
      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
  }
  
-function safeJson(value, maxLen = 4000) {
+function safeJson(value, maxLen = 4000, options = {}) {
   if (value === undefined) return null;
+  const strict = Boolean(options && options.strict);
+  let str;
   try {
-    const str = JSON.stringify(value);
-    if (typeof str !== 'string') return null;
-    return str.length > maxLen ? str.slice(0, maxLen) : str;
+    str = JSON.stringify(value);
   } catch {
+    if (strict) {
+      const err = new Error('safeJson: value not serializable');
+      err.code = 'SAFE_JSON_UNSERIALIZABLE';
+      throw err;
+    }
     return null;
   }
+  if (typeof str !== 'string') return null;
+  if (str.length <= maxLen) return str;
+  if (strict) {
+    const err = new Error(`safeJson: serialized payload (${str.length}) exceeds SQL limit (${maxLen})`);
+    err.code = 'SAFE_JSON_TRUNCATED';
+    err.size = str.length;
+    err.limit = maxLen;
+    throw err;
+  }
+  // Non-strict: emit a self-describing marker so downstream parsers know the
+  // payload was truncated rather than silently losing the JSON tail.
+  const marker = JSON.stringify({
+    _truncated: true,
+    _originalSize: str.length,
+    _limit: maxLen,
+    _preview: str.slice(0, Math.max(0, maxLen - 120)),
+  });
+  // If even the marker is too large, fall back to a minimal one.
+  if (marker.length > maxLen) {
+    return JSON.stringify({ _truncated: true, _originalSize: str.length, _limit: maxLen });
+  }
+  return marker;
+}
+
+function parseSqlJson(raw, columnName = 'json', logger = console) {
+  if (raw === null || raw === undefined || raw === '') {
+    return { ok: false, value: null, reason: 'empty' };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch (error) {
+    logger?.warn?.(`[SQL] ${columnName} parse failed: ${error?.message || error}`);
+    return { ok: false, value: null, reason: 'invalid_json', error: error?.message || String(error) };
+  }
+  if (parsed && typeof parsed === 'object' && parsed._truncated === true) {
+    logger?.warn?.(`[SQL] ${columnName} was truncated (original size ${parsed._originalSize})`);
+    return { ok: false, value: parsed, reason: 'truncated' };
+  }
+  return { ok: true, value: parsed };
 }
 
 function toDateOrNull(value) {
@@ -191,27 +236,35 @@ async function loadSharedAgentMemory(pool) {
  
    async flush() {
      if (!this.isEnabled()) return;
-     if (this._flushInFlight) return;
      const pool = await getPool(this.logger);
      if (!pool) return;
      await ensureSchema(this.logger);
- 
-     this._flushInFlight = true;
-     try {
-       while (this._queue.length) {
-         const batch = this._queue.splice(0, this.maxBatch);
-         // Best-effort sequential inserts; schema is append-heavy and batches are small.
-         for (const item of batch) {
-           // eslint-disable-next-line no-await-in-loop
-           await this._writeOne(pool, item);
-         }
-       }
-     } catch (e) {
-       this.logger.warn(`[SQL] flush failed: ${e.message}`);
-     } finally {
-       this._flushInFlight = false;
-     }
+     return this.flushWithPool(pool);
    }
+
+  async flushWithPool(pool) {
+    if (!this.isEnabled()) return;
+    if (this._flushInFlight) return;
+    this._flushInFlight = true;
+    try {
+      while (this._queue.length) {
+        const batch = this._queue.splice(0, this.maxBatch);
+        try {
+          for (const item of batch) {
+            // eslint-disable-next-line no-await-in-loop
+            await this._writeOne(pool, item);
+          }
+        } catch (e) {
+          // Requeue the entire batch (preserve order) so nothing is silently dropped.
+          this._queue.unshift(...batch);
+          this.logger?.warn?.(`[SQL] flush batch failed (requeued ${batch.length}): ${e?.message || e}`);
+          return;
+        }
+      }
+    } finally {
+      this._flushInFlight = false;
+    }
+  }
  
    async _writeOne(pool, { kind, payload }) {
      const runId = this.runId;
@@ -931,4 +984,4 @@ ORDER BY ts DESC
   }
 }
  
- module.exports = { SqlTelemetry, uuid };
+ module.exports = { SqlTelemetry, uuid, safeJson, parseSqlJson };

@@ -1,5 +1,7 @@
 'use strict';
 
+const { canIncreasePositionSize } = require('../policy/preconditions');
+
 class PositionSizingEngine {
   constructor({ logger, config }) {
     this.logger = logger;
@@ -34,7 +36,20 @@ class PositionSizingEngine {
       : 50;
 
     const iteration = this.getIterationNumber(portfolio, tokenData?.symbol);
-    const iterationMultiplier = this.getIterationMultiplier(iteration, winRate);
+    let iterationMultiplier = this.getIterationMultiplier(iteration, winRate);
+
+    // Week 5 policy gate: refuse to scale up past 1.0× during loss streaks /
+    // sub-30% WR (pure sync gate; uses DEFAULTS — DB hot-reload deferred).
+    if (iterationMultiplier > 1.0) {
+      const consecutiveLosses = Number(portfolio?.stats?.consecutiveLosses) || 0;
+      const policy = canIncreasePositionSize({ consecutiveLosses, winRate });
+      if (!policy.allow) {
+        if (this.logger && typeof this.logger.debug === 'function') {
+          this.logger.debug(`[position-sizing/policy] cap multiplier ${iterationMultiplier.toFixed(2)}→1.0 for ${tokenData?.symbol}: ${policy.reason}`);
+        }
+        iterationMultiplier = 1.0;
+      }
+    }
 
     iterationSize *= iterationMultiplier;
 
@@ -129,21 +144,36 @@ class PositionSizingEngine {
 
   /**
    * Get the iteration number for a symbol (how many times have we entered?)
+   *
+   * Counts completed SELL trades for the symbol + 1 (the next iteration about to open).
+   * Tolerates `portfolio.closedTrades` being either an array, an object map, or a
+   * numeric count — only the trades ledger is used to derive per-symbol history.
    */
   getIterationNumber(portfolio, symbol) {
-    const symbolHistory = Object.values(portfolio.positions || {})
-      .concat(Object.values(portfolio.closedTrades || {}))
-      .filter((t) => t.symbol === symbol);
-
-    return symbolHistory.length + 1;
+    if (!symbol) return 1;
+    const closedForSymbol = this.getRecentTradesForSymbol(portfolio, symbol);
+    return closedForSymbol.length + 1;
   }
 
   /**
-   * Get recent trades for a symbol
+   * Get recent SELL trades for a symbol (completed iterations).
+   *
+   * Reads from `portfolio.trades` (the unified trade ledger) so that this works
+   * even when `closedTrades` is stored as a numeric counter rather than an array.
    */
   getRecentTradesForSymbol(portfolio, symbol) {
-    return Object.values(portfolio.closedTrades || {})
-      .filter((t) => t.symbol === symbol && Date.now() - (t.closedAt || 0) < 14 * 24 * 3600 * 1000)
+    if (!symbol) return [];
+    const cutoffMs = 14 * 24 * 3600 * 1000;
+    const now = Date.now();
+    const trades = Array.isArray(portfolio?.trades) ? portfolio.trades : [];
+    return trades
+      .filter((trade) => {
+        if (!trade || trade.symbol !== symbol) return false;
+        if (String(trade.type || '').toUpperCase() !== 'SELL') return false;
+        const ts = trade.timestamp ? Date.parse(trade.timestamp) : (trade.closedAt || 0);
+        if (!Number.isFinite(ts) || ts <= 0) return true;
+        return (now - ts) < cutoffMs;
+      })
       .slice(-10);
   }
 
@@ -159,17 +189,18 @@ class PositionSizingEngine {
   }
 
   /**
-   * Get available balance for trading
+   * Get available balance for trading.
+   *
+   * `portfolio.balance` already represents free cash — positions have been
+   * debited from it at entry — so subtracting `costBasisUsd` again here would
+   * double-count open exposure and stall the sizing engine after a few buys.
+   * Only the explicit safety reserve is withheld.
    */
   getAvailableBalance(portfolio) {
     const totalBalance = portfolio.balance || 10000;
-    const allocatedPositions = Object.values(portfolio.positions || {})
-      .reduce((sum, p) => sum + (p.costBasisUsd || 0), 0);
-
-    const reservePercent = this.config.risk?.minBalanceCoverage || 2;
+    const reservePercent = Number(this.config.risk?.minBalanceCoverage ?? 0.5);
     const reservedAmount = (totalBalance * reservePercent) / 100;
-
-    return Math.max(0, totalBalance - allocatedPositions - reservedAmount);
+    return Math.max(0, totalBalance - reservedAmount);
   }
 
   /**

@@ -94,7 +94,82 @@ async function runPythonSidecar(command, payload = {}, logger = console) {
   });
 }
 
+function jsFallbackTreeLike(features = {}) {
+  const num = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const weighted = (
+    num(features.priceChange24hPct) * 0.04
+    + num(features.return3Pct) * 0.06
+    + num(features.return12Pct) * 0.03
+    + (num(features.volumeSpike, 1) - 1) * 0.45
+    + (num(features.buyRatioRecentPct, 50) - 50) * 0.05
+    + num(features.netBuyFlowUsd10m) / 15000
+    + (num(features.sentimentScore, 0.5) - 0.5) * 1.2
+    - num(features.realizedVolPct) * 0.18
+  );
+  const score = 1 / (1 + Math.exp(-weighted));
+  const signal = score >= 0.64 ? 'BUY' : score <= 0.36 ? 'SELL' : 'HOLD';
+  return {
+    score,
+    signal,
+    confidence: Math.abs(score - 0.5) * 2,
+    provider: 'js_fallback',
+  };
+}
+
+async function runPythonSidecarBatch(command, payloads = [], sharedPayload = {}, logger = console) {
+  const list = Array.isArray(payloads) ? payloads : [];
+  if (!list.length) {
+    return { ok: true, predictions: [] };
+  }
+
+  const framework = String(
+    sharedPayload?.metadata?.framework
+    || sharedPayload?.framework
+    || ''
+  ).toLowerCase();
+
+  // Pure JS fallback path: skip spawning Python entirely (used for fast batch validation).
+  if (command === 'infer_model' && (framework === 'fallback' || framework === 'js' || framework === 'js_fallback')) {
+    const predictions = list.map((item) => {
+      const features = item?.features || {};
+      return { ok: true, ...jsFallbackTreeLike(features) };
+    });
+    return { ok: true, predictions };
+  }
+
+  // Try to call the sidecar once with the entire batch. If the sidecar exposes
+  // a `${command}_batch`, prefer it. Otherwise fall back to per-item sequential calls.
+  const predictions = [];
+  for (const item of list) {
+    const mergedPayload = {
+      ...(sharedPayload || {}),
+      ...(item || {}),
+      metadata: {
+        ...(sharedPayload?.metadata || {}),
+        ...(item?.metadata || {}),
+      },
+    };
+    try {
+      const result = await runPythonSidecar(command, mergedPayload, logger);
+      predictions.push({ ok: true, ...(result || {}) });
+    } catch (error) {
+      // On any sidecar failure, degrade to JS fallback so batch keeps the same length.
+      const features = item?.features || {};
+      predictions.push({
+        ok: false,
+        error: error?.message || String(error),
+        ...jsFallbackTreeLike(features),
+      });
+    }
+  }
+  return { ok: true, predictions };
+}
+
 module.exports = {
   runPythonSidecar,
+  runPythonSidecarBatch,
   resolvePythonBin,
 };

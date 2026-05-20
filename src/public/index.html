@@ -3,184 +3,412 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DEX Bot Dashboard</title>
-  <link rel="stylesheet" href="/dashboard.css">
+  <title>DEX TradeBot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dashboard.css?v=20260517-13">
+  <script>
+    window.__BUNDLE_VERSION = 'v20260517-13';
+    window.__bootErrors = [];
+    window.addEventListener('error', function(e){
+      window.__bootErrors.push((e.message||'err') + ' @ ' + (e.filename||'?') + ':' + (e.lineno||'?'));
+      var box = document.getElementById('debug-overlay');
+      if (box) box.textContent = 'JS ERR: ' + window.__bootErrors.join(' | ');
+    });
+    window.addEventListener('unhandledrejection', function(e){
+      window.__bootErrors.push('PROMISE: ' + (e.reason && e.reason.message || e.reason || 'unknown'));
+      var box = document.getElementById('debug-overlay');
+      if (box) box.textContent = 'JS ERR: ' + window.__bootErrors.join(' | ');
+    });
+  </script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"
+    onerror="window.__cdn1Failed=true;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js';s.onerror=function(){window.__chartCdnFailed=true;};document.head.appendChild(s);"></script>
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div>
-        <h1>DEX Bot Dashboard</h1>
-        <p id="status-line" class="muted">Waiting for data...</p>
-        <div id="catalyst-banner" class="catalyst-banner hidden"></div>
-        <span id="scan-counter-mismatch-badge" class="scan-counter-badge hidden" title="Active scan counter mismatches (evaluated vs scanned)"></span>
-      </div>
-      <div class="actions">
-        <a class="btn secondary" href="/sql-report.html?report=overview" target="_blank" rel="noopener noreferrer">SQL Overview</a>
-        <a class="btn secondary" href="/sql-report.html?report=breakdown" target="_blank" rel="noopener noreferrer">SQL Breakdown</a>
-        <a class="btn secondary" href="/sql-report.html?report=memory" target="_blank" rel="noopener noreferrer">SQL Memory</a>
-        <a class="btn secondary" href="/sql-report.html?report=overview#model-version-panel" target="_blank" rel="noopener noreferrer">Models</a>
-        <a class="btn secondary" href="/sql-report.html?report=overview#sentiment-panel" target="_blank" rel="noopener noreferrer">Sentiment</a>
-        <a class="btn secondary" href="/sql-report.html?report=overview#rl-policy-panel" target="_blank" rel="noopener noreferrer">RL Policies</a>
-        <a class="btn secondary" href="/sql-report.html?report=overview#hybrid-route-panel" target="_blank" rel="noopener noreferrer">Hybrid Routes</a>
-        <a class="btn secondary" href="/sql-report.html?report=overview#approval-panel" target="_blank" rel="noopener noreferrer">Approvals</a>
-        <a class="btn secondary" href="/sql-report.html?report=overview#rotation-debug-panel" target="_blank" rel="noopener noreferrer">Rotation Debug</a>
-        <button id="pause-button" class="btn secondary" type="button">Pause Live Updates</button>
-        <button id="refresh-button" class="btn" type="button">Refresh Now</button>
-      </div>
-    </header>
-
-    <section class="kpis" id="kpis">
-      <article class="card"><span class="label">Mode</span><strong id="kpi-mode">-</strong></article>
-      <article class="card"><span class="label">Uptime</span><strong id="kpi-uptime">-</strong></article>
-      <article class="card"><span class="label">Total Live Time</span><strong id="kpi-live">-</strong></article>
-      <article class="card"><span class="label">Total Balance</span><strong id="kpi-total-balance">-</strong></article>
-      <article class="card"><span class="label">Solana Balance</span><strong id="kpi-balance-solana">-</strong></article>
-      <article class="card"><span class="label">BSC Balance</span><strong id="kpi-balance-bsc">-</strong></article>
-      <article class="card"><span class="label">Base Balance</span><strong id="kpi-balance-base">-</strong></article>
-      <article class="card"><span class="label">KuCoin Balance</span><strong id="kpi-balance-kucoin">-</strong></article>
-      <article class="card"><span class="label">Value Invested</span><strong id="kpi-invested-value">-</strong></article>
-      <article class="card"><span class="label">PnL</span><strong id="kpi-pnl">-</strong></article>
-      <article class="card"><span class="label">Open Positions</span><strong id="kpi-positions">-</strong></article>
-      <article class="card"><span class="label">Tracked Tokens</span><strong id="kpi-tracked">-</strong></article>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Research Jobs</h2>
-        <div class="actions">
-          <button id="research-run-nightly" class="btn secondary small" type="button">Run Nightly Now</button>
-          <button id="research-refresh" class="btn secondary small" type="button">Refresh Jobs</button>
+  <div class="layout">
+    <!-- ─── Sidebar ─────────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">⚡</div>
+        <div>
+          <h1>DEX TradeBot</h1>
+          <p class="brand-sub">CRYPTO ALGO TRADER</p>
         </div>
       </div>
-      <div id="research-status-line" class="muted">Waiting for research jobs...</div>
-      <div id="research-jobs-list" class="list compact-list"></div>
-    </section>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Chain Health</h2>
-        <span
-          class="metric-legend"
-          title="Discovered: total candidate universe. Evaluated: tokens checked this cycle. Tracked: actionable tokens. Seen: all tracked entries, including insufficient-data placeholders."
-        >
-          Discovered = universe | Evaluated = checked | Tracked = actionable | Seen = all tracked
-        </span>
-      </div>
-      <div id="chain-grid" class="chain-grid"></div>
-    </section>
+      <nav class="nav">
+        <a class="nav-item active" data-view="dashboard" href="#dashboard">
+          <span class="nav-ico">▦</span> Dashboard
+        </a>
+        <a class="nav-item" data-view="positions" href="#positions">
+          <span class="nav-ico">≡</span> Positions
+        </a>
+        <a class="nav-item" data-view="trades" href="#trades">
+          <span class="nav-ico">⇄</span> Trades
+        </a>
+        <a class="nav-item" data-view="signals" href="#signals">
+          <span class="nav-ico">⊳</span> Signals
+        </a>
+        <a class="nav-item" data-view="watchlist" href="#watchlist">
+          <span class="nav-ico">★</span> Watchlist
+        </a>
+        <a class="nav-item" data-view="observability" href="#observability">
+          <span class="nav-ico">◉</span> Observability
+        </a>
+        <a class="nav-item" data-view="logs" href="#logs">
+          <span class="nav-ico">¶</span> Logs
+        </a>
+        <a class="nav-item" data-view="settings" href="#settings">
+          <span class="nav-ico">⚙</span> Settings
+        </a>
+      </nav>
 
-    <nav class="tabs" role="tablist" aria-label="Dashboard sections">
-      <button class="tab active" data-tab="positions" type="button">Positions</button>
-      <button class="tab" data-tab="tracked" type="button">Tracked Tokens</button>
-      <button class="tab" data-tab="signals" type="button">Signals</button>
-      <button class="tab" data-tab="trades" type="button">Trades</button>
-      <button class="tab" data-tab="agent-actions" type="button" id="tab-agent-actions-button">Agent Actions</button>
-      <button class="tab" data-tab="correlation" type="button">Correlation</button>
-    </nav>
+      <div class="sidebar-card">
+        <div class="sidebar-card-title">Active Profile</div>
+        <div class="sidebar-card-value" id="sidebar-profile">—</div>
+        <div class="sidebar-card-sub" id="sidebar-uptime">Uptime —</div>
+      </div>
 
-    <section id="tab-positions" class="panel tab-panel active">
-      <div class="panel-head">
-        <h2>Open Positions</h2>
-        <span id="positions-count" class="muted">0</span>
+      <div class="sidebar-foot">
+        <a class="sidebar-link" href="/sql-report.html?report=overview" target="_blank">SQL Reports →</a>
       </div>
-      <div id="positions-note" class="panel-note hidden"></div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Token</th><th>Chain</th><th>Entry</th><th>Now</th><th>Value</th><th>Unrealized</th></tr>
-          </thead>
-          <tbody id="positions-body"></tbody>
-        </table>
-      </div>
-      <div class="panel-foot"><button id="positions-more" class="btn secondary small" type="button">Show More</button></div>
-    </section>
+    </aside>
 
-    <section id="tab-tracked" class="panel tab-panel">
-      <div class="panel-head">
-        <h2>Tracked Tokens</h2>
-        <span id="tracked-count" class="muted">0</span>
-      </div>
-      <div id="tracked-filters" class="filter-bar">
-        <label>Chain: 
-          <select id="tracked-filter-chain">
-            <option value="">All Chains</option>
-            <option value="BSC">BSC</option>
-            <option value="Base">Base</option>
-            <option value="Solana">Solana</option>
-            <option value="KuCoin">KuCoin</option>
-          </select>
-        </label>
-        <label>Signal: 
-          <select id="tracked-filter-signal">
-            <option value="">All Signals</option>
-            <option value="BUY">BUY</option>
-            <option value="HOLD">HOLD</option>
-            <option value="SELL">SELL</option>
-          </select>
-        </label>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Token</th><th class="sortable" data-sort="chain">Chain</th><th>Price</th><th>24h</th><th>Liquidity</th><th class="sortable" data-sort="signal">Signal</th><th>RSI</th><th>Not Bought Reason</th><th>Last Updated</th></tr>
-          </thead>
-          <tbody id="tracked-body"></tbody>
-        </table>
-      </div>
-      <div class="panel-foot"><button id="tracked-more" class="btn secondary small" type="button">Show More</button></div>
-    </section>
-
-    <section id="tab-signals" class="panel tab-panel">
-      <div class="panel-head">
-        <h2>Recent Signals</h2>
-        <span id="signals-count" class="muted">0</span>
-      </div>
-      <div id="signals-list" class="list"></div>
-      <div class="panel-foot"><button id="signals-more" class="btn secondary small" type="button">Show More</button></div>
-    </section>
-
-    <section id="tab-trades" class="panel tab-panel">
-      <div class="panel-head">
-        <h2>Recent Trades</h2>
-        <span id="trades-count" class="muted">0</span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Time</th><th>Side</th><th>Token</th><th>Chain</th><th>Value</th><th>PnL</th><th>Reason</th></tr>
-          </thead>
-          <tbody id="trades-body"></tbody>
-        </table>
-      </div>
-      <div class="panel-foot"><button id="trades-more" class="btn secondary small" type="button">Show More</button></div>
-    </section>
-
-    <section id="tab-agent-actions" class="panel tab-panel">
-      <div class="panel-head">
-        <h2>Agent Actions</h2>
-        <span id="agent-actions-count" class="muted">0</span>
-      </div>
-      <div class="muted" style="margin-bottom:8px;">Short action phrases from memory, intelligence, and gate diagnostics.</div>
-      <div id="agent-actions-list" class="list"></div>
-      <div class="panel-foot"><button id="agent-actions-more" class="btn secondary small" type="button">Show More</button></div>
-    </section>
-
-    <section id="tab-correlation" class="panel tab-panel">
-      <div class="panel-head">
-        <h2>Correlation Heat Map</h2>
-        <div class="actions">
-          <span id="correlation-meta" class="muted">On-demand load</span>
-          <button id="correlation-refresh" class="btn secondary small" type="button">Reload</button>
+    <!-- ─── Main column ─────────────────────────────────────────── -->
+    <main class="main">
+      <!-- Top bar -->
+      <header class="topbar">
+        <div class="symbol-block">
+          <div class="symbol-picker">
+            <button class="symbol-pill" type="button" id="symbol-pill-btn">
+              <span class="star">★</span>
+              <span id="topbar-symbol">BTC/USDT</span>
+              <span class="caret">▾</span>
+            </button>
+            <div class="symbol-dropdown hidden" id="symbol-dropdown">
+              <input class="search-input" id="symbol-search" type="search" placeholder="Search pair...">
+              <div class="symbol-list" id="symbol-list"></div>
+            </div>
+          </div>
+          <strong id="topbar-price" class="topbar-price">—</strong>
         </div>
-      </div>
-      <div id="correlation-wrap" class="table-wrap">
-        <div class="muted" style="padding:10px;">Open this tab to load correlation data.</div>
-      </div>
-    </section>
-  </main>
 
-  <script src="/dashboard.js?v=20260503-1" defer></script>
-  <script type="module" src="/ai-status.js?v=20260426-1"></script>
+        <div class="topbar-stats">
+          <div><span class="muted">24h Change</span><strong id="topbar-change">—</strong></div>
+          <div><span class="muted">24h High</span><strong id="topbar-high">—</strong></div>
+          <div><span class="muted">24h Low</span><strong id="topbar-low">—</strong></div>
+          <div><span class="muted">24h Volume</span><strong id="topbar-vol">—</strong></div>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="refresh-btn" class="icon-btn" title="Refresh">⟳</button>
+          <button class="icon-btn" title="Notifications">🔔<span class="badge" id="alert-count">0</span></button>
+          <div class="bot-switcher" id="bot-switcher">
+            <span class="bot-dot" id="bot-dot"></span>
+            <select id="bot-select">
+              <option value="live">Live Bot</option>
+              <option value="paper">Paper Bot</option>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <!-- Dashboard view -->
+      <section class="view" id="view-dashboard">
+        <div class="grid-row">
+          <div class="panel panel-chart">
+            <div class="panel-head">
+              <h2>Chart</h2>
+              <div class="timeframes">
+                <button class="tf" data-tf="1m">1m</button>
+                <button class="tf active" data-tf="5m">5m</button>
+                <button class="tf" data-tf="15m">15m</button>
+                <button class="tf" data-tf="1h">1h</button>
+                <button class="tf" data-tf="4h">4h</button>
+                <button class="tf" data-tf="1d">1D</button>
+              </div>
+            </div>
+            <div id="chart-container" class="chart-container" style="height:420px !important;max-height:420px !important;min-height:420px !important;flex:0 0 420px !important;overflow:hidden !important;"></div>
+          </div>
+
+          <div class="grid-stack">
+            <div class="card-row card-row-4">
+              <article class="balance-card">
+                <span class="card-label">Total Balance</span>
+                <strong id="kpi-total-balance">$0.00 <span class="card-suffix">USDT</span></strong>
+                <span class="card-sub" id="kpi-balance-detail">—</span>
+              </article>
+              <article class="balance-card">
+                <span class="card-label">Invested</span>
+                <strong id="kpi-invested">—</strong>
+                <span class="card-sub" id="kpi-invested-pct">—</span>
+              </article>
+              <article class="balance-card pnl-positive">
+                <span class="card-label">24h PnL</span>
+                <strong id="kpi-pnl-24h">—</strong>
+                <span class="card-sub" id="kpi-pnl-24h-pct">—</span>
+              </article>
+              <article class="balance-card pnl-positive">
+                <span class="card-label">Total PnL</span>
+                <strong id="kpi-pnl-total">—</strong>
+                <span class="card-sub" id="kpi-pnl-total-pct">—</span>
+              </article>
+            </div>
+
+            <article class="panel bot-control">
+              <div class="panel-head"><h3>Bot Status</h3></div>
+              <div class="bot-info-grid">
+                <div><span class="muted">Mode</span><strong id="bot-mode">—</strong></div>
+                <div><span class="muted">Active Pair</span><strong id="bot-pair">—</strong></div>
+                <div><span class="muted">Strategy Mix</span><strong id="bot-strategy">—</strong></div>
+                <div><span class="muted">Open Positions</span><strong id="bot-positions">—</strong></div>
+                <div><span class="muted">Win Rate</span><strong id="bot-winrate">—</strong></div>
+                <div><span class="muted">Closed Trades</span><strong id="bot-closed">—</strong></div>
+                <div><span class="muted">Profit Factor</span><strong id="bot-pf">—</strong></div>
+                <div><span class="muted">Consec Losses</span><strong id="bot-cons-losses">—</strong></div>
+                <div><span class="muted">Avg Slippage</span><strong id="bot-slippage">—</strong></div>
+              </div>
+              <a href="#settings" class="bot-config" type="button" id="bot-config-btn" data-view="settings">⚙ View Settings</a>
+            </article>
+
+            <article class="panel market-indicators">
+              <div class="panel-head"><h3>Market Indicators</h3></div>
+              <ul class="ind-list">
+                <li><span class="ind-name">⊙ Fear &amp; Greed Index</span><span><strong id="ind-fgi">—</strong><span class="ind-sub" id="ind-fgi-label">—</span></span></li>
+                <li><span class="ind-name">₿ Bitcoin Dominance</span><span><strong id="ind-btcdom">—</strong><span class="ind-sub" id="ind-btcdom-chg">—</span></span></li>
+                <li><span class="ind-name">⌬ Altcoin Season Index</span><span><strong id="ind-altseason">—</strong><span class="ind-sub" id="ind-altseason-label">—</span></span></li>
+                <li><span class="ind-name">⊞ Market Cap</span><span><strong id="ind-mcap">—</strong><span class="ind-sub" id="ind-mcap-chg">—</span></span></li>
+                <li><span class="ind-name">⊡ 24h Volume</span><span><strong id="ind-vol">—</strong><span class="ind-sub" id="ind-vol-chg">—</span></span></li>
+                <li><span class="ind-name">⊕ BTC Funding Rate</span><span><strong id="ind-funding">—</strong><span class="ind-sub" id="ind-funding-chg">—</span></span></li>
+                <li><span class="ind-name">⊗ Open Interest</span><span><strong id="ind-oi">—</strong><span class="ind-sub" id="ind-oi-chg">—</span></span></li>
+              </ul>
+            </article>
+          </div>
+        </div>
+
+        <div class="grid-row grid-row-3col">
+          <article class="panel">
+            <div class="panel-head"><h3>Open Orders <span class="count-pill" id="orders-count">0</span></h3></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Pair</th><th>Side</th><th>Size USD</th><th>Entry</th><th>Now</th><th>PnL</th></tr></thead>
+                <tbody id="orders-body"></tbody>
+              </table>
+            </div>
+            <a class="panel-foot-link" href="#positions">See all positions →</a>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><h3>Trade History <span class="count-pill" id="trades-count">0</span></h3></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Time</th><th>Pair</th><th>Side</th><th>Value</th><th>PnL</th></tr></thead>
+                <tbody id="trades-body"></tbody>
+              </table>
+            </div>
+            <a class="panel-foot-link" href="#trades">Full history →</a>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><h3>Pair Selector</h3></div>
+            <input class="search-input" id="pair-search" type="search" placeholder="Search pair...">
+            <div class="pair-tabs">
+              <button class="pair-tab" data-quote="favorites">★</button>
+              <button class="pair-tab active" data-quote="USDT">USDT</button>
+              <button class="pair-tab" data-quote="BTC">BTC</button>
+              <button class="pair-tab" data-quote="ETH">ETH</button>
+              <button class="pair-tab" data-quote="BUSD">BUSD</button>
+            </div>
+            <div class="table-wrap pair-list-wrap">
+              <table>
+                <thead><tr><th>Pair</th><th>Price</th><th>24h%</th></tr></thead>
+                <tbody id="pair-body"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-row grid-row-alerts">
+          <article class="panel risk-alerts">
+            <div class="panel-head"><h3>Risk Alerts <span class="count-pill alert-pill" id="risk-count">0</span></h3></div>
+            <div id="risk-list"><div class="muted small">No active alerts.</div></div>
+            <a class="panel-foot-link" href="#alerts">Manage alerts →</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-positions">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>All Positions</h2>
+            <span class="count-pill" id="positions-full-count">0</span>
+            <span class="muted small" style="margin-left:auto;">Force-sell exits at market.</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Pair</th><th>Chain</th><th>Strategy</th><th>Size USD</th><th>Entry</th><th>Now</th><th>PnL USD</th><th>PnL %</th><th>Opened</th><th>Action</th></tr></thead>
+              <tbody id="positions-full-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-trades">
+        <article class="panel">
+          <div class="panel-head"><h2>Trade History</h2><span class="count-pill" id="trades-full-count">0</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Pair</th><th>Chain</th><th>Side</th><th>Value USD</th><th>PnL USD</th><th>Reason</th></tr></thead>
+              <tbody id="trades-full-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-signals">
+        <article class="panel">
+          <div class="panel-head"><h2>Recent Signals</h2><span class="count-pill" id="signals-full-count">0</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Symbol</th><th>Chain</th><th>Strategy</th><th>Technical</th><th>Final</th><th>Source</th><th>RSI</th><th>Vol Spike</th><th>Reason</th></tr></thead>
+              <tbody id="signals-full-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-watchlist">
+        <article class="panel">
+          <div class="panel-head"><h2>Watchlist</h2><span class="count-pill" id="watchlist-count">0</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Token</th><th>Chain</th><th>Price</th><th>24h%</th><th>Signal</th><th>Last Update</th></tr></thead>
+              <tbody id="watchlist-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-observability">
+        <div class="grid-row grid-row-3col">
+          <article class="panel kpi-mini-card"><span class="card-label">Canary Status</span><strong id="w6-kpi-canary">—</strong></article>
+          <article class="panel kpi-mini-card"><span class="card-label">Rejections 24h</span><strong id="w6-kpi-rejections">—</strong></article>
+          <article class="panel kpi-mini-card"><span class="card-label">AI Cost 24h</span><strong id="w6-kpi-cost">—</strong></article>
+        </div>
+        <article class="panel">
+          <div class="panel-head"><h3>Health Canary (last 30)</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Check</th><th>Status</th><th>Value</th><th>Threshold</th><th>Message</th></tr></thead>
+              <tbody id="w6-canary-body"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><h3>AI Provider Health</h3><span class="muted small" id="w6-aihealth-meta">—</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Provider</th><th>Enabled</th><th>Has Key</th><th>Status</th><th>Quota</th><th>Backoff</th><th>Model</th></tr></thead>
+              <tbody id="w6-aihealth-body"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><h3>AI Cost (24h)</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Provider</th><th>Calls</th><th>Success</th><th>Cost USD</th><th>Avg Latency</th><th>BUY / HOLD / SELL</th></tr></thead>
+              <tbody id="w6-aicost-body"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><h3>Trade Rejections (24h)</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Side</th><th>Symbol</th><th>Chain</th><th>Gate</th><th>Severity</th><th>Reason</th></tr></thead>
+              <tbody id="w6-rejections-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-logs">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Logs <span class="muted small" id="logs-meta" style="font-weight:400;">—</span></h2>
+            <div class="actions">
+              <select id="logs-lines" class="search-input" style="width:auto; margin:0;">
+                <option value="100">100 lines</option>
+                <option value="200" selected>200 lines</option>
+                <option value="500">500 lines</option>
+                <option value="1000">1000 lines</option>
+              </select>
+              <button id="logs-refresh" class="bot-config" style="margin:0;">⟳ Refresh</button>
+              <label class="muted small" style="display:flex; align-items:center; gap:4px;">
+                <input id="logs-autorefresh" type="checkbox"> Auto (5s)
+              </label>
+            </div>
+          </div>
+          <pre id="logs-pane" class="logs-pane">Loading logs...</pre>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-settings">
+        <article class="panel">
+          <div class="panel-head"><h2>Settings</h2></div>
+          <div class="settings-grid">
+            <div class="settings-card">
+              <h3>Runtime Profile</h3>
+              <div><span class="muted small">Mode:</span> <strong id="settings-mode">—</strong></div>
+              <div><span class="muted small">Uptime:</span> <strong id="settings-uptime">—</strong></div>
+              <div><span class="muted small">Bot version:</span> <strong id="settings-version">—</strong></div>
+            </div>
+            <div class="settings-card">
+              <h3>Configuration Files</h3>
+              <div class="muted small">Edit env in worktree root then restart bot:</div>
+              <div><code>start.bat</code> (live: BOT_PROFILE=live, PORT=3002)</div>
+              <div><code>start-paper.bat</code> (paper: BOT_PROFILE=paper, PORT=3001)</div>
+              <div class="muted small" style="margin-top:8px;">Hot-reloadable knobs: <code>dbo.strategy_config</code> SQL table (60s poll).</div>
+            </div>
+            <div class="settings-card">
+              <h3>API Endpoints</h3>
+              <div><code>/api/status</code> · <code>/api/tracked-tokens</code> · <code>/api/ohlcv</code></div>
+              <div><code>/api/market-indicators</code> · <code>/api/logs/tail</code></div>
+              <div><code>/api/health-canary</code> · <code>/api/rejections</code> · <code>/api/ai-decisions/cost</code></div>
+              <div><code>/api/admin/sell-position</code> (POST)</div>
+            </div>
+            <div class="settings-card">
+              <h3>Quick Links</h3>
+              <div><a href="/sql-report.html?report=overview" target="_blank" class="sidebar-link">SQL Overview →</a></div>
+              <div><a href="/sql-report.html?report=memory" target="_blank" class="sidebar-link">Agent Memory →</a></div>
+              <div><a href="/sql-report.html?report=overview#model-version-panel" target="_blank" class="sidebar-link">Models →</a></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <div id="debug-overlay" style="position:fixed;bottom:38px;left:240px;right:8px;background:#1a0e0e;color:#fca5a5;font:11px monospace;padding:4px 8px;border-top:1px solid #4a1a1a;z-index:9999;display:none;"></div>
+
+      <footer class="statusbar">
+        <span id="sb-time">--:--:--</span>
+        <span class="sb-sep">·</span>
+        <span style="color:#84cc16;">Bundle <strong id="sb-bundle">?</strong></span>
+        <span class="sb-sep">·</span>
+        <span><span class="dot-ok"></span> <span id="sb-status">System Operational</span></span>
+        <span class="sb-sep">·</span>
+        <span>API Latency <strong id="sb-latency">— ms</strong></span>
+        <span class="sb-sep">·</span>
+        <span>Last Sync <strong id="sb-sync">—</strong></span>
+        <span class="sb-sep">·</span>
+        <span>Bot Version <strong id="sb-version">v1</strong></span>
+        <span class="sb-sep">·</span>
+        <span class="bars">Connection <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span></span>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/dashboard.js?v=20260517-13" defer></script>
 </body>
 </html>

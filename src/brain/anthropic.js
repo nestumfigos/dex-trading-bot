@@ -3,6 +3,7 @@
 const axios = require('axios');
 const config = require('../../config');
 const logger = require('../utils/logger');
+const { trackAi } = require('../ai/decision-tracker');
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -182,48 +183,78 @@ async function evaluateToken(tokenData, technicalDetails) {
   const startedAt = Date.now();
 
   try {
-    const response = await axios.post(
-      ANTHROPIC_URL,
+    let parsedRef = null;
+    let rawText = '';
+    let modelUsed = null;
+    let usage = null;
+
+    const wrappedResult = await trackAi(
       {
+        provider: 'anthropic',
         model: config.anthropic.model || 'claude-3-5-haiku-20241022',
-        max_tokens: 180,
-        temperature: Number(config.anthropic.temperature || 0.2),
-        messages: [
+        purpose: 'trade_signal',
+        symbol: tokenData?.symbol,
+        chain: tokenData?.chain,
+        scope: String(process.env.BOT_PROFILE || 'global').toLowerCase(),
+        strategy: tokenData?.strategy || null,
+        promptName: 'anthropic_trade_signal',
+        promptVersion: 1,
+        botVersion: process.env.BOT_VERSION || null,
+      },
+      async () => {
+        const response = await axios.post(
+          ANTHROPIC_URL,
           {
-            role: 'user',
-            content: [
+            model: config.anthropic.model || 'claude-3-5-haiku-20241022',
+            max_tokens: 180,
+            temperature: Number(config.anthropic.temperature || 0.2),
+            messages: [
               {
-                type: 'text',
-                text: buildPrompt(tokenData, technicalDetails),
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: buildPrompt(tokenData, technicalDetails),
+                  },
+                ],
               },
             ],
           },
-        ],
+          {
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': config.anthropic.apiKey,
+              'anthropic-version': ANTHROPIC_VERSION,
+            },
+            timeout: 20000,
+          }
+        );
+        rawText = extractTextContent(response.data?.content);
+        parsedRef = parseAiResponse(rawText);
+        modelUsed = response.data?.model || config.anthropic.model;
+        usage = response.data?.usage || null;
+        return {
+          signal: parsedRef?.signal || null,
+          confidence: parsedRef?.confidence,
+          requestTokens: usage?.input_tokens,
+          responseTokens: usage?.output_tokens,
+          responseExcerpt: rawText,
+        };
       },
-      {
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': config.anthropic.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION,
-        },
-        timeout: 20000,
-      }
+      { getPool: () => require('../utils/sqlServer').getPool(logger).catch(() => null), logger },
     );
 
-    const text = extractTextContent(response.data?.content);
-    const parsed = parseAiResponse(text);
-
-    if (!parsed) {
-      logger.warn(`Anthropic response could not be parsed into a signal: ${text}`);
+    if (!parsedRef) {
+      logger.warn(`Anthropic response could not be parsed into a signal: ${rawText}`);
       return null;
     }
 
     return applySafetyOverrides(tokenData, technicalDetails, {
-      ...parsed,
-      model: response.data?.model || config.anthropic.model,
+      ...parsedRef,
+      model: modelUsed,
       latencyMs: Date.now() - startedAt,
-      usage: response.data?.usage || null,
-      raw: text,
+      usage,
+      raw: rawText,
     });
   } catch (err) {
     const details = err.response?.data ? JSON.stringify(err.response.data) : (err.message || 'unknown error');
@@ -248,4 +279,12 @@ async function evaluateToken(tokenData, technicalDetails) {
   }
 }
 
-module.exports = { evaluateToken };
+function getBackoffStatus() {
+  const now = Date.now();
+  return {
+    backoffUntil: anthropicBackoffUntil > now ? new Date(anthropicBackoffUntil).toISOString() : null,
+    backoffSecondsRemaining: anthropicBackoffUntil > now ? Math.ceil((anthropicBackoffUntil - now) / 1000) : 0,
+  };
+}
+
+module.exports = { evaluateToken, getBackoffStatus };

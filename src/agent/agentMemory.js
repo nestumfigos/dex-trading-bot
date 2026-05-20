@@ -17,6 +17,9 @@ const path = require('path');
 const crypto = require('crypto');
 const axios = require('axios');
 const SqlCoordination = require('../utils/sqlCoordination');
+const { mergeFromRemote: pureMergeFromRemote } = require('./memory/merge');
+const _blacklistModule = require('./memory/blacklist');
+const _statsModule = require('./memory/stats');
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const BOT_DATA_DIR = process.env.BOT_DATA_DIR || 'data';
@@ -53,9 +56,9 @@ class AgentMemory {
       chainPatterns: {},
       tokenAgePatterns: {},
       exitClassificationStats: {},
-      // Per-symbol PnL memory: tracks recent outcomes per symbol so the agent
-      // can require higher confidence before re-entering names that recently lost.
-      symbolWinRates: {},  // { 'KCS:momentum': { wins, losses, totalPnlUsd, lastTradeTs } }
+      symbolWinRates: {},
+      indicatorPatterns: {},
+      aiUsage: { date: new Date().toISOString().slice(0, 10), lessonCalls: 0, deepResearchCalls: 0 },
     };
     this._dirty = false;
     this._saving = false;
@@ -150,62 +153,33 @@ class AgentMemory {
 
   _mergeFromRemote(remote) {
     if (!remote || typeof remote !== 'object') return;
-    const merged = {
-      version: 2,
-      tradeLessons: [],
-      strategyDiscoveries: [],
-      tokenBlacklist: {},
-      tokenPreferences: {},
-      evolutionOutcomes: [],
-      knowledgeBase: [],
-    };
-
-    // Merge arrays by id (prefer newest ts), keep caps.
-    const mergeArrayById = (a = [], b = [], cap = 200, idFallback = null) => {
-      const map = new Map();
-      [...a, ...b].forEach((item) => {
-        if (!item) return;
-        const id = String(item.id || (typeof idFallback === 'function' ? idFallback(item) : ''));
-        if (!id) return;
-        if (!item.id) item.id = id;
-        const prev = map.get(id);
-        if (!prev) { map.set(id, item); return; }
-        const prevTs = Number(prev.ts || 0);
-        const nextTs = Number(item.ts || 0);
-        map.set(id, nextTs >= prevTs ? item : prev);
-      });
-      const arr = Array.from(map.values());
-      arr.sort((x, y) => Number(y.ts || 0) - Number(x.ts || 0));
-      return arr.slice(0, cap);
-    };
-
-    merged.tradeLessons = mergeArrayById(remote.tradeLessons, this.data.tradeLessons, MAX_LESSONS);
-    merged.strategyDiscoveries = mergeArrayById(remote.strategyDiscoveries, this.data.strategyDiscoveries, MAX_DISCOVERIES);
-    merged.evolutionOutcomes = (Array.isArray(remote.evolutionOutcomes) ? remote.evolutionOutcomes : [])
-      .concat(Array.isArray(this.data.evolutionOutcomes) ? this.data.evolutionOutcomes : [])
-      .slice(0, MAX_EVOLUTION_LOG);
-    merged.knowledgeBase = mergeArrayById(remote.knowledgeBase, this.data.knowledgeBase, MAX_KNOWLEDGE, stableKnowledgeId);
-
-    // Merge maps: keep later expiresAt / addedAt.
-    const mergeMap = (a = {}, b = {}) => {
-      const out = { ...(a || {}) };
-      for (const [k, v] of Object.entries(b || {})) {
-        const prev = out[k];
-        if (!prev) { out[k] = v; continue; }
-        const prevTs = Number(prev.addedAt || 0);
-        const nextTs = Number(v.addedAt || 0);
-        const prevExp = Number(prev.expiresAt || 0);
-        const nextExp = Number(v.expiresAt || 0);
-        // Prefer whichever is "newer" or lasts longer.
-        out[k] = (nextTs > prevTs || nextExp > prevExp) ? v : prev;
+    // Week 2 (re-landed in Week 5): delegate to pure memory/merge.js.
+    // This is the bug-class blocker for 2026-05-16 silent wipe of 6/13 fields:
+    // the pure merge handles ALL DATA_SHAPE_KEYS (enforced by reflection test).
+    const normalizeAiUsage = (v = {}) => ({
+      date: v.date || new Date().toISOString().slice(0, 10),
+      lessonCalls: Number(v.lessonCalls) || 0,
+      deepResearchCalls: Number(v.deepResearchCalls) || 0,
+    });
+    const mergeAiUsage = (a = {}, b = {}) => {
+      const aNorm = normalizeAiUsage(a);
+      const bNorm = normalizeAiUsage(b);
+      // Same date: sum; different date: keep newer date's counters.
+      if (aNorm.date === bNorm.date) {
+        return {
+          date: aNorm.date,
+          lessonCalls: aNorm.lessonCalls + bNorm.lessonCalls,
+          deepResearchCalls: aNorm.deepResearchCalls + bNorm.deepResearchCalls,
+        };
       }
-      return out;
+      return aNorm.date > bNorm.date ? aNorm : bNorm;
     };
-
-    merged.tokenBlacklist = mergeMap(remote.tokenBlacklist, this.data.tokenBlacklist);
-    merged.tokenPreferences = mergeMap(remote.tokenPreferences, this.data.tokenPreferences);
-
-    this.data = merged;
+    this.data = pureMergeFromRemote({
+      current: this.data,
+      remote,
+      caps: { MAX_LESSONS, MAX_DISCOVERIES, MAX_KNOWLEDGE, MAX_EVOLUTION_LOG },
+      helpers: { stableKnowledgeId, normalizeAiUsage, mergeAiUsage },
+    });
     this._pruneExpired();
   }
 
@@ -275,45 +249,15 @@ class AgentMemory {
       this.data.tradeLessons = this.data.tradeLessons.slice(0, MAX_LESSONS);
     }
 
-    if (!this.data.regimeWinRates) this.data.regimeWinRates = {};
-    if (!this.data.chainPatterns) this.data.chainPatterns = {};
-    if (!this.data.tokenAgePatterns) this.data.tokenAgePatterns = {};
-    if (!this.data.exitClassificationStats) this.data.exitClassificationStats = {};
-    if (!this.data.symbolWinRates) this.data.symbolWinRates = {};
-
-    const symbolKey = `${entry.symbol}:${entry.strategy}`;
-    if (!this.data.symbolWinRates[symbolKey]) {
-      this.data.symbolWinRates[symbolKey] = { wins: 0, losses: 0, totalPnlUsd: 0, lastTradeTs: 0 };
-    }
-    this.data.symbolWinRates[symbolKey][entry.outcome === 'win' ? 'wins' : 'losses'] += 1;
-    this.data.symbolWinRates[symbolKey].totalPnlUsd += entry.pnlUsd;
-    this.data.symbolWinRates[symbolKey].lastTradeTs = entry.ts;
-
-    const regimeKey = `${entry.entryRegime}:${entry.strategy}`;
-    if (!this.data.regimeWinRates[regimeKey]) this.data.regimeWinRates[regimeKey] = { wins: 0, losses: 0 };
-    this.data.regimeWinRates[regimeKey][entry.outcome === 'win' ? 'wins' : 'losses'] += 1;
-
-    const chainKey = `${entry.chain}:${entry.strategy}`;
-    if (!this.data.chainPatterns[chainKey]) this.data.chainPatterns[chainKey] = { wins: 0, losses: 0, totalHoldMinutes: 0, tradeCount: 0 };
-    this.data.chainPatterns[chainKey][entry.outcome === 'win' ? 'wins' : 'losses'] += 1;
-    this.data.chainPatterns[chainKey].totalHoldMinutes += entry.holdMinutes;
-    this.data.chainPatterns[chainKey].tradeCount += 1;
-
-    const ageBucket = entryConditions?.tokenAgeBucket || 'unknown';
-    const ageKey = `${ageBucket}:${entry.strategy}`;
-    if (!this.data.tokenAgePatterns[ageKey]) this.data.tokenAgePatterns[ageKey] = { wins: 0, losses: 0, totalHoldMinutes: 0, tradeCount: 0 };
-    this.data.tokenAgePatterns[ageKey][entry.outcome === 'win' ? 'wins' : 'losses'] += 1;
-    this.data.tokenAgePatterns[ageKey].totalHoldMinutes += entry.holdMinutes;
-    this.data.tokenAgePatterns[ageKey].tradeCount += 1;
-
+    // Counter buckets extracted to src/agent/memory/stats.js (Week 7 Track C, 2026-05-17).
+    // Delegates symbol/regime/chain/tokenAge/exitClassification updates in one call.
     const exitCode = String(entryConditions?.exitClassification || 'unknown');
-    const exitKey = `${entry.chain}:${entry.strategy}:${exitCode}`;
-    if (!this.data.exitClassificationStats[exitKey]) {
-      this.data.exitClassificationStats[exitKey] = { count: 0, totalPnlUsd: 0, wins: 0, losses: 0 };
-    }
-    this.data.exitClassificationStats[exitKey].count += 1;
-    this.data.exitClassificationStats[exitKey].totalPnlUsd += entry.pnlUsd;
-    this.data.exitClassificationStats[exitKey][entry.outcome === 'win' ? 'wins' : 'losses'] += 1;
+    const tokenAgeBucket = entryConditions?.tokenAgeBucket || 'unknown';
+    _statsModule.recordTradeOutcome(this.data, entry, {
+      ts: entry.ts,
+      tokenAgeBucket,
+      exitClassification: exitCode,
+    });
     entry.exitClassification = exitCode;
 
     this._dirty = true;
@@ -444,28 +388,20 @@ class AgentMemory {
 
   // ── Token Blacklist ──────────────────────────────────────────────────────
 
-  addToBlacklist(symbol, reason, durationMs = 24 * 3_600_000, source = 'memory') {
-    const sym = String(symbol || '').toUpperCase();
-    this.data.tokenBlacklist[sym] = {
-      reason: String(reason || '').slice(0, 200),
-      source,
-      addedAt: Date.now(),
-      expiresAt: Date.now() + durationMs,
-    };
-    this._dirty = true;
-    this.logger.warn(`[AgentMemory] ${sym} blacklisted for ${Math.round(durationMs / 3_600_000)}h: ${reason.slice(0, 80)}`);
+  // Blacklist helpers extracted to src/agent/memory/blacklist.js (Week 7 Track C, 2026-05-17).
+  // Delegating wrappers preserve original signature + set _dirty flag.
+  addToBlacklist(symbol, reason, durationMs = _blacklistModule.DEFAULT_DURATION_MS, source = 'memory') {
+    const ok = _blacklistModule.addToBlacklist(this.data, symbol, reason, durationMs, source, { logger: this.logger });
+    if (ok) this._dirty = true;
+    return ok;
   }
 
   isBlacklisted(symbol) {
-    const sym = String(symbol || '').toUpperCase();
-    const entry = this.data.tokenBlacklist[sym];
-    if (!entry) return { blacklisted: false };
-    if (Date.now() > entry.expiresAt) {
-      delete this.data.tokenBlacklist[sym];
-      this._dirty = true;
-      return { blacklisted: false };
-    }
-    return { blacklisted: true, reason: entry.reason, source: entry.source };
+    const before = Object.keys(this.data.tokenBlacklist || {}).length;
+    const result = _blacklistModule.isBlacklisted(this.data, symbol);
+    const after = Object.keys(this.data.tokenBlacklist || {}).length;
+    if (after < before) this._dirty = true; // expiry pruned entry on lookup
+    return result;
   }
 
   // ── Token Preferences ────────────────────────────────────────────────────
@@ -821,9 +757,28 @@ Generate a concise, actionable lesson in ONE sentence (max 150 chars) that descr
 
 Return ONLY valid JSON: {"lesson": "...", "avoidPattern": "brief pattern description", "confidence": 0-100}`;
 
+    // Paper bots never spend AI on lessons regardless of key/config — paper
+    // exists to be free, not to burn the live key on synthetic trades.
+    const paperProfile = String(process.env.BOT_PROFILE || '').toLowerCase() === 'paper'
+      || process.env.PAPER_TRADING === 'true'
+      || this.config?.paperTrading === true;
+    const paperAiEnabled = this.config?.agentMemory?.paperAiEnabled === true;
+    const allowAiPath = !paperProfile || paperAiEnabled;
+
+    // Daily lesson-call budget. When exceeded, skip the AI call and fall back
+    // to the deterministic rule-based lesson so we never blow the daily cap.
+    const today = new Date().toISOString().slice(0, 10);
+    if (!this.data.aiUsage || this.data.aiUsage.date !== today) {
+      this.data.aiUsage = { date: today, lessonCalls: 0, deepResearchCalls: 0 };
+    }
+    const dailyLimit = Number(this.config?.agentMemory?.dailyAiLessonLimit);
+    const lessonsEnabled = this.config?.agentMemory?.aiLessonsEnabled !== false;
+    const overBudget = Number.isFinite(dailyLimit) && dailyLimit > 0
+      && Number(this.data.aiUsage.lessonCalls || 0) >= dailyLimit;
+
     // Try Groq (fast, own pool for intelligence/evolution)
     const groqKey = process.env.GROQ_API_KEY || '';
-    if (groqKey) {
+    if (groqKey && allowAiPath && lessonsEnabled && !overBudget) {
       try {
         const res = await axios.post(
           'https://api.groq.com/openai/v1/chat/completions',
@@ -840,6 +795,8 @@ Return ONLY valid JSON: {"lesson": "...", "avoidPattern": "brief pattern descrip
         if (match) {
           const parsed = JSON.parse(match[0]);
           if (parsed.lesson) {
+            // Count this against the daily AI budget.
+            this.data.aiUsage.lessonCalls = Number(this.data.aiUsage.lessonCalls || 0) + 1;
             this.recordLesson({
               symbol: conditions.symbol,
               chain: conditions.chain,
@@ -1017,11 +974,11 @@ Return ONLY JSON: {"summary": "2-3 sentences", "action": "BUY_WATCH|HOLD_WATCH|A
   // ── Utilities ────────────────────────────────────────────────────────────
 
   _pruneExpired() {
+    // Blacklist pruning extracted to src/agent/memory/blacklist.js (Week 7 Track C)
+    _blacklistModule.pruneExpired(this.data);
+    // Token preferences pruned inline (no module yet — would be Week 7+ if needed)
     const now = Date.now();
-    for (const [sym, entry] of Object.entries(this.data.tokenBlacklist)) {
-      if (entry.expiresAt && now > entry.expiresAt) delete this.data.tokenBlacklist[sym];
-    }
-    for (const [sym, entry] of Object.entries(this.data.tokenPreferences)) {
+    for (const [sym, entry] of Object.entries(this.data.tokenPreferences || {})) {
       if (entry.expiresAt && now > entry.expiresAt) delete this.data.tokenPreferences[sym];
     }
   }

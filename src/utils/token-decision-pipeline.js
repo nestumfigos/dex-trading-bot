@@ -219,26 +219,60 @@ function createTokenDecisionPipeline(deps = {}) {
             logger.info(`AI advisory only for ${tokenData.symbol}: BSC relaxed continuation kept technical BUY despite AI ${aiDecision.signal}`);
           }
         } else if (config.anthropic.apiKey && !aiBypassedForLatency) {
-          aiCircuit.failures += 1;
-          if (aiCircuit.failures >= config.bot.aiFailureThreshold) {
-            aiCircuit.cooldownUntil = Date.now() + (config.bot.aiFailureCooldownSeconds * 1000);
-            aiCircuit.failures = 0;
-            recordBrainFailure(`AI circuit opened for ${config.bot.aiFailureCooldownSeconds}s`);
+          const anyProviderEnabled = typeof AITradeBrain.hasAnyEnabledProvider === 'function'
+            ? AITradeBrain.hasAnyEnabledProvider()
+            : !!(config.anthropic.enabled && config.anthropic.apiKey);
+          if (anyProviderEnabled) {
+            aiCircuit.failures += 1;
+            if (aiCircuit.failures >= config.bot.aiFailureThreshold) {
+              aiCircuit.cooldownUntil = Date.now() + (config.bot.aiFailureCooldownSeconds * 1000);
+              aiCircuit.failures = 0;
+              recordBrainFailure(`AI circuit opened for ${config.bot.aiFailureCooldownSeconds}s`);
+            } else {
+              recordBrainFailure('AI response unavailable');
+            }
           } else {
-            recordBrainFailure('AI response unavailable');
+            // All AI providers intentionally disabled; treat null result as expected.
+            // Allow technical+sentiment cascade (2-of-3) to make decision.
+            evaluation.details.aiReason = 'ai_disabled_by_config';
+            evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_disabled_by_config'])];
+            finalSignal = evaluation.signal;
+            signalSource = 'technical';
           }
         } else if (aiBypassedForLatency) {
           evaluation.details.aiReason = 'ai_cached_decision_pending';
           evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_cached_decision_pending'])];
           const triggerTimeframe = String(evaluation.details.triggerTimeframe || '').toLowerCase();
+          const kucoinPendingAdvisory = chainName === 'kucoin'
+            && config.execution?.kucoinPendingAiAdvisory === true;
+
+          // Cascade strength: how many independent confirmations support the technical BUY?
+          const techConfirms = evaluation.signal === 'BUY';
+          const sentimentScore = Number(evaluation.details?.sentimentSnapshot?.aggregateScore || 0.5);
+          const sentimentSignalStr = String(evaluation.details?.sentimentSnapshot?.signal || '').toUpperCase();
+          const sentimentConfirms = sentimentSignalStr === 'BUY' || sentimentScore >= 0.55;
+          const bookImbalanceRatio = Number(evaluation.details?.bookImbalance?.ratio || 0);
+          const bookConfirms = bookImbalanceRatio >= Number(config.risk?.signalCascadeMinBookImbalanceRatio || 1.1);
+          const fallbackConfirmations = (techConfirms ? 1 : 0) + (sentimentConfirms ? 1 : 0) + (bookConfirms ? 1 : 0);
+          const minPendingConfirmations = Number(config.execution?.kucoinPendingAiMinConfirmations || 2);
+
           const allowTechnicalFallback = strategyName === 'momentum'
             && chainName === 'kucoin'
             && (triggerTimeframe === 'extreme_24h_momentum' || triggerTimeframe === 'kucoin_relaxed_momentum');
+          const allowAdvisoryFallback = kucoinPendingAdvisory
+            && strategyName === 'momentum'
+            && fallbackConfirmations >= minPendingConfirmations;
+
           if (allowTechnicalFallback) {
             finalSignal = evaluation.signal;
             signalSource = 'technical';
             evaluation.details.aiReason = 'ai_pending_advisory_only';
             logger.info(`AI advisory only for ${tokenData.symbol}: kept technical BUY while AI decision is queued`);
+          } else if (allowAdvisoryFallback) {
+            finalSignal = evaluation.signal;
+            signalSource = 'technical_ai_pending';
+            evaluation.details.aiReason = 'ai_pending_advisory_with_strong_cascade';
+            logger.info(`AI advisory only for ${tokenData.symbol}: ${fallbackConfirmations} fallback confirmations (>= ${minPendingConfirmations}) held the BUY while AI is queued`);
           } else {
             finalSignal = 'HOLD';
             if (cycleStats) {
@@ -274,7 +308,28 @@ function createTokenDecisionPipeline(deps = {}) {
 
         evaluation.details.aiVerificationStatus = getAiDecisionCacheStatus(tokenData, strategyName).status;
       } else {
-        logger.debug(`AI in cooldown; using technical signal for ${strategyName} (not a failure)`);
+        // AI circuit is in cooldown after repeated provider failures.
+        // Two safety knobs decide whether the technical BUY is allowed through:
+        //   1) `execution.allowTechnicalFallbackOnAiFailure` — global escape hatch
+        //   2) `execution.kucoinPendingAiAdvisory` — KuCoin advisory carve-out
+        // When BOTH are disabled, block the trade so we don't quietly route around
+        // an exhausted AI provider.
+        const allowFallbackOnFailure = config.execution?.allowTechnicalFallbackOnAiFailure !== false;
+        const kucoinAdvisoryEscape = chainName === 'kucoin'
+          && config.execution?.kucoinPendingAiAdvisory === true;
+        if (!allowFallbackOnFailure && !kucoinAdvisoryEscape) {
+          evaluation.details.aiReason = 'ai_cooldown_no_fallback';
+          evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_cooldown_block'])];
+          finalSignal = 'HOLD';
+          signalSource = 'ai_cooldown_block';
+          if (cycleStats) {
+            cycleStats.aiBlocked += 1;
+            aiBlockedThisToken = true;
+            incrementRejectReason(cycleStats, 'aiCooldown');
+          }
+        } else {
+          logger.debug(`AI in cooldown; using technical signal for ${strategyName} (not a failure)`);
+        }
         evaluation.details.aiVerificationStatus = getAiDecisionCacheStatus(tokenData, strategyName).status;
       }
     } else {

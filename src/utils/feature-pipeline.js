@@ -1,6 +1,7 @@
 'use strict';
 
 const { getOhlcvSeries } = require('./candles');
+const { hierarchicalRiskParityWeights } = require('./portfolio-optimization');
 
 function safeNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -69,6 +70,20 @@ async function getFeatureSeries({ chainName, tokenData, localPriceHistory = [], 
   };
 }
 
+function computeHrpTargetWeight(portfolioPriceHistory, assetKey) {
+  if (!portfolioPriceHistory || typeof portfolioPriceHistory !== 'object') return 0;
+  if (!assetKey) return 0;
+  const series = portfolioPriceHistory[assetKey];
+  if (!Array.isArray(series) || series.length < 2) return 0;
+  try {
+    const result = hierarchicalRiskParityWeights(portfolioPriceHistory, { maxWeight: 1 });
+    const weight = Number(result?.weights?.[assetKey] || 0);
+    return Number.isFinite(weight) ? weight : 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function buildFeatureSnapshot({
   chainName,
   tokenData,
@@ -77,6 +92,8 @@ async function buildFeatureSnapshot({
   localPriceHistory = [],
   localVolumeHistory = [],
   sentimentSnapshot = null,
+  portfolioPriceHistory = null,
+  assetKey = null,
 } = {}) {
   const series = await getFeatureSeries({ chainName, tokenData, localPriceHistory, localVolumeHistory });
   const closes = series.closes || [];
@@ -128,6 +145,7 @@ async function buildFeatureSnapshot({
     holderConcentrationRiskPct: safeNumber(tokenData?.holderConcentrationPct, 0),
     ageHours: safeNumber(tokenData?.ageHours, 0),
     confidence: safeNumber(evaluation?.details?.confidence, 0),
+    hrpTargetWeight: computeHrpTargetWeight(portfolioPriceHistory, assetKey),
   };
 
   return {

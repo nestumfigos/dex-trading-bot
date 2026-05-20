@@ -298,6 +298,14 @@ function validateConfigPayloadSchema(payload = {}) {
 
 function startDashboard(portfolio, ctx) {
   app = express();
+  // Week 6 API extensions (rejections, evolution-history, ai-decisions, symbol-overrides, health-canary, ml-models, backtest-runs).
+  try {
+    const { mountWeek6Routes } = require('./dashboard-extensions');
+    const week6 = mountWeek6Routes(app, { getPool: () => getPool(logger).catch(() => null), logger });
+    logger.info(`[dashboard] Week 6 endpoints mounted: ${week6.endpoints.length}`);
+  } catch (e) {
+    logger.warn(`[dashboard] Failed to mount Week 6 extensions: ${e.message}`);
+  }
   const sqlReportCache = {
     byReport: {},
     lastRefreshAt: {},
@@ -379,6 +387,69 @@ function startDashboard(portfolio, ctx) {
       }
       res.json({ results });
     });
+  });
+
+  // --- AI Provider Health (B.2) ---
+  // Combined per-provider snapshot: enabled, hasKey, backoffUntil, quota, circuit, status text.
+  app.get('/api/ai-health', (req, res) => {
+    try {
+      const ensemble = require('./ai/ensemble');
+      const stats = ensemble.getQuotaStats ? ensemble.getQuotaStats() : {};
+      const anyEnabled = typeof ensemble.hasAnyEnabledProvider === 'function'
+        ? ensemble.hasAnyEnabledProvider()
+        : false;
+      let anthropicBackoff = null;
+      try {
+        const brain = require('./brain/anthropic');
+        if (typeof brain.getBackoffStatus === 'function') anthropicBackoff = brain.getBackoffStatus();
+      } catch (_) {}
+      const now = Date.now();
+      const aiCircuit = (typeof ctx.getAiCircuitState === 'function') ? ctx.getAiCircuitState() : null;
+      const providerHealth = stats.providerHealth || {};
+      const provider = (cfg, name, extraBackoff) => {
+        const enabled = name === 'anthropic' ? !!cfg?.enabled : (cfg?.enabled !== false);
+        const hasKey = !!(cfg?.apiKey || process.env[`${name.toUpperCase()}_API_KEY`]);
+        const ph = providerHealth[name] || null;
+        const onBackoff = (extraBackoff && extraBackoff.backoffSecondsRemaining > 0)
+          || (ph && ph.backoffSecondsRemaining > 0);
+        let status = 'offline';
+        if (!enabled) status = 'disabled_by_config';
+        else if (!hasKey) status = 'no_key';
+        else if (onBackoff) status = 'backoff';
+        else status = 'online';
+        return {
+          enabled, hasKey, status,
+          ...(extraBackoff || {}),
+          ...(cfg?.model ? { model: cfg.model } : {}),
+          ...(ph ? { consecutiveFailures: ph.consecutiveFailures, maxConsecutiveFailures: ph.maxConsecutiveFailures, autoDisableBackoffMinutes: ph.autoDisableBackoffMinutes } : {}),
+          ...(ph && ph.backoffUntil ? { providerBackoffUntil: ph.backoffUntil, providerBackoffSecondsRemaining: ph.backoffSecondsRemaining } : {}),
+        };
+      };
+      const out = {
+        timestamp: new Date(now).toISOString(),
+        anyProviderEnabled: anyEnabled,
+        circuit: aiCircuit ? {
+          open: (aiCircuit.cooldownUntil || 0) > now,
+          cooldownUntil: aiCircuit.cooldownUntil ? new Date(aiCircuit.cooldownUntil).toISOString() : null,
+          secondsRemaining: aiCircuit.cooldownUntil > now ? Math.ceil((aiCircuit.cooldownUntil - now) / 1000) : 0,
+          failures: aiCircuit.failures || 0,
+        } : null,
+        providers: {
+          anthropic: provider(config.anthropic, 'anthropic', anthropicBackoff),
+          groq: { ...provider(config.groq, 'groq'), quota: stats.groq, backoffUntil: stats.backoffUntil?.groq || null },
+          gemini: { ...provider(config.gemini, 'gemini'), quota: stats.gemini, backoffUntil: stats.backoffUntil?.gemini || null },
+          nvidia: provider(config.nvidia, 'nvidia'),
+          cerebras: provider(config.cerebras, 'cerebras'),
+          openrouter: provider(config.openrouter, 'openrouter'),
+          sambanova: provider(config.sambanova, 'sambanova'),
+          together: provider(config.together, 'together'),
+        },
+      };
+      res.json(out);
+    } catch (e) {
+      logger.warn(`[ai-health] failed: ${e?.message || e}`);
+      res.status(500).json({ error: 'ai-health failed' });
+    }
   });
 
   // --- AI API Quota Endpoint (must be before static serving) ---
@@ -505,6 +576,18 @@ function startDashboard(portfolio, ctx) {
   }
 
   app.use(express.json({ limit: '1mb' }));
+
+  // CORS for cross-port dashboard fetches (Week 7 sidebar dashboard hits
+  // both 3001 paper + 3002 live from a single UI via bot-switcher dropdown).
+  // Allow any origin since this is LAN-only; tighten via DASHBOARD_CORS_ORIGIN env if needed.
+  const corsOrigin = process.env.DASHBOARD_CORS_ORIGIN || '*';
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+    next();
+  });
 
   app.use((req, res, next) => {
     if (req.path === '/health' || req.path.startsWith('/api/')) {
@@ -666,6 +749,161 @@ function startDashboard(portfolio, ctx) {
 
   app.get('/api/tracked-tokens', (req, res) => {
     res.json({ tokens: ctx.getTrackedTokens() });
+  });
+
+  // ─── Logs tail ─────────────────────────────────────────────────────────
+  // GET /api/logs/tail?lines=200
+  app.get('/api/logs/tail', async (req, res) => {
+    try {
+      const fsp = require('fs').promises;
+      const fs = require('fs');
+      const pathMod = require('path');
+      const lines = Math.min(2000, Math.max(10, Number(req.query.lines) || 200));
+      const logsDir = pathMod.resolve(__dirname, '..', 'logs');
+      const files = (await fsp.readdir(logsDir).catch(() => []))
+        .filter((f) => /^combined-.*\.log$/.test(f))
+        .map((f) => ({ name: f, mtime: fs.statSync(pathMod.join(logsDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+      if (files.length === 0) { res.json({ ok: false, error: 'no log files found', lines: [] }); return; }
+      const target = pathMod.join(logsDir, files[0].name);
+      const stat = fs.statSync(target);
+      // Read last ~256KB for safety
+      const readSize = Math.min(stat.size, 256 * 1024);
+      const fd = fs.openSync(target, 'r');
+      const buf = Buffer.alloc(readSize);
+      fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+      fs.closeSync(fd);
+      const all = buf.toString('utf8').split('\n').filter(Boolean);
+      const tail = all.slice(-lines);
+      res.json({ ok: true, file: files[0].name, totalBytes: stat.size, returned: tail.length, lines: tail });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // ─── Force-sell a position from dashboard ────────────────────────────
+  // POST /api/admin/sell-position  { key: 'kucoin:abc/usdt' }
+  app.post('/api/admin/sell-position', async (req, res) => {
+    if (typeof ctx.forceSellPosition !== 'function') {
+      res.status(503).json({ ok: false, error: 'forceSellPosition not exposed in ctx (needs index.js wire-up)' });
+      return;
+    }
+    const key = String(req.body?.key || '').trim();
+    if (!key) { res.status(400).json({ ok: false, error: 'key required' }); return; }
+    try {
+      const result = await ctx.forceSellPosition(key, 'DASHBOARD_MANUAL');
+      res.json({ ok: true, result });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // ─── OHLCV proxy (Binance Spot) ───────────────────────────────────────
+  // GET /api/ohlcv?symbol=BTCUSDT&interval=5m&limit=200
+  // Cached 30s per (symbol, interval, limit) to keep within Binance free tier.
+  const OHLCV_CACHE = new Map();
+  const OHLCV_TTL_MS = 30_000;
+  app.get('/api/ohlcv', async (req, res) => {
+    const symbol = String(req.query.symbol || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const interval = String(req.query.interval || '5m');
+    const limit = Math.min(500, Math.max(20, Number(req.query.limit) || 200));
+    const key = `${symbol}:${interval}:${limit}`;
+    const cached = OHLCV_CACHE.get(key);
+    if (cached && Date.now() < cached.expiresAt) {
+      res.json({ ok: true, cached: true, symbol, interval, candles: cached.value });
+      return;
+    }
+    try {
+      const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`;
+      const axios = require('axios');
+      const r = await axios.get(url, { timeout: 7000 });
+      const candles = (r.data || []).map((k) => ({
+        time:   Math.floor(k[0] / 1000),
+        open:   Number(k[1]),
+        high:   Number(k[2]),
+        low:    Number(k[3]),
+        close:  Number(k[4]),
+        volume: Number(k[5]),
+      }));
+      OHLCV_CACHE.set(key, { value: candles, expiresAt: Date.now() + OHLCV_TTL_MS });
+      res.json({ ok: true, cached: false, symbol, interval, candles });
+    } catch (err) {
+      res.status(502).json({ ok: false, error: String(err?.message || err) });
+    }
+  });
+
+  // ─── Market Indicators (aggregated external APIs) ────────────────────
+  // Per-source cache TTLs (CoinGecko free tier is aggressive; cache 10min).
+  let MI_CACHE = { value: null, expiresAt: 0 };
+  const MI_PER_SOURCE = { fearGreed: 0, coingecko: 0, btcFunding: 0, btcOpenInterest: 0 };
+  const MI_TTL = { fearGreed: 5 * 60_000, coingecko: 10 * 60_000, btcFunding: 60_000, btcOpenInterest: 60_000 };
+  const MI_AGG_TTL_MS = 30_000; // aggregated response cache
+  app.get('/api/market-indicators', async (req, res) => {
+    if (MI_CACHE.value && Date.now() < MI_CACHE.expiresAt) {
+      res.json({ ok: true, cached: true, data: MI_CACHE.value });
+      return;
+    }
+    const axios = require('axios');
+    const out = {
+      fearGreed:        { value: null, label: null, error: null },
+      btcDominance:     { value: null, change24h: null, error: null },
+      marketCap:        { value: null, change24h: null, error: null },
+      totalVolume:      { value: null, change24h: null, error: null },
+      btcFunding:       { value: null, error: null },
+      btcOpenInterest:  { value: null, error: null },
+      altseason:        { value: null, label: null, error: null, source: 'derived' },
+    };
+
+    const tasks = [
+      // Fear & Greed Index — alternative.me
+      axios.get('https://api.alternative.me/fng/?limit=1', { timeout: 7000 })
+        .then((r) => {
+          const item = r.data?.data?.[0];
+          if (item) { out.fearGreed.value = Number(item.value); out.fearGreed.label = item.value_classification; }
+        })
+        .catch((e) => { out.fearGreed.error = e.message; }),
+      // CoinPaprika global: BTC dominance + market cap + total volume.
+      // Free tier, no key, no aggressive Cloudflare. CoinGecko's free tier
+      // returns 429 even from server with browser-like UA, so this is the
+      // pragmatic primary source.
+      axios.get('https://api.coinpaprika.com/v1/global', { timeout: 7000 })
+        .then((r) => {
+          const d = r.data || {};
+          out.btcDominance.value = Number(d.bitcoin_dominance_percentage);
+          out.btcDominance.change24h = Number(d.market_cap_change_24h);
+          out.marketCap.value = Number(d.market_cap_usd);
+          out.marketCap.change24h = Number(d.market_cap_change_24h);
+          out.totalVolume.value = Number(d.volume_24h_usd);
+          out.totalVolume.change24h = Number(d.volume_24h_change_24h);
+          if (Number.isFinite(out.btcDominance.value)) {
+            out.altseason.value = Math.round((100 - out.btcDominance.value) * 1.3);
+            out.altseason.label = out.altseason.value > 75 ? 'Altcoin Season'
+              : out.altseason.value > 50 ? 'Mixed'
+              : 'Bitcoin Season';
+          }
+        })
+        .catch((e) => { out.btcDominance.error = e.message; out.marketCap.error = e.message; out.totalVolume.error = e.message; }),
+      // BTC funding rate — Binance Futures
+      axios.get('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT', { timeout: 7000 })
+        .then((r) => { out.btcFunding.value = Number(r.data?.lastFundingRate); })
+        .catch((e) => { out.btcFunding.error = e.message; }),
+      // BTC open interest — Binance Futures
+      axios.get('https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT', { timeout: 7000 })
+        .then((r) => { out.btcOpenInterest.value = Number(r.data?.openInterest); })
+        .catch((e) => { out.btcOpenInterest.error = e.message; }),
+    ];
+
+    await Promise.allSettled(tasks);
+    // Merge with prior MI_CACHE so per-source 429s don't blank prior values.
+    const merged = MI_CACHE.value ? { ...MI_CACHE.value } : {};
+    for (const k of Object.keys(out)) {
+      const v = out[k];
+      const hasFresh = v && (v.value != null || v.error == null);
+      if (hasFresh) merged[k] = v;
+      else if (!merged[k]) merged[k] = v;
+    }
+    MI_CACHE = { value: merged, expiresAt: Date.now() + MI_AGG_TTL_MS };
+    res.json({ ok: true, cached: false, data: merged });
   });
 
   app.get('/api/performance', (req, res) => {

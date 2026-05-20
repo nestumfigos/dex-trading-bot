@@ -74,7 +74,54 @@ async function executeSellViaVenue({
   );
 }
 
+const VENUE_PROFILES = {
+  kucoin: {
+    venueKind: 'cex',
+    requiresNativeQuote: false,
+    supportsSplitBuys: false,
+    quoteAsset: 'USDT',
+  },
+  solana: {
+    venueKind: 'dex',
+    requiresNativeQuote: false,
+    supportsSplitBuys: true,
+    quoteAsset: 'USDC',
+  },
+  bsc: {
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'BNB',
+  },
+  ethereum: {
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'ETH',
+  },
+  polygon: {
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'MATIC',
+  },
+};
+
+function getVenueExecutionProfile(chainName) {
+  const key = String(chainName || '').toLowerCase();
+  const profile = VENUE_PROFILES[key];
+  if (profile) return { ...profile, chain: key };
+  return {
+    chain: key,
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'NATIVE',
+  };
+}
+
 module.exports = {
   executeBuyViaVenue,
   executeSellViaVenue,
+  getVenueExecutionProfile,
 };

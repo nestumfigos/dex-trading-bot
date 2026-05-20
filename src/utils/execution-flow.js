@@ -720,7 +720,14 @@ function createExecutionFlow(deps = {}) {
 
     // Record trade outcome to symbol memory and RL updater for learning
     if (fullyClosed && symbolPnLMemory && rlOnlineUpdater) {
-      const holdMinutes = (Date.now() - Date.parse(position.entryAt || 0)) / 60_000 || 0;
+      // Older positions only carry `openedAt`; new ones may carry `entryAt`.
+      // Prefer whichever is present so closed-trade learning records the real
+      // hold time instead of 0 (which silently disabled learning before).
+      const entryTimestamp = position.entryAt || position.openedAt;
+      const entryParsed = entryTimestamp ? Date.parse(entryTimestamp) : NaN;
+      const holdMinutes = Number.isFinite(entryParsed)
+        ? Math.max(0, (Date.now() - entryParsed) / 60_000)
+        : 0;
       const pnlPercent = position.initialSizeUsd > 0 ? (pnl / position.initialSizeUsd) * 100 : 0;
 
       // Record to symbol memory for penalty tracking
@@ -830,6 +837,30 @@ function createExecutionFlow(deps = {}) {
       });
     }
     await sendErrorAlert(`SELL failed for ${tokenData.symbol}: ${error.message}`);
+
+    // Repeated SELL failures across the portfolio indicate something is
+    // systemically broken (auth, balance corruption, venue rejecting orders).
+    // Track recent failures inside the running window and escalate to safe mode
+    // before the bot keeps trying to flatten positions it cannot actually sell.
+    if (!config?.paperTrading) {
+      const threshold = Math.max(0, Number(config?.execution?.sellFailureSafeModeThreshold || 0));
+      const windowMs = Math.max(1000, Number(config?.execution?.sellFailureEscalationWindowMs || 60000));
+      if (threshold > 0) {
+        const runtime = portfolio.runtime || (portfolio.runtime = {});
+        if (!Array.isArray(runtime.recentSellFailures)) runtime.recentSellFailures = [];
+        const now = Date.now();
+        runtime.recentSellFailures.push({ ts: now, symbol: tokenData?.symbol || null, reason: errorText.slice(0, 200) });
+        runtime.recentSellFailures = runtime.recentSellFailures.filter((entry) => (now - entry.ts) <= windowMs);
+        if (runtime.recentSellFailures.length >= threshold && !portfolio.safeMode) {
+          const safeReason = `Repeated SELL failures: ${runtime.recentSellFailures.length} within ${Math.round(windowMs / 1000)}s window (last error: ${errorText.slice(0, 120)})`;
+          try {
+            await enterSafeMode(safeReason);
+          } catch (safeError) {
+            logger.error(`enterSafeMode after repeated SELL failures failed: ${safeError?.message || safeError}`);
+          }
+        }
+      }
+    }
   }
 
   return {
