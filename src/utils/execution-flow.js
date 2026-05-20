@@ -307,6 +307,13 @@ function createExecutionFlow(deps = {}) {
       exitInProgress: false,
       realizedPnlByTier: {},
       realizedPnl: 0,
+      // Bull-flag setup metadata (Week 12 B.5). Persists structural stop +
+      // measured-move target so exit logic can branch on setupType.
+      setupType: tokenData.setupType || null,
+      structuralStopPrice: Number.isFinite(Number(tokenData.structuralStopPrice)) ? Number(tokenData.structuralStopPrice) : null,
+      measuredMoveTargetPrice: Number.isFinite(Number(tokenData.measuredMoveTargetPrice)) ? Number(tokenData.measuredMoveTargetPrice) : null,
+      breakoutClosePrice: Number.isFinite(Number(tokenData.breakoutClosePrice)) ? Number(tokenData.breakoutClosePrice) : null,
+      manualCutDeadlineAt: tokenData.manualCutDeadlineAt || null,
     };
 
     portfolio.strategies[strategyName].positions[tokenKey] = portfolio.positions[tokenKey];
@@ -348,6 +355,10 @@ function createExecutionFlow(deps = {}) {
       blockNumber: txResult?.blockNumber,
       confirmations: txResult?.confirmations,
       privateRouteUsed: txResult?.privateRouteUsed,
+      setupType: tokenData.setupType || null,
+      setupStopPrice: tokenData.structuralStopPrice || null,
+      setupTargetPrice: tokenData.measuredMoveTargetPrice || null,
+      setupIsAPlus: tokenData._bullFlagIsAPlus === true ? true : undefined,
     }, strategyName);
 
     telemetry.logFill({
@@ -716,6 +727,9 @@ function createExecutionFlow(deps = {}) {
       blockNumber: txResult?.blockNumber,
       confirmations: txResult?.confirmations,
       privateRouteUsed: txResult?.privateRouteUsed,
+      setupType: position.setupType || null,
+      setupStopPrice: position.structuralStopPrice || null,
+      setupTargetPrice: position.measuredMoveTargetPrice || null,
     }, strategyName);
 
     // Record trade outcome to symbol memory and RL updater for learning

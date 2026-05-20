@@ -511,6 +511,44 @@ const config = {
         { profitMultiplier: 1.60, sellPct: 0.40 },
       ]),
     },
+    spot_day_bull_flag: {
+      enabled: process.env.BULL_FLAG_ENABLED === 'true',
+      maxConcurrentPositions: parseInt(process.env.BULL_FLAG_MAX_CONCURRENT_POSITIONS || '2', 10),
+      // Chains where detector runs. Comma-separated; default: kucoin + base.
+      enabledChains: String(process.env.BULL_FLAG_ENABLED_CHAINS || 'kucoin,base').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
+      // Detector thresholds (pure-function inputs)
+      polePctMin: parseFloat(process.env.BULL_FLAG_POLE_PCT_MIN || '5'),
+      poleMaxCandles: parseInt(process.env.BULL_FLAG_POLE_MAX_CANDLES || '4', 10),
+      flagMinCandles: parseInt(process.env.BULL_FLAG_FLAG_MIN_CANDLES || '2', 10),
+      flagMaxCandles: parseInt(process.env.BULL_FLAG_FLAG_MAX_CANDLES || '8', 10),
+      flagDepthMaxPct: parseFloat(process.env.BULL_FLAG_FLAG_DEPTH_MAX_PCT || '50'),
+      flagVolContractMaxRatio: parseFloat(process.env.BULL_FLAG_FLAG_VOL_CONTRACT_MAX_RATIO || '0.70'),
+      breakoutVolMinRatio: parseFloat(process.env.BULL_FLAG_BREAKOUT_VOL_MIN_RATIO || '1.5'),
+      // Scanner gates (applied before invoking detector)
+      min24hVolumeUsd: parseFloat(process.env.BULL_FLAG_MIN_24H_VOLUME_USD || '5000000'),
+      minLiquidityUsd: parseFloat(process.env.BULL_FLAG_MIN_LIQUIDITY_USD || '500000'),
+      minNetEdgePct: parseFloat(process.env.BULL_FLAG_MIN_NET_EDGE_PCT || '2.5'),
+      // Risk / sizing
+      riskPctBase: parseFloat(process.env.BULL_FLAG_RISK_PCT_BASE || '0.35'),
+      riskPctAPlus: parseFloat(process.env.BULL_FLAG_RISK_PCT_APLUS || '0.50'),
+      aPlusVolumeExpansionMin: parseFloat(process.env.BULL_FLAG_APLUS_VOL_EXPANSION_MIN || '3.0'),
+      aPlusFlagDepthMaxPct: parseFloat(process.env.BULL_FLAG_APLUS_FLAG_DEPTH_MAX_PCT || '30'),
+      maxStopDistancePct: parseFloat(process.env.BULL_FLAG_MAX_STOP_DISTANCE_PCT || '3.5'),
+      maxDailyLossPct: parseFloat(process.env.BULL_FLAG_MAX_DAILY_LOSS_PCT || '1.5'),
+      // Exit rules
+      manualCutCandlesNoFollowThrough: parseInt(process.env.BULL_FLAG_MANUAL_CUT_CANDLES || '3', 10),
+      manualCutTimeframeMinutes: parseInt(process.env.BULL_FLAG_MANUAL_CUT_TIMEFRAME_MIN || '5', 10),
+      // Per-chain stricter overrides (optional, looked up by chain key)
+      perChainOverrides: {
+        bsc: {
+          min24hVolumeUsd: parseFloat(process.env.BULL_FLAG_BSC_MIN_24H_VOLUME_USD || '10000000'),
+          minTokenAgeDays: parseInt(process.env.BULL_FLAG_BSC_MIN_TOKEN_AGE_DAYS || '30', 10),
+        },
+        base: {
+          min24hVolumeUsd: parseFloat(process.env.BULL_FLAG_BASE_MIN_24H_VOLUME_USD || '10000000'),
+        },
+      },
+    },
   },
 
   dashboard: {

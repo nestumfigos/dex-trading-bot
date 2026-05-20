@@ -41,10 +41,36 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
-    const useSmallIterations = process.env.USE_POSITION_ITERATIONS !== 'false';
-    const calculatedSizeUsd = useSmallIterations
-      ? positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName)
-      : risk.positionSize(tokenData, strategyName);
+    // Bull-flag sizing (Week 12 B.7): flat %-equity risk divided by stop distance.
+    // Quantity = (equity × riskPct%) ÷ stopDistanceAbs. Bypasses iteration engine.
+    let calculatedSizeUsd;
+    if (strategyName === 'spot_day_bull_flag' && tokenData.setupType === 'spot_day_bull_flag' && Number(tokenData.structuralStopPrice) > 0) {
+      const equity = Number(portfolio?.balance || 0);
+      const riskPct = Number(tokenData._bullFlagRiskPct || config.strategies?.spot_day_bull_flag?.riskPctBase || 0.35);
+      const entryPrice = Number(tokenData.price || tokenData.breakoutClosePrice || 0);
+      const stopPrice = Number(tokenData.structuralStopPrice);
+      const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
+      if (equity > 0 && stopDistanceFrac > 0) {
+        const riskDollars = equity * (riskPct / 100);
+        calculatedSizeUsd = riskDollars / stopDistanceFrac;
+        // Cap at max position size config to prevent runaway sizing on tiny stops
+        const maxPctCap = Number(config.risk?.maxPositionSizePct || 3) / 100;
+        const maxUsdCap = equity * maxPctCap;
+        if (calculatedSizeUsd > maxUsdCap) {
+          logger.info(`[bull-flag] sizing capped: requested $${calculatedSizeUsd.toFixed(2)} > max $${maxUsdCap.toFixed(2)} (risk ${riskPct}%, stop ${(stopDistanceFrac * 100).toFixed(2)}%)`);
+          calculatedSizeUsd = maxUsdCap;
+        }
+        logger.info(`[bull-flag] sized ${tokenData.symbol}: risk=${riskPct}%, stop=${(stopDistanceFrac * 100).toFixed(2)}%, size=$${calculatedSizeUsd.toFixed(2)} (A+=${tokenData._bullFlagIsAPlus})`);
+      } else {
+        logger.warn(`[bull-flag] sizing fallback (equity=${equity}, stopFrac=${stopDistanceFrac}); using iteration engine`);
+        calculatedSizeUsd = positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName);
+      }
+    } else {
+      const useSmallIterations = process.env.USE_POSITION_ITERATIONS !== 'false';
+      calculatedSizeUsd = useSmallIterations
+        ? positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName)
+        : risk.positionSize(tokenData, strategyName);
+    }
 
     if (calculatedSizeUsd < 6) {
       logger.warn(`Position size $${calculatedSizeUsd.toFixed(2)} too small, skipping`);

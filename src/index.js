@@ -72,6 +72,8 @@ const {
 const { rsi: computeRsi, volumeSpike: computeVolumeSpike, computeRegime } = require('./utils/indicators');
 const { analyzeEstablishedTokenPatterns, isEstablishedTokenCandidate } = require('./utils/pattern-recognition');
 const { getOhlcvSeries } = require('./utils/candles');
+const { detectBullFlag } = require('./strategies/bull-flag-detector');
+const { createBullFlagEvaluator } = require('./strategies/bull-flag-evaluator');
 const { executeBuyViaVenue, executeSellViaVenue } = require('./utils/execution-adapter');
 const { runPreTrade: runPreTradeContract, registerInFlight: registerPreTradeInFlight, releaseInFlight: releasePreTradeInFlight } = require('./risk/pre-trade-runtime');
 const { runHyperopt, runValidation, buildBaseBacktestOptions } = require('./utils/research');
@@ -803,18 +805,22 @@ const filterStatsState = {
   currentCycle: {
     momentum: makeFilterCycleStats('momentum'),
     swing: makeFilterCycleStats('swing'),
+    spot_day_bull_flag: makeFilterCycleStats('spot_day_bull_flag'),
   },
   recentCycles: {
     momentum: [],
     swing: [],
+    spot_day_bull_flag: [],
   },
   consecutiveZeroSignalCycles: {
     momentum: 0,
     swing: 0,
+    spot_day_bull_flag: 0,
   },
   signalDrought: {
     momentum: false,
     swing: false,
+    spot_day_bull_flag: false,
     global: false,
   },
 };
@@ -1129,6 +1135,7 @@ const scanStatus = {
     strategies: {
       momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
       swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
+      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
     },
   },
   bsc: {
@@ -1143,6 +1150,7 @@ const scanStatus = {
     strategies: {
       momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
       swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
+      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
     },
   },
   base: {
@@ -1157,6 +1165,7 @@ const scanStatus = {
     strategies: {
       momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
       swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
+      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
     },
   },
   kucoin: {
@@ -1171,6 +1180,7 @@ const scanStatus = {
     strategies: {
       momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
       swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
+      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
     },
   },
 };
@@ -1179,6 +1189,17 @@ function isStrategyScanEnabled(chainName, strategyName = 'momentum') {
   const chain = String(chainName || '').toLowerCase();
   const strategy = String(strategyName || 'momentum').toLowerCase();
   const isLiveBot = !config.paperTrading;
+
+  // spot_day_bull_flag respects its own enabled flag + enabledChains list,
+  // intersected with live/paper chain restrictions.
+  if (strategy === 'spot_day_bull_flag') {
+    const cfg = config.strategies?.spot_day_bull_flag;
+    if (!cfg?.enabled) return false;
+    const enabledChains = Array.isArray(cfg.enabledChains) ? cfg.enabledChains : [];
+    if (!enabledChains.includes(chain)) return false;
+    if (isLiveBot) return chain === 'kucoin';
+    return true;
+  }
 
   // Live bot: KuCoin only
   if (isLiveBot) {
@@ -1195,7 +1216,7 @@ function applyDisabledScanStates() {
   Object.keys(scanStatus).forEach((chainName) => {
     const chainState = scanStatus[chainName];
     if (!chainState?.strategies) return;
-    ['momentum', 'swing'].forEach((strategyName) => {
+    ['momentum', 'swing', 'spot_day_bull_flag'].forEach((strategyName) => {
       if (!isStrategyScanEnabled(chainName, strategyName)) {
         chainState.strategies[strategyName] = {
           status: 'disabled',
@@ -1237,6 +1258,13 @@ function applyDisabledScanStates() {
 
 applyDisabledScanStates();
 
+// Bull-flag evaluator (spot_day_bull_flag strategy). Pure async wrapper around detector.
+const bullFlagEvaluator = createBullFlagEvaluator({
+  logger,
+  fetchOhlcv: getOhlcvSeries,
+  detectBullFlag,
+});
+
 // Local strategy adapter used by processToken/scanChain.
 const strategy = {
   priceHistory: {},
@@ -1264,6 +1292,7 @@ const strategy = {
     return {
       momentum: isStrategyScanEnabled(chainName, 'momentum'),
       swing: isStrategyScanEnabled(chainName, 'swing'),
+      spot_day_bull_flag: isStrategyScanEnabled(chainName, 'spot_day_bull_flag'),
       momentumLane: lane,
     };
   },
@@ -1271,6 +1300,12 @@ const strategy = {
   async evaluateForStrategy(_tokenKey, strategyName, tokenData = {}) {
     const strategyCfg = config.strategies?.[strategyName] || {};
     const chainName = normalizeChainKey(tokenData?.chainKey || tokenData?.chain);
+
+    // Bull-flag delegate: spot_day_bull_flag uses a separate detector pipeline.
+    if (strategyName === 'spot_day_bull_flag') {
+      return bullFlagEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
+    }
+
     const adaptiveParams = strategyBrain.getAdaptiveParameters(chainName, strategyName, strategyCfg, tokenData);
 
     // Accumulate price/volume history and compute RSI + volumeSpike when not provided by exchange (e.g. KuCoin CEX)
@@ -3408,6 +3443,12 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
     privateRouteUsed: Boolean(executionMeta.privateRouteUsed),
     quotedPriceImpactPct: Number.isFinite(Number(executionMeta.quotedPriceImpactPct)) ? round(executionMeta.quotedPriceImpactPct, 4) : null,
     realizedVsQuoteSlippagePct: Number.isFinite(Number(executionMeta.realizedVsQuoteSlippagePct)) ? round(executionMeta.realizedVsQuoteSlippagePct, 4) : null,
+    // Bull-flag setup telemetry (Week 12 B.8). Tags each trade with its setup
+    // classification so dashboards / SQL reports can segment performance by setup.
+    setupType: tokenData.setupType || executionMeta.setupType || null,
+    setupStopPrice: Number.isFinite(Number(executionMeta.setupStopPrice)) ? round(executionMeta.setupStopPrice, 8) : null,
+    setupTargetPrice: Number.isFinite(Number(executionMeta.setupTargetPrice)) ? round(executionMeta.setupTargetPrice, 8) : null,
+    setupIsAPlus: executionMeta.setupIsAPlus === true ? true : undefined,
     brainProfileKey: executionMeta.brainProfileKey || undefined,
     brainMultiplier: Number.isFinite(Number(executionMeta.brainMultiplier)) ? round(executionMeta.brainMultiplier, 4) : undefined,
     executionStatus: executionMeta.executionStatus || undefined,
@@ -3668,9 +3709,13 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
     return [];
   }
 
+  // spot_day_bull_flag reuses momentum's liquid-token discovery universe.
+  // Detector itself filters via OHLCV pattern + scanner gates.
+  const discoveryStrategy = strategyName === 'spot_day_bull_flag' ? 'momentum' : strategyName;
+
   const watchlistTokens = watchlists[chainName] || [];
   const discoveryStatus = wsDiscovery.getStatus();
-  const forcePollingOnly = strategyName === 'momentum' && Boolean(discoveryStatus?.bootstrapFailed);
+  const forcePollingOnly = discoveryStrategy === 'momentum' && Boolean(discoveryStatus?.bootstrapFailed);
 
   if (strategyName === 'swing') {
     if (!supportsSwingOnChain(chainName)) {
@@ -4046,7 +4091,7 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
   if (chainName === 'bsc' && applicability.momentumLane && !tokenData.discoveryLane) {
     tokenData.discoveryLane = applicability.momentumLane;
   }
-  const strategyOrder = ['swing', 'momentum'];
+  const strategyOrder = ['swing', 'momentum', 'spot_day_bull_flag'];
   const forced = Array.isArray(options.forcedStrategies) ? options.forcedStrategies : null;
   const applicableStrategies = strategyOrder
     .filter((name) => applicability[name])
@@ -4157,6 +4202,21 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     tokenData.finalSignal = finalSignal;
     tokenData.patternAnalysis = evaluation.details.patternAnalysis || null;
     tokenData.externalSignal = evaluation.details.externalSignal || null;
+
+    // Bull-flag setup propagation (Week 12 B.5): structural stop, measured-move
+    // target, and manual-cut deadline travel with the tokenData into execution-flow.
+    if (strategyName === 'spot_day_bull_flag' && evaluation.details.setupType === 'spot_day_bull_flag') {
+      tokenData.setupType = 'spot_day_bull_flag';
+      tokenData.structuralStopPrice = Number(evaluation.details.stopPrice) || null;
+      tokenData.measuredMoveTargetPrice = Number(evaluation.details.targetPrice) || null;
+      tokenData.breakoutClosePrice = Number(evaluation.details.breakoutClose) || null;
+      const cutCandles = Number(config.strategies?.spot_day_bull_flag?.manualCutCandlesNoFollowThrough || 3);
+      const cutTimeframeMin = Number(config.strategies?.spot_day_bull_flag?.manualCutTimeframeMinutes || 5);
+      tokenData.manualCutDeadlineAt = new Date(Date.now() + cutCandles * cutTimeframeMin * 60_000).toISOString();
+      tokenData._bullFlagRiskPct = Number(evaluation.details.riskPct) || null;
+      tokenData._bullFlagIsAPlus = Boolean(evaluation.details.isAPlus);
+    }
+
     const activeRollout = getActivePromotionRolloutContext();
     if (activeRollout) {
       const tokenRegimeFamily = classifyRegimeFamily(tokenData.marketRegime || '');
