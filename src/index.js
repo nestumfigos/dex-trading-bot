@@ -122,6 +122,46 @@ const CURRENT_STRATEGY_VERSION_ID = `${BOT_PROFILE}-${CURRENT_STRATEGY_VERSION_H
 const { acquireRuntimeSingleton } = require('./boot/singleton');
 const { installErrorHandlers } = require('./boot/error-handlers');
 const lockManager = require('./state/lock-manager');
+const configSchema = require('./config/schema');
+const configSourceAudit = require('./config/source-audit');
+
+// Week 11.1 — boot-time config integrity. Strict-unknown env var rejection +
+// .env vs ecosystem.config.js conflict detection.
+try {
+  const strictMode = String(process.env.CONFIG_STRICT_UNKNOWN || 'false').toLowerCase() === 'true';
+  const schemaResult = configSchema.validate(process.env, { strictUnknown: strictMode });
+  if (schemaResult.errors.length) {
+    if (strictMode) {
+      const err = new Error(`[config/schema] validation failed: ${schemaResult.errors.join('; ')}`);
+      err.code = 'CONFIG_SCHEMA_INVALID';
+      throw err;
+    }
+    logger.warn(`[config/schema] ${schemaResult.errors.length} error(s): ${schemaResult.errors.join('; ')}`);
+  }
+  if (schemaResult.warnings.length) {
+    logger.info(`[config/schema] ${schemaResult.warnings.join('; ')}`);
+  }
+} catch (e) {
+  if (e.code === 'CONFIG_SCHEMA_INVALID') throw e;
+  logger.warn(`[config/schema] check skipped: ${e.message}`);
+}
+
+try {
+  const lenient = String(process.env.CONFIG_AUDIT_LENIENT || 'true').toLowerCase() === 'true';
+  configSourceAudit.auditBoot({
+    envPath: require('path').join(__dirname, '..', '.env'),
+    ecoPath: require('path').join(__dirname, '..', 'ecosystem.config.js'),
+    profile: BOT_PROFILE,
+    lenient,
+    logger,
+  });
+} catch (e) {
+  if (e.code === 'CONFIG_SOURCE_CONFLICT') {
+    logger.error(e.message);
+    throw e;
+  }
+  logger.warn(`[config/source-audit] check skipped: ${e.message}`);
+}
 
 acquireRuntimeSingleton({
   dataDirAbs: DATA_DIR_ABS,
@@ -4931,6 +4971,20 @@ async function main() {
       `schema=${sqlStatus.schemaReady ? 'ready' : 'not_ready'}`
     );
   }
+
+  // Week 11.3 — Schema version gate. Lenient by default.
+  try {
+    const { checkSchemaVersion } = require('./boot/version-gate');
+    const { getPool } = require('./utils/sqlServer');
+    const minV = Number(process.env.BOT_MIN_SCHEMA_VERSION || 17);
+    const maxV = process.env.BOT_MAX_SCHEMA_VERSION ? Number(process.env.BOT_MAX_SCHEMA_VERSION) : undefined;
+    const strict = String(process.env.VERSION_GATE_STRICT || 'false').toLowerCase() === 'true';
+    await checkSchemaVersion({ getPool, logger, minSchemaVersion: minV, maxSchemaVersion: maxV, strict });
+  } catch (e) {
+    if (e.code && String(e.code).startsWith('VERSION_GATE_')) throw e;
+    logger.warn(`[version-gate] check skipped: ${e.message}`);
+  }
+
   await agentMemory.load();
   // Boot-heartbeat: touch agent-memory.json so memory_mtime canary passes even
   // when SQL is primary (save() returns early on SQL success without writing file).
