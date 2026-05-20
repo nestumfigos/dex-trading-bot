@@ -3,9 +3,11 @@
 const axios = require('axios');
 const config = require('../../config');
 const logger = require('../utils/logger');
+const { trackAi } = require('../ai/decision-tracker');
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
+let anthropicBackoffUntil = 0;
 const VALID_SIGNALS = new Set(['BUY', 'HOLD', 'SELL']);
 
 function clamp(value, min, max) {
@@ -111,6 +113,9 @@ function buildPrompt(tokenData, technicalDetails) {
     mlMASignal: technicalDetails.ml?.maSignal || 0,
     marketRegime: technicalDetails.marketRegime || null,
     dynamicVolumeSpikeMultiplier: technicalDetails.dynamicVolumeSpikeMultiplier || null,
+    operatorKnowledge: Array.isArray(technicalDetails.operatorKnowledge)
+      ? technicalDetails.operatorKnowledge.slice(0, 8)
+      : [],
     walletClustering: buildWalletClusteringContext(tokenData, technicalDetails),
   };
   const technical = {
@@ -171,58 +176,115 @@ async function evaluateToken(tokenData, technicalDetails) {
   if (!config.anthropic?.enabled || !config.anthropic?.apiKey) {
     return null;
   }
+  if (Date.now() < anthropicBackoffUntil) {
+    return null;
+  }
 
   const startedAt = Date.now();
 
   try {
-    const response = await axios.post(
-      ANTHROPIC_URL,
+    let parsedRef = null;
+    let rawText = '';
+    let modelUsed = null;
+    let usage = null;
+
+    const wrappedResult = await trackAi(
       {
+        provider: 'anthropic',
         model: config.anthropic.model || 'claude-3-5-haiku-20241022',
-        max_tokens: 180,
-        temperature: Number(config.anthropic.temperature || 0.2),
-        messages: [
+        purpose: 'trade_signal',
+        symbol: tokenData?.symbol,
+        chain: tokenData?.chain,
+        scope: String(process.env.BOT_PROFILE || 'global').toLowerCase(),
+        strategy: tokenData?.strategy || null,
+        promptName: 'anthropic_trade_signal',
+        promptVersion: 1,
+        botVersion: process.env.BOT_VERSION || null,
+      },
+      async () => {
+        const response = await axios.post(
+          ANTHROPIC_URL,
           {
-            role: 'user',
-            content: [
+            model: config.anthropic.model || 'claude-3-5-haiku-20241022',
+            max_tokens: 180,
+            temperature: Number(config.anthropic.temperature || 0.2),
+            messages: [
               {
-                type: 'text',
-                text: buildPrompt(tokenData, technicalDetails),
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: buildPrompt(tokenData, technicalDetails),
+                  },
+                ],
               },
             ],
           },
-        ],
+          {
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': config.anthropic.apiKey,
+              'anthropic-version': ANTHROPIC_VERSION,
+            },
+            timeout: 20000,
+          }
+        );
+        rawText = extractTextContent(response.data?.content);
+        parsedRef = parseAiResponse(rawText);
+        modelUsed = response.data?.model || config.anthropic.model;
+        usage = response.data?.usage || null;
+        return {
+          signal: parsedRef?.signal || null,
+          confidence: parsedRef?.confidence,
+          requestTokens: usage?.input_tokens,
+          responseTokens: usage?.output_tokens,
+          responseExcerpt: rawText,
+        };
       },
-      {
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': config.anthropic.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION,
-        },
-        timeout: 20000,
-      }
+      { getPool: () => require('../utils/sqlServer').getPool(logger).catch(() => null), logger },
     );
 
-    const text = extractTextContent(response.data?.content);
-    const parsed = parseAiResponse(text);
-
-    if (!parsed) {
-      logger.warn(`Anthropic response could not be parsed into a signal: ${text}`);
+    if (!parsedRef) {
+      logger.warn(`Anthropic response could not be parsed into a signal: ${rawText}`);
       return null;
     }
 
     return applySafetyOverrides(tokenData, technicalDetails, {
-      ...parsed,
-      model: response.data?.model || config.anthropic.model,
+      ...parsedRef,
+      model: modelUsed,
       latencyMs: Date.now() - startedAt,
-      usage: response.data?.usage || null,
-      raw: text,
+      usage,
+      raw: rawText,
     });
   } catch (err) {
-    const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    logger.warn(`Anthropic evaluation failed: ${details}`);
+    const details = err.response?.data ? JSON.stringify(err.response.data) : (err.message || 'unknown error');
+    const status = Number(err.response?.status || 0);
+    const lowBalance = /credit balance is too low|insufficient|billing|payment required/i.test(details);
+    const authIssue = status === 401 || status === 403;
+    const rateLimited = status === 429 || /rate.?limit|too many requests|quota/i.test(details);
+
+    if (lowBalance) {
+      anthropicBackoffUntil = Date.now() + (6 * 60 * 60 * 1000);
+      logger.warn('Anthropic disabled for 21600s due to low/invalid credits.');
+    } else if (authIssue) {
+      anthropicBackoffUntil = Date.now() + (30 * 60 * 1000);
+      logger.warn('Anthropic disabled for 1800s due to auth error (401/403).');
+    } else if (rateLimited) {
+      anthropicBackoffUntil = Date.now() + (5 * 60 * 1000);
+      logger.warn('Anthropic rate-limited; backing off 300s.');
+    } else {
+      logger.warn(`Anthropic evaluation failed: ${details}`);
+    }
     return null;
   }
 }
 
-module.exports = { evaluateToken };
+function getBackoffStatus() {
+  const now = Date.now();
+  return {
+    backoffUntil: anthropicBackoffUntil > now ? new Date(anthropicBackoffUntil).toISOString() : null,
+    backoffSecondsRemaining: anthropicBackoffUntil > now ? Math.ceil((anthropicBackoffUntil - now) / 1000) : 0,
+  };
+}
+
+module.exports = { evaluateToken, getBackoffStatus };
