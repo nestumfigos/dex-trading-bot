@@ -320,6 +320,18 @@ function createStatePersistence(deps = {}) {
       }
 
       if (saved.portfolio) Object.assign(portfolio, saved.portfolio);
+      if (config?.paperTrading) {
+        portfolio.walletBalanceUsd = null;
+        portfolio.walletBalancesUsd = {
+          solana: null,
+          bsc: null,
+          base: null,
+          kucoin: null,
+        };
+        portfolio.balanceCoverageCount = null;
+        portfolio.balanceDrift = { amountUsd: 0, pct: 0 };
+        portfolio.balanceDriftHalt = false;
+      }
       if (marketSaved) Object.assign(marketState, marketSaved);
       if (!marketState.evolution || typeof marketState.evolution !== 'object') {
         marketState.evolution = {

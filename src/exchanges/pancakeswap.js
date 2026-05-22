@@ -380,20 +380,37 @@ class PancakeSwapExchange {
     return ethers.parseUnits(String(tokenAmount), Number(decimals));
   }
 
-  async executeBuy(tokenAddress, bnbAmount) {
+  async executeBuy(tokenAddress, bnbAmount, options = {}) {
+    const requestedMaxSlippageBps = Number(options.maxSlippageBps);
+    const maxSlippageBps = Number.isFinite(requestedMaxSlippageBps) && requestedMaxSlippageBps > 0
+      ? Math.min(300, requestedMaxSlippageBps)
+      : 3000;
+    const mevJitterRequested = options.useMevJitter === true;
     if (config.paperTrading) {
-      logger.info(`[PAPER] PancakeSwap BUY ${tokenAddress} with ${bnbAmount} BNB (MEV protection: ${this.mevProtectionMethod})`);
-      return { txid: `paper_tx_${Date.now()}`, simulated: true };
+      logger.info(`[PAPER] PancakeSwap BUY ${tokenAddress} with ${bnbAmount} BNB (MEV protection: ${mevJitterRequested ? 'merkle_jitter' : this.mevProtectionMethod})`);
+      return {
+        txid: `paper_tx_${Date.now()}`,
+        simulated: true,
+        slippageBps: Math.min(maxSlippageBps, 300),
+        privateRouteUsed: mevJitterRequested,
+        mevProtectionMethod: mevJitterRequested ? 'paper_merkle_jitter' : this.mevProtectionMethod,
+      };
     }
 
     if (!this.wallet) throw new Error('BSC wallet not configured');
 
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
-      const baseSlippageBps = Math.max(30, Number(config.execution.bscSlippageBps || config.execution.slippageBps || 200));
+      const configuredSlippageBps = Number(config.execution.bscSlippageBps || config.execution.slippageBps || 200);
+      const baseSlippageBps = Math.max(30, Math.min(maxSlippageBps, Number.isFinite(requestedMaxSlippageBps) ? requestedMaxSlippageBps : configuredSlippageBps));
       
       // Enforce MEV protection for BUY if enabled
-      if (config.execution?.mevGuardEnabled && config.execution?.requirePrivateTxForBsc !== false && !this.privateRouter) {
+      if (
+        config.execution?.mevGuardEnabled
+        && config.execution?.requirePrivateTxForBsc !== false
+        && !this.privateRouter
+        && !(mevJitterRequested && config.execution?.useMerkleBundleForBsc !== false)
+      ) {
         throw new Error(
           'MEV protection (mevGuardEnabled=true) requires a private transaction route. ' +
           'BSC buy order cannot proceed. ' +
@@ -410,7 +427,7 @@ class PancakeSwapExchange {
         try {
           const amountIn = ethers.parseEther(bnbAmount.toString());
           const amountOut = await this.getAmountOut(amountIn, tokenAddress);
-          const slippageBps = Math.min(3000, baseSlippageBps + (attempt - 1) * 25);
+          const slippageBps = Math.min(maxSlippageBps, baseSlippageBps + (attempt - 1) * 25);
           const amountOutMin = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
           const deadline = Math.floor(Date.now() / 1000) + 300;
 
@@ -443,19 +460,66 @@ class PancakeSwapExchange {
             }
           }
 
-          const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
-          const tx = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
-            amountOutMin,
-            [config.bsc.wbnb, tokenAddress],
-            this.wallet.address,
-            deadline,
-            { value: amountIn, gasLimit, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
-          );
+          let txHash = null;
+          let receipt = null;
+          let merkleRelay = null;
+          let merkleAccepted = false;
+          if (mevJitterRequested && activeRouter === this.router && this.wallet && config.execution?.useMerkleBundleForBsc !== false) {
+            try {
+              const { sendPrivateRawTransaction } = require('../utils/merkle-bundle');
+              const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : await activeProvider.getTransactionCount(this.wallet.address, 'pending');
+              const network = await activeProvider.getNetwork();
+              const signedRawTx = await this.wallet.signTransaction({
+                to: txRequest.to,
+                data: txRequest.data,
+                value: amountIn,
+                gasLimit,
+                gasPrice,
+                nonce: txNonce,
+                chainId: Number(network.chainId),
+              });
+              const merkle = await sendPrivateRawTransaction({ signedRawTx, logger });
+              if (merkle.ok) {
+                merkleAccepted = true;
+                merkleRelay = merkle.relay;
+                txHash = merkle.txHash;
+                receipt = await this.provider.waitForTransaction(
+                  merkle.txHash,
+                  requiredConfirmations,
+                  Math.max(15_000, Number(config.execution.buyTimeoutMs || config.execution.execTimeoutMs || 30_000)),
+                );
+                if (!receipt) {
+                  throw new Error(`Merkle private tx accepted but no receipt before timeout (tx=${merkle.txHash})`);
+                }
+              } else {
+                if (this._nonceManager) this._nonceManager.reset();
+                if (config.execution?.requirePrivateTxForBsc) {
+                  throw new Error(`Merkle private route unavailable: ${merkle.error}`);
+                }
+                logger.warn(`[Merkle] BSC buy private route unavailable, falling back to configured router: ${merkle.error}`);
+              }
+            } catch (merkleError) {
+              if (this._nonceManager && !merkleAccepted) this._nonceManager.reset();
+              if (merkleAccepted || config.execution?.requirePrivateTxForBsc) throw merkleError;
+              logger.warn(`[Merkle] BSC buy private route failed, falling back to configured router: ${merkleError.message}`);
+            }
+          }
 
-          const receipt = await tx.wait(requiredConfirmations);
+          if (!receipt) {
+            const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
+            const tx = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
+              amountOutMin,
+              [config.bsc.wbnb, tokenAddress],
+              this.wallet.address,
+              deadline,
+              { value: amountIn, gasLimit, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
+            );
+            txHash = tx.hash;
+            receipt = await tx.wait(requiredConfirmations);
+          }
           if (!receipt || receipt.status === 0) {
             if (this._nonceManager) this._nonceManager.reset();
-            throw new Error(`BUY transaction reverted (hash=${tx.hash})`);
+            throw new Error(`BUY transaction reverted (hash=${txHash || 'unknown'})`);
           }
 
           // Parse confirmed tokens received from Transfer events on the token contract.
@@ -487,8 +551,8 @@ class PancakeSwapExchange {
             hasExchangeFilledData: Boolean(filledBaseQty > 0 && filledQuoteUsd > 0),
             blockNumber: receipt.blockNumber,
             confirmations: requiredConfirmations,
-            privateRouteUsed: Boolean(activeRouter === this.privateRouter),
-            mevProtectionMethod: this.mevProtectionMethod,
+            privateRouteUsed: Boolean(activeRouter === this.privateRouter || merkleRelay),
+            mevProtectionMethod: merkleRelay ? `merkle:${merkleRelay}` : this.mevProtectionMethod,
           };
         } catch (error) {
           if (attempt >= retries) throw error;
@@ -534,7 +598,7 @@ class PancakeSwapExchange {
           const rawTokenAmount = await this.toRawTokenAmount(tokenAddress, tokenAmount);
           await this.ensureApproval(tokenAddress, rawTokenAmount);
           const amounts = await this.router.getAmountsOut(rawTokenAmount, [tokenAddress, config.bsc.wbnb]);
-          const slippageBps = Math.min(3000, baseSlippageBps + (attempt - 1) * 25);
+          const slippageBps = Math.min(maxSlippageBps, baseSlippageBps + (attempt - 1) * 25);
           const amountOutMin = (amounts[1] * BigInt(10000 - slippageBps)) / 10000n;
           const deadline = Math.floor(Date.now() / 1000) + 300;
 

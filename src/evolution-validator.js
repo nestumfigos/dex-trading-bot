@@ -9,8 +9,26 @@ const { runBacktest, runWalkForwardBacktest } = require('./backtest');
 function execNode(projectRoot, args, timeout = 20000) {
   return new Promise((resolve) => {
     execFile(process.execPath, args, { cwd: projectRoot, timeout }, (error, stdout, stderr) => {
+      // Tristate result:
+      //   passed     — exit 0, no error
+      //   failed     — exit non-zero with a real error from the script (validation FAILED, do not promote)
+      //   unreliable — env-level problem (ENOENT/EACCES/timeout). Cannot conclude; treat upstream as inconclusive.
+      let status = 'passed';
+      let unreliableReason = null;
+      if (error) {
+        const code = error.code || error.errno || '';
+        const killed = Boolean(error.killed) || error.signal === 'SIGTERM' || error.signal === 'SIGKILL';
+        if (killed || code === 'ETIMEDOUT' || code === 'ENOENT' || code === 'EACCES' || code === 'EBUSY') {
+          status = 'unreliable';
+          unreliableReason = killed ? `timeout/signal:${error.signal || 'killed'}` : code || error.message;
+        } else {
+          status = 'failed';
+        }
+      }
       resolve({
-        ok: !error,
+        ok: status === 'passed',
+        status,
+        unreliableReason,
         stdout: String(stdout || ''),
         stderr: String(stderr || ''),
         error: error ? String(error.message || error) : null,
@@ -162,20 +180,90 @@ class EvolutionValidator {
     });
   }
 
-  async validateCandidate({ changedFiles = [] } = {}) {
+  /**
+   * Capture a baseline of validator results against current code (no patch applied).
+   * Returns a Map<resultKey, ok:boolean> usable as the `baseline` arg to
+   * validateCandidate(). Use this BEFORE applying a self-evolution patch so the
+   * post-apply validation can detect NEW failures (delta) instead of treating
+   * pre-existing broken tests as patch-induced regressions.
+   *
+   * Bug class this guards: 2026-05-17 — pre-existing `test/*.js` failures
+   * (research-handlers, agent-memory-ai-budget, etc.) made every patch falsely
+   * fail validation, blocking all self-evolution.
+   */
+  async captureBaseline({ changedFiles = [] } = {}) {
+    const all = await this._runAll({ changedFiles });
+    const map = new Map();
+    for (const r of all) map.set(this._resultKey(r), r.ok);
+    return { results: all, map, summary: { totalChecks: all.length, passedChecks: all.filter((r) => r.ok).length } };
+  }
+
+  _resultKey(item) {
+    return `${item.type}:${item.target}`;
+  }
+
+  async _runAll({ changedFiles = [] } = {}) {
     const syntax = await this.runSyntaxChecks(changedFiles);
     const tests = await this.runScriptedTests();
     const backtests = this.runDeterministicBacktests();
     const simulations = this.runDeterministicSimulations();
-    const all = [...syntax, ...tests, ...backtests, ...simulations];
+    return [...syntax, ...tests, ...backtests, ...simulations];
+  }
+
+  /**
+   * @param {Object} opts
+   * @param {string[]} opts.changedFiles
+   * @param {Map<string,boolean>|null} [opts.baseline]
+   *   If provided, only fail on NEW regressions (post-apply failure that was
+   *   passing in baseline). Pre-existing failures are reported as `preexisting`
+   *   and don't block. If omitted, behaves as legacy strict mode.
+   */
+  async validateCandidate({ changedFiles = [], baseline = null } = {}) {
+    const all = await this._runAll({ changedFiles });
     const failed = all.filter((item) => !item.ok);
+
+    if (!baseline || typeof baseline.get !== 'function') {
+      // Legacy strict mode: any failure blocks.
+      return {
+        ok: failed.length === 0,
+        results: all,
+        failed,
+        preexistingFailures: [],
+        newFailures: failed,
+        summary: { totalChecks: all.length, failedChecks: failed.length, mode: 'strict' },
+      };
+    }
+
+    // Delta mode: a failure only counts as a regression if it was previously OK.
+    const newFailures = [];
+    const preexistingFailures = [];
+    for (const item of failed) {
+      const key = this._resultKey(item);
+      const wasOk = baseline.get(key);
+      if (wasOk === true) {
+        // Previously passing, now failing — patch broke it.
+        newFailures.push(item);
+      } else if (wasOk === false) {
+        // Was already broken pre-patch — ignore.
+        preexistingFailures.push(item);
+      } else {
+        // Not in baseline (new check introduced by patch) — strict: fail.
+        newFailures.push(item);
+      }
+    }
+
     return {
-      ok: failed.length === 0,
+      ok: newFailures.length === 0,
       results: all,
-      failed,
+      failed: newFailures, // back-compat: `failed` is the blocking set
+      preexistingFailures,
+      newFailures,
       summary: {
         totalChecks: all.length,
         failedChecks: failed.length,
+        newFailures: newFailures.length,
+        preexistingFailures: preexistingFailures.length,
+        mode: 'delta',
       },
     };
   }

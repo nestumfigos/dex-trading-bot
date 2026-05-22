@@ -337,12 +337,24 @@ BEGIN
     txid NVARCHAR(200) NULL,
     signal_source NVARCHAR(80) NULL,
     reason NVARCHAR(200) NULL,
+    setup_type NVARCHAR(40) NULL,
     raw_trade_json NVARCHAR(MAX) NULL
   );
+END;
+IF COL_LENGTH('dbo.bot_trade_ledger', 'setup_type') IS NULL
+BEGIN
+  ALTER TABLE dbo.bot_trade_ledger ADD setup_type NVARCHAR(40) NULL;
 END;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_bot_trade_ledger_profile_ts' AND object_id = OBJECT_ID('dbo.bot_trade_ledger'))
 BEGIN
   CREATE INDEX IX_bot_trade_ledger_profile_ts ON dbo.bot_trade_ledger(bot_profile, ts DESC);
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_bot_trade_ledger_setup_type_ts' AND object_id = OBJECT_ID('dbo.bot_trade_ledger'))
+BEGIN
+  CREATE INDEX IX_bot_trade_ledger_setup_type_ts
+    ON dbo.bot_trade_ledger(bot_profile, setup_type, ts DESC)
+    INCLUDE (trade_type, symbol, chain_key, strategy, pnl_usd)
+    WHERE setup_type IS NOT NULL;
 END;
 
 IF OBJECT_ID('dbo.bot_pnl_history', 'U') IS NULL

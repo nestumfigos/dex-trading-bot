@@ -65,6 +65,71 @@ function createExecutionOrchestrator(deps) {
         logger.warn(`[bull-flag] sizing fallback (equity=${equity}, stopFrac=${stopDistanceFrac}); using iteration engine`);
         calculatedSizeUsd = positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName);
       }
+    } else if (strategyName === 'backes_swing' && tokenData.setupType === 'backes_swing' && Number(tokenData.structuralStopPrice || tokenData.invalidationPrice) > 0) {
+      const equity = Number(portfolio?.balance || 0);
+      const entryPrice = Number(tokenData.price || tokenData.entryPrice || 0);
+      const stopPrice = Number(tokenData.structuralStopPrice || tokenData.invalidationPrice);
+      const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
+      const backesCfg = config.strategies?.backes_swing || {};
+      const openBackesPositions = Object.values(portfolio?.positions || {})
+        .filter((position) => position?.setupType === 'backes_swing' || position?.strategy === 'backes_swing');
+      const maxConcurrent = Math.max(1, Number(backesCfg.maxConcurrentPositions || 3));
+      if (openBackesPositions.length >= maxConcurrent) {
+        logger.info(`[backes] max concurrent positions reached (${openBackesPositions.length}/${maxConcurrent}), skipping ${tokenData.symbol}`);
+        return;
+      }
+
+      if (equity > 0 && stopDistanceFrac > 0) {
+        const macroMultiplier = Math.max(0.05, Number(tokenData._macroSizeMultiplier || 1));
+        const riskPct = Number(tokenData._backesRiskPct || (tokenData.macroRegime === 'capitulation' ? 0.2 : 0.5));
+        const riskDollars = equity * ((riskPct * macroMultiplier) / 100);
+        calculatedSizeUsd = riskDollars / stopDistanceFrac;
+
+        const openBackesExposure = openBackesPositions
+          .reduce((sum, position) => sum + Number(position.costBasisUsd || position.initialSizeUsd || 0), 0);
+        const exposureCapUsd = equity * 0.25;
+        const remainingExposureUsd = Math.max(0, exposureCapUsd - openBackesExposure);
+        if (remainingExposureUsd <= 0) {
+          logger.info(`[backes] exposure cap reached ($${openBackesExposure.toFixed(2)}/$${exposureCapUsd.toFixed(2)}), skipping ${tokenData.symbol}`);
+          return;
+        }
+        if (calculatedSizeUsd > remainingExposureUsd) {
+          logger.info(`[backes] sizing capped by 25% exposure: requested $${calculatedSizeUsd.toFixed(2)} > remaining $${remainingExposureUsd.toFixed(2)}`);
+          calculatedSizeUsd = remainingExposureUsd;
+        }
+
+        logger.info(`[backes] sized ${tokenData.symbol}: risk=${riskPct}%, macro=${macroMultiplier.toFixed(2)}, stop=${(stopDistanceFrac * 100).toFixed(2)}%, size=$${calculatedSizeUsd.toFixed(2)}`);
+      } else {
+        logger.warn(`[backes] sizing fallback (equity=${equity}, stopFrac=${stopDistanceFrac}); using iteration engine`);
+        calculatedSizeUsd = positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName);
+      }
+    } else if (strategyName === 'bsc_flow_breakout' && tokenData.setupType === 'bsc_flow_breakout' && Number(tokenData.structuralStopPrice || tokenData.invalidationPrice) > 0) {
+      const equity = Number(portfolio?.balance || 0);
+      const entryPrice = Number(tokenData.price || tokenData.entryPrice || 0);
+      const stopPrice = Number(tokenData.structuralStopPrice || tokenData.invalidationPrice);
+      const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
+      const bscCfg = config.strategies?.bsc_flow_breakout || {};
+      const rawRiskPct = Number(tokenData._strategyRiskPct || bscCfg.riskPct || 0.2);
+      const riskPct = Math.max(0.15, Math.min(0.25, Number.isFinite(rawRiskPct) ? rawRiskPct : 0.2));
+      tokenData._strategyRiskPct = riskPct;
+      tokenData._strategyMaxSlippagePct = Math.min(3, Number(tokenData._strategyMaxSlippagePct || bscCfg.maxSlippagePct || 3));
+      tokenData.maxSlippageBps = Math.round(tokenData._strategyMaxSlippagePct * 100);
+      tokenData.useMevJitter = tokenData.useMevJitter !== false && bscCfg.useMevJitter !== false;
+
+      if (equity > 0 && stopDistanceFrac > 0) {
+        const riskDollars = equity * (riskPct / 100);
+        calculatedSizeUsd = riskDollars / stopDistanceFrac;
+        const maxPctCap = Number(config.risk?.maxPositionSizePct || 3) / 100;
+        const maxUsdCap = equity * maxPctCap;
+        if (calculatedSizeUsd > maxUsdCap) {
+          logger.info(`[bsc-flow] sizing capped: requested $${calculatedSizeUsd.toFixed(2)} > max $${maxUsdCap.toFixed(2)} (risk ${riskPct}%, stop ${(stopDistanceFrac * 100).toFixed(2)}%)`);
+          calculatedSizeUsd = maxUsdCap;
+        }
+        logger.info(`[bsc-flow] sized ${tokenData.symbol}: risk=${riskPct}%, stop=${(stopDistanceFrac * 100).toFixed(2)}%, slippage<=${tokenData._strategyMaxSlippagePct}%, merkle=${tokenData.useMevJitter}`);
+      } else {
+        logger.warn(`[bsc-flow] sizing fallback (equity=${equity}, stopFrac=${stopDistanceFrac}); using iteration engine`);
+        calculatedSizeUsd = positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName);
+      }
     } else {
       const useSmallIterations = process.env.USE_POSITION_ITERATIONS !== 'false';
       calculatedSizeUsd = useSmallIterations
@@ -140,6 +205,11 @@ function createExecutionOrchestrator(deps) {
     });
 
     const release = await positionMutex.lock();
+    // Day 6 wire: register in-flight $-exposure for heat-per-chain tracking.
+    // Released in finally so a throw mid-flight cannot leak a phantom heat allocation.
+    if (typeof risk?.registerInFlightOrder === 'function') {
+      try { risk.registerInFlightOrder(chainName, sizeUsd); } catch (_) { /* swallow */ }
+    }
     try {
       const preflight = executionFlow.runBuyPreflightChecks({
         chainName,
@@ -206,6 +276,9 @@ function createExecutionOrchestrator(deps) {
       }
     } finally {
       delete tokenData._decisionTelemetry;
+      if (typeof risk?.releaseInFlightOrder === 'function') {
+        try { risk.releaseInFlightOrder(chainName, sizeUsd); } catch (_) { /* swallow */ }
+      }
       release();
       await dist.release();
     }
@@ -242,7 +315,7 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
-    position.exitInProgress = true;
+    // Set inside try so a throw between flag-set and try-block can never strand exitInProgress=true.
     const strategyName = position.strategy || 'momentum';
     const fraction = Math.max(0.01, Math.min(Number(sellPct || 1), 1));
     const positionQuantityBefore = Number(position.quantity || 0);
@@ -251,6 +324,7 @@ function createExecutionOrchestrator(deps) {
     const sellStartedAtMs = Date.now();
 
     try {
+      position.exitInProgress = true;
       const { getPool } = require('../utils/sqlServer');
       const ptPool = await getPool(logger).catch(() => null);
       const positionValueUsd = positionQuantityBefore * (Number(tokenData?.price) || Number(position?.entryPrice) || 0);

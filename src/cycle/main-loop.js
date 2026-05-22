@@ -4,10 +4,9 @@
  * Main loop scheduler — pure module, dep-injected (Week 9 cycle split).
  *
  * Owns interval timer lifecycle for all cycle dispatchers:
- *   - momentumScan, swingScan (entry detection)
- *   - momentumExit, swingExit (exit checks per strategy)
+ *   - strategy scan timers (entry detection)
+ *   - strategy exit timers (exit checks per strategy)
  *   - realtimeStop (sub-minute trailing/stop safety net)
- *   - swingWatchlistRefresh (24h default)
  *   - walletBalanceRefresh (60s default)
  *   - bscNativePriceRefresh (45s default)
  *   - selfEvolution (180min default, conditional)
@@ -38,28 +37,43 @@ function clearLoopSchedulers({ state, deps }) {
   if (!deps) throw new Error('clearLoopSchedulers: deps required');
 
   if (typeof deps.stopOracleStopWatchers === 'function') {
-    try { deps.stopOracleStopWatchers(); } catch (_) {}
+    try { deps.stopOracleStopWatchers(); } catch (err) { try { (deps?.logger || console).debug(`[main-loop] stopOracleStopWatchers failed: ${err?.message || err}`); } catch (_) { /* swallow */ } }
   }
+
+  Object.values(state.strategyScanTimers || {}).forEach((timer) => {
+    if (timer) {
+      try { clearInterval(timer); } catch (err) { try { (deps?.logger || console).debug(`[main-loop] clearInterval failed: ${err?.message || err}`); } catch (_) { /* swallow */ } }
+    }
+  });
+  Object.values(state.strategyExitTimers || {}).forEach((timer) => {
+    if (timer) {
+      try { clearInterval(timer); } catch (err) { try { (deps?.logger || console).debug(`[main-loop] clearInterval failed: ${err?.message || err}`); } catch (_) { /* swallow */ } }
+    }
+  });
+  state.strategyScanTimers = {};
+  state.strategyExitTimers = {};
 
   const TIMER_KEYS = [
     'scanTimer',
     'momentumScanTimer',
-    'swingScanTimer',
+    'bullFlagScanTimer',
     'momentumExitTimer',
-    'swingExitTimer',
+    'bullFlagExitTimer',
     'realtimeStopTimer',
-    'swingWatchlistRefreshTimer',
     'walletBalanceRefreshTimer',
     'bscNativePriceRefreshTimer',
     'selfEvolutionTimer',
+    'selfEvolutionBootTimer',
     'intelligenceTimer',
+    'intelligenceBootTimer',
+    'bscNativePriceBootTimer',
     'rlTrainingTimer',
   ];
 
   for (const key of TIMER_KEYS) {
     const t = state[key];
     if (t) {
-      try { clearInterval(t); } catch (_) {}
+      try { clearInterval(t); } catch (err) { try { (deps?.logger || console).debug(`[main-loop] clearInterval(${key}) failed: ${err?.message || err}`); } catch (_) { /* swallow */ } }
     }
     state[key] = null;
   }
@@ -85,6 +99,45 @@ function stopSchedulersForSafeMode({ state, deps, loopLocks, refreshScanInFlight
   setLoopLocks({ loopLocks, enabled: true, refreshScanInFlightFlag });
 }
 
+function normalizeStrategyName(strategyName) {
+  return String(strategyName || '').trim().toLowerCase();
+}
+
+function getStrategyScanTimerKey(strategyName) {
+  if (strategyName === 'momentum') return 'momentumScanTimer';
+  if (strategyName === 'spot_day_bull_flag') return 'bullFlagScanTimer';
+  return null;
+}
+
+function getStrategyExitTimerKey(strategyName) {
+  if (strategyName === 'momentum') return 'momentumExitTimer';
+  if (strategyName === 'spot_day_bull_flag') return 'bullFlagExitTimer';
+  return null;
+}
+
+function isStrategyEnabled(config, strategyName) {
+  if (strategyName === 'momentum') {
+    return config.strategies?.momentum?.enabled !== false;
+  }
+  return config.strategies?.[strategyName]?.enabled === true;
+}
+
+function getStrategyScanMs(config, strategyName, defaults) {
+  if (strategyName === 'spot_day_bull_flag') return defaults.bullFlagScanMs;
+  if (strategyName === 'backes_swing') {
+    return Math.max(10 * 60_000, Number(config.strategies?.backes_swing?.scanIntervalMinutes || 30) * 60_000);
+  }
+  return Math.max(60_000, Number(config.strategies?.[strategyName]?.scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
+}
+
+function getStrategyExitMs(config, strategyName, defaults) {
+  if (strategyName === 'spot_day_bull_flag') return defaults.bullFlagExitMs;
+  if (strategyName === 'backes_swing') {
+    return Math.max(30 * 60_000, Number(config.strategies?.backes_swing?.exitCheckMinutes || 60) * 60_000);
+  }
+  return defaults.momentumExitMs;
+}
+
 function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag }) {
   if (!state) throw new Error('restartLoopSchedulers: state required');
   if (!deps) throw new Error('restartLoopSchedulers: deps required');
@@ -97,7 +150,6 @@ function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag
     runStrategyScanCycle,
     runStrategyExitCycle,
     runRealtimeRiskStopCycle,
-    refreshSwingWatchlists,
     updateWalletBalance,
     refreshBscNativePrice,
     runSelfEvolutionCycle,
@@ -106,6 +158,7 @@ function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag
     startOracleStopWatchers,
     mlTrainingSchedulerRegister,   // factory: ({ logger, ctx }) => disposer
     mlTrainingSchedulerCtx,        // ctx object to pass through
+    strategyNames = ['momentum', 'spot_day_bull_flag'],
   } = deps;
 
   clearLoopSchedulers({ state, deps });
@@ -119,47 +172,44 @@ function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag
   setLoopLocks({ loopLocks, enabled: false, refreshScanInFlightFlag });
 
   const momentumScanMs    = Math.max(60_000,        Number(config.bot.momentumScanIntervalSeconds || 75) * 1000);
-  const swingScanMs       = Math.max(10 * 60_000,   Number(config.bot.swingScanIntervalMinutes || 15) * 60_000);
   const bullFlagScanMs    = Math.max(60_000,        Number(config.bot.bullFlagScanIntervalSeconds || 90) * 1000);
   const momentumExitMs    = Math.max(5 * 60_000,    Number(config.bot.momentumExitCheckMinutes || 15) * 60_000);
-  const swingExitMs       = Math.max(30 * 60_000,   Number(config.bot.swingExitCheckMinutes || 60) * 60_000);
-  const swingRefreshMs    = Math.max(6 * 60 * 60_000, Number(config.bot.swingWatchlistRefreshHours || 24) * 60 * 60_000);
+  const bullFlagExitMs    = Math.max(5 * 60_000,    Number(config.bot.bullFlagExitCheckMinutes || config.bot.momentumExitCheckMinutes || 15) * 60_000);
   const realtimeStopMs    = Math.max(2_000,         Number(config.risk?.realtimeStopCheckSeconds || 8) * 1000);
   const selfEvolutionMs   = Math.max(10 * 60_000,   Number(config.selfEvolution?.intervalMinutes || 180) * 60_000);
 
-  state.momentumScanTimer = setInterval(() => {
-    runStrategyScanCycle('momentum').catch((error) => logger.error(`Momentum scan loop error: ${error.message}`));
-  }, momentumScanMs);
-  // Keep a handle in scanTimer for backward compatibility with state/debug expectations.
-  state.scanTimer = state.momentumScanTimer;
+  const defaultIntervals = { bullFlagScanMs, momentumExitMs, bullFlagExitMs };
+  const enabledStrategies = [...new Set(strategyNames.map(normalizeStrategyName).filter(Boolean))]
+    .filter((strategyName) => isStrategyEnabled(config, strategyName));
 
-  state.swingScanTimer = setInterval(() => {
-    runStrategyScanCycle('swing').catch((error) => logger.error(`Swing scan loop error: ${error.message}`));
-  }, swingScanMs);
+  state.strategyScanTimers = {};
+  state.strategyExitTimers = {};
+  enabledStrategies.forEach((strategyName) => {
+    const scanMs = strategyName === 'momentum'
+      ? momentumScanMs
+      : getStrategyScanMs(config, strategyName, defaultIntervals);
+    const exitMs = getStrategyExitMs(config, strategyName, defaultIntervals);
+    const scanTimer = setInterval(() => {
+      runStrategyScanCycle(strategyName).catch((error) => logger.error(`${strategyName} scan loop error: ${error.message}`));
+    }, scanMs);
+    const exitTimer = setInterval(() => {
+      runStrategyExitCycle(strategyName).catch((error) => logger.error(`${strategyName} exit loop error: ${error.message}`));
+    }, exitMs);
+    state.strategyScanTimers[strategyName] = scanTimer;
+    state.strategyExitTimers[strategyName] = exitTimer;
 
-  if (config.strategies?.spot_day_bull_flag?.enabled) {
-    state.bullFlagScanTimer = setInterval(() => {
-      runStrategyScanCycle('spot_day_bull_flag').catch((error) => logger.error(`Bull-flag scan loop error: ${error.message}`));
-    }, bullFlagScanMs);
-  }
-
-  state.momentumExitTimer = setInterval(() => {
-    runStrategyExitCycle('momentum').catch((error) => logger.error(`Momentum exit loop error: ${error.message}`));
-  }, momentumExitMs);
-
-  state.swingExitTimer = setInterval(() => {
-    runStrategyExitCycle('swing').catch((error) => logger.error(`Swing exit loop error: ${error.message}`));
-  }, swingExitMs);
+    const fixedScanKey = getStrategyScanTimerKey(strategyName);
+    const fixedExitKey = getStrategyExitTimerKey(strategyName);
+    if (fixedScanKey) state[fixedScanKey] = scanTimer;
+    if (fixedExitKey) state[fixedExitKey] = exitTimer;
+    if (strategyName === 'momentum') state.scanTimer = scanTimer;
+  });
 
   if (config.risk?.realtimeStopLossEnabled !== false) {
     state.realtimeStopTimer = setInterval(() => {
       runRealtimeRiskStopCycle().catch((error) => logger.error(`Realtime stop loop error: ${error.message}`));
     }, realtimeStopMs);
   }
-
-  state.swingWatchlistRefreshTimer = setInterval(() => {
-    refreshSwingWatchlists().catch((error) => logger.error(`Swing watchlist refresh loop error: ${error.message}`));
-  }, swingRefreshMs);
 
   const walletBalanceRefreshMs = Math.max(30_000, Number(config.bot.walletBalanceRefreshSeconds || 60) * 1000);
   state.walletBalanceRefreshTimer = setInterval(() => {
@@ -198,25 +248,22 @@ function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag
 
   // Boot cycles immediately.
   if (typeof evictStuckPositions === 'function') evictStuckPositions();
-  runStrategyScanCycle('momentum').catch((error) => logger.error(`Initial momentum scan failed: ${error.message}`));
-  runStrategyScanCycle('swing').catch((error) => logger.error(`Initial swing scan failed: ${error.message}`));
-  if (config.strategies?.spot_day_bull_flag?.enabled) {
-    runStrategyScanCycle('spot_day_bull_flag').catch((error) => logger.error(`Initial bull-flag scan failed: ${error.message}`));
-  }
-  runStrategyExitCycle('momentum').catch((error) => logger.error(`Initial momentum exit check failed: ${error.message}`));
-  runStrategyExitCycle('swing').catch((error) => logger.error(`Initial swing exit check failed: ${error.message}`));
+  enabledStrategies.forEach((strategyName) => {
+    runStrategyScanCycle(strategyName).catch((error) => logger.error(`Initial ${strategyName} scan failed: ${error.message}`));
+    runStrategyExitCycle(strategyName).catch((error) => logger.error(`Initial ${strategyName} exit check failed: ${error.message}`));
+  });
   if (config.risk?.realtimeStopLossEnabled !== false) {
     runRealtimeRiskStopCycle().catch((error) => logger.error(`Initial realtime stop check failed: ${error.message}`));
   }
   if (config.selfEvolution?.enabled === true && typeof runSelfEvolutionCycle === 'function') {
     // Delay initial self-evolution by 2 min to avoid Groq rate-limit collision at startup
-    setTimeout(() => {
+    state.selfEvolutionBootTimer = setTimeout(() => {
       runSelfEvolutionCycle().catch((error) => logger.error(`Initial self-evolution cycle failed: ${error.message}`));
     }, 2 * 60_000);
   }
   // Boot intelligence cycle immediately (non-blocking)
   if (process.env.INTELLIGENCE_ENABLED !== 'false' && typeof runMarketIntelligenceCycle === 'function') {
-    setTimeout(() => {
+    state.intelligenceBootTimer = setTimeout(() => {
       runMarketIntelligenceCycle().catch((error) => logger.error(`Initial intelligence cycle failed: ${error.message}`));
     }, 3 * 60_000); // 3-min delay so startup Groq calls don't rate-limit intelligence
   }
@@ -225,7 +272,7 @@ function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag
   // weekly retraining schedule (Sunday 02:15 UTC) all handled by
   // ml-training-scheduler.register() above (Week 9.1, 2026-05-18).
 
-  setTimeout(() => {
+  state.bscNativePriceBootTimer = setTimeout(() => {
     refreshBscNativePrice().catch((error) => logger.warn(`Initial BSC native price refresh failed: ${error.message}`));
   }, 5_000);
 

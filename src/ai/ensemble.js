@@ -213,10 +213,13 @@ function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
     walletClustering: buildWalletClusteringContext(tokenData, technicalDetails),
   };
 
+  const strategyKey = String(strategyName || '').toLowerCase();
+  const longerTermProfile = strategyKey.includes('backes') || strategyKey.includes('swing');
+
   return [
     'You are a crypto market reviewer. Respond in minified JSON only.',
     'Schema: {"signal":"BUY|HOLD|SELL","confidence":0-100,"narrativeStrength":0-100,"reason":"<=180 chars","riskFlags":["..."]}',
-    `Strategy profile: ${strategyName} (${strategyName === 'swing' ? 'longer-term established token swing setup' : 'short-term new-launch momentum setup'})`,
+    `Strategy profile: ${strategyName} (${longerTermProfile ? 'longer-term established token setup' : 'short-term new-launch momentum setup'})`,
     'Use the headlines for narrative strength scoring. Be conservative when uncertain.',
     'When higher-timeframe pattern context is present, prefer 4H/1D pattern confirmation only for established liquid tokens and never overrule clear bearish reversal evidence without strong support.',
     `Context: ${JSON.stringify(context)}`,

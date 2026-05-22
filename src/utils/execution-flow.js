@@ -310,8 +310,12 @@ function createExecutionFlow(deps = {}) {
       // Bull-flag setup metadata (Week 12 B.5). Persists structural stop +
       // measured-move target so exit logic can branch on setupType.
       setupType: tokenData.setupType || null,
+      structureType: tokenData.structureType || null,
       structuralStopPrice: Number.isFinite(Number(tokenData.structuralStopPrice)) ? Number(tokenData.structuralStopPrice) : null,
+      invalidationPrice: Number.isFinite(Number(tokenData.invalidationPrice || tokenData.structuralStopPrice)) ? Number(tokenData.invalidationPrice || tokenData.structuralStopPrice) : null,
       measuredMoveTargetPrice: Number.isFinite(Number(tokenData.measuredMoveTargetPrice)) ? Number(tokenData.measuredMoveTargetPrice) : null,
+      targetPrices: Array.isArray(tokenData.targetPrices) ? tokenData.targetPrices.map(Number).filter(Number.isFinite) : [],
+      macroRegime: tokenData.macroRegime || null,
       breakoutClosePrice: Number.isFinite(Number(tokenData.breakoutClosePrice)) ? Number(tokenData.breakoutClosePrice) : null,
       manualCutDeadlineAt: tokenData.manualCutDeadlineAt || null,
     };
@@ -356,6 +360,7 @@ function createExecutionFlow(deps = {}) {
       confirmations: txResult?.confirmations,
       privateRouteUsed: txResult?.privateRouteUsed,
       setupType: tokenData.setupType || null,
+      structureType: tokenData.structureType || null,
       setupStopPrice: tokenData.structuralStopPrice || null,
       setupTargetPrice: tokenData.measuredMoveTargetPrice || null,
       setupIsAPlus: tokenData._bullFlagIsAPlus === true ? true : undefined,
@@ -728,6 +733,7 @@ function createExecutionFlow(deps = {}) {
       confirmations: txResult?.confirmations,
       privateRouteUsed: txResult?.privateRouteUsed,
       setupType: position.setupType || null,
+      structureType: position.structureType || null,
       setupStopPrice: position.structuralStopPrice || null,
       setupTargetPrice: position.measuredMoveTargetPrice || null,
     }, strategyName);

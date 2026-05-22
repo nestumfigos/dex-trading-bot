@@ -74,11 +74,21 @@ class StrategyBrain {
       maxPriceChange24hPctAll: Number(strategyCfg?.maxPriceChange24hPctAll || 0) + Number(adj.maxPriceChange24hPctAllDelta || 0),
     };
 
-    adapted.rsiBuyThreshold = Math.max(20, Math.min(70, adapted.rsiBuyThreshold));
-    adapted.rsiBuyMaxThreshold = Math.max(adapted.rsiBuyThreshold + 5, Math.min(90, adapted.rsiBuyMaxThreshold));
-    adapted.volumeSpikeMultiplier = Math.max(1.1, Math.min(4, adapted.volumeSpikeMultiplier));
-    adapted.minPriceChange24hPctAll = Math.max(0, Math.min(25, adapted.minPriceChange24hPctAll));
-    adapted.maxPriceChange24hPctAll = Math.max(20, Math.min(160, adapted.maxPriceChange24hPctAll));
+    const b = this.config.strategyBrain?.bounds || {};
+    const rsiBuyMin                   = Number(b.rsiBuyMin                       ?? 20);
+    const rsiBuyMax                   = Number(b.rsiBuyMax                       ?? 70);
+    const rsiBuyMaxAbsoluteCeiling    = Number(b.rsiBuyMaxAbsoluteCeiling        ?? 90);
+    const rsiBuyMaxMinSpread          = Number(b.rsiBuyMaxMinSpread              ?? 5);
+    const volumeSpikeMin              = Number(b.volumeSpikeMin                  ?? 1.1);
+    const volumeSpikeMax              = Number(b.volumeSpikeMax                  ?? 4);
+    const minPriceChange24hPctAllMax  = Number(b.minPriceChange24hPctAllMax      ?? 25);
+    const maxPriceChange24hPctAllFloor   = Number(b.maxPriceChange24hPctAllFloor   ?? 20);
+    const maxPriceChange24hPctAllCeiling = Number(b.maxPriceChange24hPctAllCeiling ?? 160);
+    adapted.rsiBuyThreshold = Math.max(rsiBuyMin, Math.min(rsiBuyMax, adapted.rsiBuyThreshold));
+    adapted.rsiBuyMaxThreshold = Math.max(adapted.rsiBuyThreshold + rsiBuyMaxMinSpread, Math.min(rsiBuyMaxAbsoluteCeiling, adapted.rsiBuyMaxThreshold));
+    adapted.volumeSpikeMultiplier = Math.max(volumeSpikeMin, Math.min(volumeSpikeMax, adapted.volumeSpikeMultiplier));
+    adapted.minPriceChange24hPctAll = Math.max(0, Math.min(minPriceChange24hPctAllMax, adapted.minPriceChange24hPctAll));
+    adapted.maxPriceChange24hPctAll = Math.max(maxPriceChange24hPctAllFloor, Math.min(maxPriceChange24hPctAllCeiling, adapted.maxPriceChange24hPctAll));
 
     const archetype = this.getBookArchetype(tokenData, {});
     const profileKey = this.getProfileKey(chainKey, strategyName, archetype);
@@ -168,13 +178,17 @@ class StrategyBrain {
 
     const brain = this.ensureState();
     const key = this.getAdjustmentKey(chainKey, strategyName);
-    const curr = brain.adjustments[key] || {
-      rsiBuyThresholdDelta: 0,
-      rsiBuyMaxThresholdDelta: 0,
-      volumeSpikeMultiplierDelta: 0,
-      minPriceChange24hPctAllDelta: 0,
-      maxPriceChange24hPctAllDelta: 0,
-      updatedAt: null,
+    // Copy-on-write: never mutate brain.adjustments[key] in place. If mutation throws mid-way,
+    // brain would be left half-updated with no rollback. Build a fresh object, then atomically swap.
+    const prev = brain.adjustments[key] || null;
+    const curr = {
+      rsiBuyThresholdDelta: Number(prev?.rsiBuyThresholdDelta || 0),
+      rsiBuyMaxThresholdDelta: Number(prev?.rsiBuyMaxThresholdDelta || 0),
+      volumeSpikeMultiplierDelta: Number(prev?.volumeSpikeMultiplierDelta || 0),
+      minPriceChange24hPctAllDelta: Number(prev?.minPriceChange24hPctAllDelta || 0),
+      maxPriceChange24hPctAllDelta: Number(prev?.maxPriceChange24hPctAllDelta || 0),
+      updatedAt: prev?.updatedAt || null,
+      version: Number(prev?.version || 0) + 1,
     };
 
     const low = Math.max(0, Number(this.config.risk?.brainLowWinRatePct || 35));

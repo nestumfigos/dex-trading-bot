@@ -38,17 +38,17 @@
 
     .shell {
       width: 100%;
-      max-width: 1380px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: clamp(12px, 2vw, 22px);
       display: grid;
-      gap: 18px;
+      gap: 14px;
     }
 
     .hero {
       display: grid;
-      gap: 14px;
-      grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 0.55fr);
       align-items: stretch;
       min-width: 0;
     }
@@ -56,7 +56,7 @@
     .panel {
       background: var(--panel);
       border: 1px solid var(--panel-border);
-      border-radius: 20px;
+      border-radius: 16px;
       box-shadow: var(--shadow);
       backdrop-filter: blur(10px);
       min-width: 0;
@@ -64,7 +64,7 @@
     }
 
     .hero-main {
-      padding: 24px;
+      padding: 18px;
       position: relative;
       overflow: hidden;
     }
@@ -87,7 +87,7 @@
       text-transform: uppercase;
       letter-spacing: 0.14em;
       color: var(--accent);
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     h1, h2, h3, p {
@@ -95,7 +95,7 @@
     }
 
     h1 {
-      font-size: clamp(28px, 5vw, 42px);
+      font-size: clamp(24px, 4vw, 34px);
       line-height: 1.05;
       margin-bottom: 10px;
     }
@@ -104,14 +104,14 @@
       color: var(--muted);
       font-size: 15px;
       line-height: 1.5;
-      max-width: 760px;
+      max-width: 680px;
     }
 
     .hero-meta {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
-      margin-top: 18px;
+      margin-top: 12px;
     }
 
     .chip {
@@ -119,7 +119,7 @@
       align-items: center;
       gap: 8px;
       border-radius: 999px;
-      padding: 8px 12px;
+      padding: 6px 10px;
       background: rgba(17, 33, 57, 0.8);
       border: 1px solid rgba(123, 198, 255, 0.14);
       color: var(--muted);
@@ -127,9 +127,9 @@
     }
 
     .hero-side {
-      padding: 20px;
+      padding: 16px;
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
 
     .actions {
@@ -142,8 +142,8 @@
       border: 1px solid rgba(123, 198, 255, 0.18);
       background: linear-gradient(180deg, #7bc6ff 0%, #55a8eb 100%);
       color: #04101c;
-      border-radius: 12px;
-      padding: 10px 14px;
+      border-radius: 10px;
+      padding: 8px 12px;
       font-weight: 700;
       cursor: pointer;
       text-decoration: none;
@@ -160,8 +160,8 @@
     }
 
     .status-card {
-      padding: 14px 16px;
-      border-radius: 16px;
+      padding: 12px;
+      border-radius: 12px;
       border: 1px solid rgba(123, 198, 255, 0.14);
       background: rgba(10, 20, 37, 0.76);
       display: grid;
@@ -187,9 +187,9 @@
     }
 
     .analysis {
-      padding: 18px 20px;
+      padding: 14px 16px;
       display: grid;
-      gap: 10px;
+      gap: 8px;
     }
 
     .analysis-list {
@@ -201,26 +201,31 @@
       border-left: 3px solid rgba(123, 198, 255, 0.45);
       padding-left: 12px;
       color: #d7e5fa;
-      line-height: 1.45;
-      font-size: 14px;
+      line-height: 1.35;
+      font-size: 13px;
+    }
+
+    .analysis-item.warn {
+      border-left-color: var(--warn);
+      color: #ffe1a8;
     }
 
     .grid-4 {
       display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       min-width: 0;
     }
 
     .grid-2 {
       display: grid;
-      gap: 18px;
+      gap: 12px;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       min-width: 0;
     }
 
     .card {
-      padding: 18px;
+      padding: 14px;
       display: grid;
       gap: 8px;
     }
@@ -233,7 +238,7 @@
     }
 
     .card .value {
-      font-size: 28px;
+      font-size: 23px;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
@@ -249,9 +254,9 @@
     .warn { color: var(--warn); }
 
     .section {
-      padding: 18px;
+      padding: 14px;
       display: grid;
-      gap: 16px;
+      gap: 12px;
     }
 
     .section-head {
@@ -292,13 +297,13 @@
 
     .compare-list, .memory-list {
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
 
     .compare-row, .memory-row {
       border: 1px solid rgba(123, 198, 255, 0.1);
-      border-radius: 16px;
-      padding: 14px;
+      border-radius: 12px;
+      padding: 10px 12px;
       background: rgba(8, 18, 33, 0.76);
     }
 
@@ -306,14 +311,14 @@
       display: flex;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 6px;
       align-items: baseline;
       flex-wrap: wrap;
     }
 
     .compare-title, .memory-title {
       font-weight: 700;
-      font-size: 15px;
+      font-size: 14px;
     }
 
     .bar-track {
@@ -373,13 +378,13 @@
 
     .chart-grid {
       display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr);
       min-width: 0;
     }
 
     .chart-card {
-      padding: 18px;
+      padding: 14px;
       display: grid;
       gap: 12px;
       min-width: 0;
@@ -393,7 +398,7 @@
     .chart-wrap {
       width: 100%;
       overflow: hidden;
-      border-radius: 16px;
+      border-radius: 12px;
       border: 1px solid rgba(123, 198, 255, 0.1);
       background: rgba(7, 15, 28, 0.78);
       padding: 10px;
@@ -419,11 +424,11 @@
     }
 
     th, td {
-      padding: 12px 14px;
+      padding: 8px 10px;
       text-align: left;
       border-bottom: 1px solid rgba(123, 198, 255, 0.08);
       vertical-align: top;
-      font-size: 14px;
+      font-size: 12px;
     }
 
     th {
@@ -481,7 +486,7 @@
     }
 
     .empty {
-      padding: 24px;
+      padding: 18px;
       text-align: center;
       color: var(--muted);
       border: 1px dashed rgba(123, 198, 255, 0.18);
@@ -492,6 +497,51 @@
     .code {
       font-family: Consolas, Monaco, monospace;
       font-size: 13px;
+    }
+
+    .quick-nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .quick-nav a {
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid rgba(123, 198, 255, 0.14);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(20, 36, 61, 0.72);
+      font-size: 12px;
+    }
+
+    .raw-data {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .raw-data summary {
+      cursor: pointer;
+      padding: 14px;
+      font-weight: 800;
+      color: #dbe9ff;
+    }
+
+    .raw-data .raw-inner {
+      padding: 0 14px 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .audit-note {
+      border: 1px solid rgba(247, 191, 99, 0.25);
+      background: rgba(247, 191, 99, 0.08);
+      color: #ffe1a8;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.35;
     }
 
     @media (max-width: 1080px) {
@@ -562,8 +612,17 @@
         <div class="hero-meta">
           <span id="meta-report" class="chip">report: -</span>
           <span id="meta-generated" class="chip">generated: -</span>
-          <span id="meta-source" class="chip">source: /api/sql-report</span>
         </div>
+        <nav class="quick-nav" aria-label="Report sections">
+          <a href="#entry-audit-panel">Entry Audit</a>
+          <a href="#cadence-compare-panel">Cadence</a>
+          <a href="#model-version-panel">Models</a>
+          <a href="#artifact-health-panel">Artifacts</a>
+          <a href="#walk-forward-panel">Walk-Forward</a>
+          <a href="#hybrid-route-panel">Hybrid</a>
+          <a href="#approval-panel">Approvals</a>
+          <a href="#table-sections">Raw Data</a>
+        </nav>
       </div>
       <div class="panel hero-side">
         <div class="actions">
@@ -585,8 +644,8 @@
     <section class="panel analysis">
       <div class="section-head">
         <div>
-          <h2>Analysis</h2>
-          <p>Auto-generated readout from the live SQL report payload.</p>
+          <h2>What Matters</h2>
+          <p>Short operational readout from the SQL payload.</p>
         </div>
       </div>
       <div id="analysis-list" class="analysis-list"></div>
@@ -633,8 +692,8 @@
       <div class="panel chart-card">
         <div class="section-head">
           <div>
-            <h2>Decision Quality</h2>
-            <p>Approval and execution cadence from <span class="code">decision_log</span>.</p>
+            <h2>Approval Quality</h2>
+            <p>Approval rate trend from recent decision records.</p>
           </div>
         </div>
         <div id="decision-chart" class="chart-wrap"></div>
@@ -642,11 +701,11 @@
     </section>
 
     <section id="decision-sections" class="grid-2">
-      <div id="model-version-panel" class="panel section">
+      <div id="decision-summary-panel" class="panel section">
         <div class="section-head">
           <div>
-            <h2>Decision Quality Summary</h2>
-            <p>How often approvals turn into live actions and reflected outcomes.</p>
+            <h2>Decision Summary</h2>
+            <p>Approval and execution quality by profile.</p>
           </div>
         </div>
         <div id="decision-quality-list" class="compare-list"></div>
@@ -654,20 +713,38 @@
       <div id="rl-policy-panel" class="panel section">
         <div class="section-head">
           <div>
-            <h2>Latest Decisions</h2>
-            <p>Newest approval and execution records coming straight from SQL.</p>
+            <h2>Recent Decisions</h2>
+            <p>Newest execution records, shortened to the useful reason.</p>
           </div>
         </div>
         <div id="latest-decision-list" class="memory-list"></div>
       </div>
+      <div id="entry-audit-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Entry Reason Audit</h2>
+            <p>Exactly which gates allowed or blocked each recent token.</p>
+          </div>
+        </div>
+        <div id="entry-audit-list" class="memory-list"></div>
+      </div>
+      <div id="cadence-compare-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Paper vs Live Cadence</h2>
+            <p>Daily buys, sells, failures, and realized PnL side by side.</p>
+          </div>
+        </div>
+        <div id="cadence-compare-list" class="compare-list"></div>
+      </div>
     </section>
 
     <section id="model-sections" class="grid-2">
-      <div id="sentiment-panel" class="panel section">
+      <div id="model-version-panel" class="panel section">
         <div class="section-head">
           <div>
-            <h2>Active Model Versions</h2>
-            <p>Current production-stage model registry rows and their latest metrics.</p>
+            <h2>Models</h2>
+            <p>Shows whether each model is truly active or only registered without an artifact.</p>
           </div>
         </div>
         <div id="model-version-list" class="memory-list"></div>
@@ -675,17 +752,35 @@
       <div class="panel section">
         <div class="section-head">
           <div>
-            <h2>Latest RL Policy Metrics</h2>
-            <p>Most recent active reinforcement-learning policy snapshots from SQL.</p>
+            <h2>RL Policies</h2>
+            <p>Latest active RL policy metrics. Advisory unless proven.</p>
           </div>
         </div>
         <div id="rl-policy-list" class="memory-list"></div>
       </div>
+      <div id="artifact-health-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Artifact Health</h2>
+            <p>Alerts if an active model points to a missing file.</p>
+          </div>
+        </div>
+        <div id="artifact-health-list" class="memory-list"></div>
+      </div>
+      <div id="walk-forward-panel" class="panel section">
+        <div class="section-head">
+          <div>
+            <h2>Walk-Forward Profitability</h2>
+            <p>Promotion candidates must show validation strength before rollout.</p>
+          </div>
+        </div>
+        <div id="walk-forward-list" class="memory-list"></div>
+      </div>
       <div class="panel section">
         <div class="section-head">
           <div>
-            <h2>Latest Sentiment Snapshots</h2>
-            <p>Newest news and Reddit sentiment aggregates affecting token review.</p>
+            <h2>Sentiment</h2>
+            <p>Recent sentiment plus news-event classification.</p>
           </div>
         </div>
         <div id="sentiment-list" class="memory-list"></div>
@@ -693,8 +788,8 @@
       <div id="hybrid-route-panel" class="panel section">
         <div class="section-head">
           <div>
-            <h2>Latest Hybrid Route Decisions</h2>
-            <p>Most recent ML/RL/sentiment route outcomes recorded by the orchestrator.</p>
+            <h2>Hybrid Routes</h2>
+            <p>Final signal plus ML/RL/sentiment confidence.</p>
           </div>
         </div>
         <div id="hybrid-route-list" class="memory-list"></div>
@@ -702,8 +797,8 @@
       <div id="approval-panel" class="panel section">
         <div class="section-head">
           <div>
-            <h2>Pending Approvals</h2>
-            <p>Paper promotions waiting for manual approval before canary rollout.</p>
+            <h2>Approvals</h2>
+            <p>Only actions waiting for you.</p>
           </div>
         </div>
         <div id="approval-list" class="memory-list"></div>
@@ -712,7 +807,7 @@
         <div class="section-head">
           <div>
             <h2>Rotation Debug</h2>
-            <p>Current open momentum positions and the latest blocked candidate-vs-open rotation comparisons.</p>
+            <p>Why a stronger candidate did or did not replace an open position.</p>
           </div>
         </div>
         <div id="rotation-debug-list" class="memory-list"></div>
@@ -782,15 +877,13 @@
       </div>
     </section>
 
-    <section id="table-sections" class="panel section">
-      <div class="section-head">
-        <div>
-          <h2>Detailed Tables</h2>
-          <p>Raw rows behind the visuals for direct inspection.</p>
-        </div>
+    <details id="table-sections" class="panel raw-data">
+      <summary>Raw SQL Data</summary>
+      <div class="raw-inner">
+        <p class="muted">Collapsed by default to keep the report readable. Open only when you need table-level inspection.</p>
+        <div id="tables-root"></div>
       </div>
-      <div id="tables-root"></div>
-    </section>
+    </details>
   </main>
 
   <script>
@@ -816,8 +909,12 @@
     const chartRange = document.getElementById('chart-range');
     const decisionQualityList = document.getElementById('decision-quality-list');
     const latestDecisionList = document.getElementById('latest-decision-list');
+    const entryAuditList = document.getElementById('entry-audit-list');
+    const cadenceCompareList = document.getElementById('cadence-compare-list');
     const modelVersionList = document.getElementById('model-version-list');
     const rlPolicyList = document.getElementById('rl-policy-list');
+    const artifactHealthList = document.getElementById('artifact-health-list');
+    const walkForwardList = document.getElementById('walk-forward-list');
     const sentimentList = document.getElementById('sentiment-list');
     const hybridRouteList = document.getElementById('hybrid-route-list');
     const approvalList = document.getElementById('approval-list');
@@ -830,7 +927,6 @@
     const memorySections = document.getElementById('memory-sections');
     const metaReport = document.getElementById('meta-report');
     const metaGenerated = document.getElementById('meta-generated');
-    const metaSource = document.getElementById('meta-source');
     let currentPayload = null;
 
     title.textContent = `SQL ${report.charAt(0).toUpperCase()}${report.slice(1)} Dashboard`;
@@ -934,68 +1030,65 @@
       statusDetail.textContent = detail;
     }
 
+    function firstRuntime(data) {
+      const rows = Array.isArray(data.runtimeSummary) ? data.runtimeSummary : [];
+      return rows[0] || {};
+    }
+
+    function firstProfile(data, profile) {
+      const rows = Array.isArray(data.profileSummary) ? data.profileSummary : [];
+      return rows.find((row) => String(row.bot_profile).toLowerCase() === String(profile).toLowerCase()) || {};
+    }
+
+    function dataQualityNotes(data) {
+      const notes = [];
+      const runtime = firstRuntime(data);
+      const sqlLive = firstProfile(data, 'live');
+      const runtimeOpen = Number(runtime.open_positions);
+      const sqlOpen = Number(sqlLive.open_positions);
+      if (Number.isFinite(runtimeOpen) && Number.isFinite(sqlOpen) && runtimeOpen !== sqlOpen) {
+        notes.push({
+          tone: 'warn',
+          text: `Current live open positions come from runtime state (${fmtNumber(runtimeOpen)}). SQL audit view shows ${fmtNumber(sqlOpen)}, likely because old ledger rows were not fully closed or reconciled.`,
+        });
+      }
+      const lastPnl = sqlLive.last_pnl_at ? new Date(sqlLive.last_pnl_at).getTime() : NaN;
+      if (Number.isFinite(lastPnl) && (Date.now() - lastPnl) > 20 * 60 * 1000) {
+        notes.push({
+          tone: 'warn',
+          text: `Live SQL PnL is older than 20 minutes (${fmtDate(sqlLive.last_pnl_at)}). Treat SQL balances as stale until the next write succeeds.`,
+        });
+      }
+      const paper = firstProfile(data, 'paper');
+      const paperLast = paper.last_pnl_at ? new Date(paper.last_pnl_at).getTime() : NaN;
+      if (Number.isFinite(paperLast) && (Date.now() - paperLast) > 6 * 60 * 60 * 1000) {
+        notes.push({
+          tone: 'warn',
+          text: `Paper SQL summary appears stale (${fmtDate(paper.last_pnl_at)}). Use paper runtime dashboard for current paper state.`,
+        });
+      }
+      return notes;
+    }
+
     function summarizeOverview(data) {
-      const profiles = Array.isArray(data.profileSummary) ? data.profileSummary : [];
-      const live = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'live') || {};
-      const paper = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'paper') || {};
+      const runtime = firstRuntime(data);
+      const live = firstProfile(data, 'live');
+      const paper = firstProfile(data, 'paper');
       const memory = Array.isArray(data.agentMemorySummary) ? data.agentMemorySummary[0] || {} : {};
-      const intelligence = Array.isArray(data.latestIntelligence) ? data.latestIntelligence : [];
-      const evo = Array.isArray(data.selfEvolutionSummary) ? data.selfEvolutionSummary : [];
 
       const notes = [];
-      notes.push(`Paper win rate is ${fmtPct(paper.win_rate_pct)} versus ${fmtPct(live.win_rate_pct)} on live, while live has the larger trade sample at ${fmtNumber(live.trade_count)} trades.`);
-      notes.push(`Live equity is ${fmtMoney(live.latest_equity)} and paper equity is ${fmtMoney(paper.latest_equity)}. Open exposure is ${fmtNumber(live.open_positions)} live positions versus ${fmtNumber(paper.open_positions)} in paper.`);
-      if (intelligence.length) {
-        const best = intelligence
-          .map((row) => `${row.bot_profile}: ${row.macro_sentiment || 'unknown'} ${fmtNumber(row.sentiment_score)} score`)
-          .join(' | ');
-        notes.push(`Latest intelligence read: ${best}.`);
-      }
-      if (evo.length) {
-        const evoLine = evo
-          .map((row) => `${row.bot_profile} applied=${fmtNumber(row.applied_count)} failed=${fmtNumber(row.failed_count)}`)
-          .join(' | ');
-        notes.push(`Self-evolution history remains cautious: ${evoLine}.`);
-      }
-      const decisionQuality = Array.isArray(data.decisionQualitySummary) ? data.decisionQualitySummary : [];
-      if (decisionQuality.length) {
-        const line = decisionQuality
-          .map((row) => `${row.bot_profile} approvals=${fmtNumber(row.approved_count)} reflections=${fmtNumber(row.reflection_count)} avg reflected pnl ${fmtMoney(row.avg_reflected_pnl_usd)}`)
-          .join(' | ');
-        notes.push(`Decision quality snapshot: ${line}.`);
-      }
+      notes.push(`Current runtime: ${fmtNumber(runtime.open_positions)} live open position(s), ${fmtNumber(runtime.closed_trades)} closed trades, ${fmtPct(runtime.win_rate_pct)} win rate, total PnL ${fmtMoney(runtime.total_pnl)}.`);
+      notes.push(`SQL audit: live has ${fmtNumber(live.trade_count)} ledger rows and ${fmtMoney(live.realized_pnl_usd)} realized PnL. Paper SQL last shows ${fmtPct(paper.win_rate_pct)} win rate but may be stale if its timestamp is old.`);
       const models = Array.isArray(data.activeModelVersions) ? data.activeModelVersions : [];
-      const sentimentRows = Array.isArray(data.latestSentimentSnapshots) ? data.latestSentimentSnapshots : [];
-      const rlPolicies = Array.isArray(data.latestRlPolicyMetrics) ? data.latestRlPolicyMetrics : [];
-      const hybridRows = Array.isArray(data.latestHybridRouteDecisions) ? data.latestHybridRouteDecisions : [];
       if (models.length) {
         const families = Array.from(new Set(models.map((row) => row.model_family).filter(Boolean)));
-        notes.push(`Active model registry is live with ${fmtNumber(models.length)} active versions across ${fmtNumber(families.length)} model families: ${families.slice(0, 4).join(', ')}${families.length > 4 ? '...' : ''}.`);
-      }
-      if (sentimentRows.length) {
-        const latest = sentimentRows[0];
-        notes.push(`Latest sentiment snapshot is ${latest.bot_profile} ${latest.symbol || latest.chain_key || 'market'} ${latest.signal || 'neutral'} at ${fmtNumber(latest.aggregate_score, 2)} score with ${fmtNumber(latest.news_count)} news and ${fmtNumber(latest.reddit_count)} Reddit items.`);
-      }
-      if (rlPolicies.length) {
-        const latestPolicy = rlPolicies[0];
-        notes.push(`RL policy registry is active with latest update from ${latestPolicy.bot_profile} ${latestPolicy.policy_name} at ${fmtDate(latestPolicy.updated_at)}.`);
-      }
-      if (hybridRows.length) {
-        const latestHybrid = hybridRows[0];
-        notes.push(`Latest hybrid route decision is ${latestHybrid.bot_profile} ${latestHybrid.final_signal || 'HOLD'} on ${latestHybrid.symbol || latestHybrid.chain_key || 'unknown'} under ${latestHybrid.regime_family || 'any'} regime.`);
+        notes.push(`Models active: ${fmtNumber(models.length)} versions across ${fmtNumber(families.length)} families (${families.slice(0, 5).join(', ')}).`);
       }
       const approvals = Array.isArray(data.pendingApprovals) ? data.pendingApprovals : [];
       if (approvals.length) {
-        notes.push(`There are ${fmtNumber(approvals.length)} promotion candidates waiting for manual approval before canary rollout.`);
+        notes.push(`${fmtNumber(approvals.length)} promotion candidate(s) need manual approval before any rollout.`);
       }
-      const monteCarlo = Array.isArray(data.monteCarloSummary) ? data.monteCarloSummary : [];
-      if (monteCarlo.length) {
-        const line = monteCarlo
-          .map((row) => `${row.bot_profile} ruin ${fmtPct(row.ruin_probability_pct)} p50 ${fmtMoney(row.p50_ending_balance)}`)
-          .join(' | ');
-        notes.push(`Monte Carlo robustness: ${line}.`);
-      }
-      notes.push(`Shared agent memory currently holds ${fmtNumber(memory.lesson_count)} lessons, ${fmtNumber(memory.discovery_count)} discoveries, and ${fmtNumber(memory.blacklist_count)} blacklisted tokens.`);
+      notes.push(`Memory: ${fmtNumber(memory.lesson_count)} lessons, ${fmtNumber(memory.discovery_count)} discoveries, ${fmtNumber(memory.blacklist_count)} blacklisted tokens.`);
       return notes;
     }
 
@@ -1083,21 +1176,26 @@
       if (report === 'overview') notes = summarizeOverview(data);
       if (report === 'breakdown') notes = summarizeBreakdown(data);
       if (report === 'memory') notes = summarizeMemory(data);
-      analysisList.innerHTML = notes.map((note) => `<div class="analysis-item">${escapeHtml(note)}</div>`).join('');
+      const quality = dataQualityNotes(data);
+      analysisList.innerHTML = [
+        ...quality.map((note) => `<div class="analysis-item ${escapeHtml(note.tone || '')}">${escapeHtml(note.text)}</div>`),
+        ...notes.slice(0, 5).map((note) => `<div class="analysis-item">${escapeHtml(note)}</div>`),
+      ].join('');
     }
 
     function renderKpis(data) {
       const cards = [];
       if (report === 'overview') {
-        const profiles = Array.isArray(data.profileSummary) ? data.profileSummary : [];
-        const live = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'live') || {};
-        const paper = profiles.find((row) => String(row.bot_profile).toLowerCase() === 'paper') || {};
+        const runtime = firstRuntime(data);
+        const live = firstProfile(data, 'live');
+        const paper = firstProfile(data, 'paper');
         const memory = Array.isArray(data.agentMemorySummary) ? data.agentMemorySummary[0] || {} : {};
         cards.push(
-          { label: 'Live Equity', value: fmtMoney(live.latest_equity), note: `Win rate ${fmtPct(live.win_rate_pct)} | ${fmtNumber(live.trade_count)} trades`, tone: Number(live.latest_total_pnl) >= 0 ? 'good' : 'bad' },
-          { label: 'Paper Equity', value: fmtMoney(paper.latest_equity), note: `Win rate ${fmtPct(paper.win_rate_pct)} | ${fmtNumber(paper.trade_count)} trades`, tone: Number(paper.latest_total_pnl) >= 0 ? 'good' : 'bad' },
-          { label: 'Open Positions', value: fmtNumber((Number(live.open_positions || 0) + Number(paper.open_positions || 0))), note: `${fmtNumber(live.open_positions)} live | ${fmtNumber(paper.open_positions)} paper` },
-          { label: 'Shared Discoveries', value: fmtNumber(memory.discovery_count), note: `${fmtNumber(memory.lesson_count)} lessons | ${fmtNumber(memory.blacklist_count)} blacklisted` }
+          { label: 'Runtime PnL', value: fmtMoney(runtime.total_pnl), note: `${fmtNumber(runtime.closed_trades)} closed trades | ${fmtPct(runtime.win_rate_pct)} win`, tone: Number(runtime.total_pnl) >= 0 ? 'good' : 'bad' },
+          { label: 'Runtime Open', value: fmtNumber(runtime.open_positions), note: 'Current bot memory, not stale SQL ledger rows' },
+          { label: 'SQL Realized PnL', value: fmtMoney(live.realized_pnl_usd), note: `Audit ledger | last ${fmtDate(live.last_pnl_at)}`, tone: Number(live.realized_pnl_usd) >= 0 ? 'good' : 'bad' },
+          { label: 'Paper SQL', value: fmtMoney(paper.latest_equity), note: `Last write ${fmtDate(paper.last_pnl_at)}` },
+          { label: 'Memory', value: fmtNumber(memory.discovery_count), note: `${fmtNumber(memory.lesson_count)} lessons | ${fmtNumber(memory.blacklist_count)} blacklisted` }
         );
       } else if (report === 'breakdown') {
         const chains = Array.isArray(data.chainSummary) ? data.chainSummary : [];
@@ -1323,7 +1421,7 @@
         renderEmpty(target, 'No rows available.');
         return;
       }
-      target.innerHTML = rows.map((row) => `
+      target.innerHTML = rows.slice(0, 8).map((row) => `
         <div class="memory-row">
           <div class="memory-top">
             <div class="memory-title">${escapeHtml(textBuilder.title(row))}</div>
@@ -1331,23 +1429,154 @@
           </div>
           <div class="muted">${escapeHtml(textBuilder.body(row))}</div>
         </div>
+      `).join('') + (rows.length > 8 ? `<div class="muted">Showing 8 of ${escapeHtml(fmtNumber(rows.length))}. Open Raw SQL Data for the full table.</div>` : '');
+    }
+
+    function summarizeEntryGates(row) {
+      const riskFlags = parseJsonSafe(row.risk_flags_json, []);
+      const rejectReasons = parseJsonSafe(row.reject_reasons_json, []);
+      const gate = parseJsonSafe(row.gate_json, {});
+      const risk = parseJsonSafe(row.risk_json, {});
+      const approval = parseJsonSafe(row.approval_json, {});
+      const blockers = [];
+      const allowed = [];
+      if (Array.isArray(rejectReasons)) {
+        blockers.push(...rejectReasons.map((item) => typeof item === 'string' ? item : (item.reason || item.code || JSON.stringify(item))));
+      }
+      if (Array.isArray(riskFlags)) blockers.push(...riskFlags);
+      if (risk && risk.allowed === false) blockers.push(risk.reason || risk.code || 'risk_check_blocked');
+      if (approval && approval.approved === false) blockers.push(approval.reason || approval.reasonCode || 'approval_blocked');
+      Object.entries(gate || {}).forEach(([key, value]) => {
+        if (value === false) blockers.push(key);
+        if (value === true) allowed.push(key);
+      });
+      if (approval && approval.approved === true) allowed.push(approval.reasonCode || 'approval_passed');
+      if (risk && risk.allowed === true) allowed.push('risk_check_passed');
+      return {
+        blockers: Array.from(new Set(blockers.filter(Boolean))).slice(0, 6),
+        allowed: Array.from(new Set(allowed.filter(Boolean))).slice(0, 6),
+      };
+    }
+
+    function renderEntryAudit(rows) {
+      if (!rows.length) {
+        renderEmpty(entryAuditList, 'No entry audit rows available yet.');
+        return;
+      }
+      entryAuditList.innerHTML = rows.slice(0, 10).map((row) => {
+        const gates = summarizeEntryGates(row);
+        const blocked = row.approved === false || String(row.final_action || '').toUpperCase() !== 'BUY';
+        const title = `${row.symbol || row.address || 'unknown'} | ${blocked ? 'BLOCKED' : 'ALLOWED'} | ${row.final_action || row.status || '-'}`;
+        const reason = row.reason || (blocked ? gates.blockers[0] : gates.allowed[0]) || 'no reason recorded';
+        const gateLine = blocked
+          ? `blocked gates: ${gates.blockers.join(', ') || reason}`
+          : `allowed gates: ${gates.allowed.join(', ') || 'approval passed'}`;
+        return `
+          <div class="memory-row">
+            <div class="memory-top">
+              <div class="memory-title">${profileTag(row.bot_profile)} ${escapeHtml(title)}</div>
+              <div class="muted">${escapeHtml(fmtDate(row.ts))}</div>
+            </div>
+            <div class="muted">${escapeHtml(`${row.chain_key || '-'} | ${row.strategy || '-'} | ${reason}`)}</div>
+            <div class="muted">${escapeHtml(gateLine)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderCadenceComparison(rows) {
+      if (!rows.length) {
+        renderEmpty(cadenceCompareList, 'No trade cadence rows available yet.');
+        return;
+      }
+      cadenceCompareList.innerHTML = rows.slice(0, 7).map((row) => `
+        <div class="compare-row">
+          <div class="compare-top">
+            <div class="compare-title">${escapeHtml(fmtDate(row.trade_day).split(',')[0])}</div>
+            <div class="muted">Live ${escapeHtml(fmtMoney(row.live_pnl_usd))} | Paper ${escapeHtml(fmtMoney(row.paper_pnl_usd))}</div>
+          </div>
+          <div class="memory-row" style="padding:0;border:0;background:transparent;">
+            <div><strong>Live:</strong> ${escapeHtml(fmtNumber(row.live_trades))} trades, ${escapeHtml(fmtNumber(row.live_buys))} buys, ${escapeHtml(fmtNumber(row.live_sells))} sells, ${escapeHtml(fmtNumber(row.live_sell_failures))} sell failures</div>
+            <div><strong>Paper:</strong> ${escapeHtml(fmtNumber(row.paper_trades))} trades, ${escapeHtml(fmtNumber(row.paper_buys))} buys, ${escapeHtml(fmtNumber(row.paper_sells))} sells, ${escapeHtml(fmtNumber(row.paper_sell_failures))} sell failures</div>
+          </div>
+        </div>
       `).join('');
     }
 
     function renderModelSections(data) {
       renderMemoryRows(modelVersionList, Array.isArray(data.activeModelVersions) ? data.activeModelVersions : [], {
-        title: (row) => `${row.display_name || row.model_id || 'model'} | ${row.version_id || 'version'}`,
+        title: (row) => {
+          const params = parseJsonSafe(row.params_json, {});
+          const metrics = parseJsonSafe(row.metrics_json, {});
+          const metadata = parseJsonSafe(row.metadata_json, {});
+          const artifactExists = Boolean(metrics.artifactExists ?? params.artifactExists ?? metadata.artifactExists);
+          const status = row.status === 'active' && artifactExists ? 'ACTIVE artifact ok'
+            : row.status === 'active' ? 'ACTIVE no artifact flag'
+              : row.status === 'pending_artifact' ? 'REGISTERED missing artifact'
+                : String(row.status || 'unknown').toUpperCase();
+          return `${row.display_name || row.model_id || 'model'} | ${status}`;
+        },
         body: (row) => {
           const metrics = parseJsonSafe(row.metrics_json, {});
           const params = parseJsonSafe(row.params_json, {});
+          const metadata = parseJsonSafe(row.metadata_json, {});
+          const artifactPath = params.artifactPath || metadata.artifactPath || '';
+          const artifactExists = Boolean(metrics.artifactExists ?? params.artifactExists ?? metadata.artifactExists);
           const metricBits = [];
           if (Number.isFinite(Number(metrics.winRatePct))) metricBits.push(`win ${fmtPct(metrics.winRatePct)}`);
           if (Number.isFinite(Number(metrics.returnPct))) metricBits.push(`return ${fmtPct(metrics.returnPct)}`);
           if (Number.isFinite(Number(metrics.confidence))) metricBits.push(`confidence ${fmtNumber(metrics.confidence, 2)}`);
+          if (Number.isFinite(Number(metrics.trainedRows))) metricBits.push(`${fmtNumber(metrics.trainedRows)} rows`);
           if (Number.isFinite(Number(params.thresholdBuy))) metricBits.push(`buy>${fmtNumber(params.thresholdBuy, 2)}`);
-          return `${row.bot_profile || '-'} | ${row.model_family || '-'} | ${row.stage || '-'} | ${row.regime_family || 'any'} | ${metricBits.join(' | ') || 'metrics not populated yet'}`;
+          metricBits.push(`artifact ${artifactExists ? 'present' : 'missing'}`);
+          if (artifactPath) metricBits.push(String(artifactPath).replace(/^.*artifacts[\\/]/, 'artifacts/'));
+          return `${row.bot_profile || '-'} | ${row.model_family || '-'} | ${row.stage || '-'} | ${metricBits.join(' | ') || 'metrics pending'}`;
         },
       });
+
+      const artifactRows = Array.isArray(data.modelArtifactHealth) ? data.modelArtifactHealth : [];
+      if (!artifactRows.length) {
+        renderEmpty(artifactHealthList, 'No model artifact health rows available.');
+      } else {
+        artifactHealthList.innerHTML = artifactRows.slice(0, 10).map((row) => {
+          const health = String(row.artifact_health || 'unknown');
+          const alert = health === 'missing_active_artifact';
+          const pathText = String(row.artifact_path || '').replace(/^.*artifacts[\\/]/, 'artifacts/');
+          return `
+            <div class="memory-row">
+              <div class="memory-top">
+                <div class="memory-title">${escapeHtml(alert ? 'ALERT' : health.toUpperCase())} | ${escapeHtml(row.display_name || row.model_id || 'model')}</div>
+                <div class="muted">${profileTag(row.bot_profile)} ${escapeHtml(row.status || '-')}</div>
+              </div>
+              <div class="muted">${escapeHtml(row.model_family || '-')} | artifact ${row.artifact_exists_runtime ? 'exists' : 'missing'}${pathText ? ` | ${pathText}` : ''}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const walkRows = Array.isArray(data.walkForwardProfitability) ? data.walkForwardProfitability : [];
+      if (!walkRows.length) {
+        renderEmpty(walkForwardList, 'No walk-forward promotion rows available yet.');
+      } else {
+        walkForwardList.innerHTML = walkRows.slice(0, 8).map((row) => {
+          const status = String(row.walk_forward_status || 'missing').toUpperCase();
+          const details = [
+            `PF ${fmtNumber(row.walk_forward_profit_factor, 2)}`,
+            `win ${fmtPct(row.walk_forward_win_rate_pct)}`,
+            `return ${fmtPct(row.walk_forward_return_pct)}`,
+            `trades ${fmtNumber(row.walk_forward_trades)}`,
+          ].join(' | ');
+          return `
+            <div class="memory-row">
+              <div class="memory-top">
+                <div class="memory-title">${escapeHtml(status)} | ${escapeHtml(row.version_id || row.candidate_id || 'candidate')}</div>
+                <div class="muted">${escapeHtml(fmtDate(row.created_at))}</div>
+              </div>
+              <div class="muted">${profileTag(row.source_profile || row.bot_profile)} ${escapeHtml(row.stage || '-')} | ${escapeHtml(details)}</div>
+            </div>
+          `;
+        }).join('');
+      }
 
       renderMemoryRows(rlPolicyList, Array.isArray(data.latestRlPolicyMetrics) ? data.latestRlPolicyMetrics : [], {
         title: (row) => `${row.policy_name || row.policy_id || 'rl policy'} | ${row.bot_profile || '-'}`,
@@ -1364,20 +1593,29 @@
       });
 
       renderMemoryRows(sentimentList, Array.isArray(data.latestSentimentSnapshots) ? data.latestSentimentSnapshots : [], {
-        title: (row) => `${row.bot_profile || '-'} ${row.symbol || row.chain_key || 'market'} | ${row.signal || 'neutral'}`,
-        body: (row) => `score ${fmtNumber(row.aggregate_score, 2)} | confidence ${fmtNumber(row.confidence, 2)} | news ${fmtNumber(row.news_count)} | reddit ${fmtNumber(row.reddit_count)} | ${fmtDate(row.ts)}`,
+        title: (row) => `${row.bot_profile || '-'} ${row.symbol || row.chain_key || 'market'} | ${row.signal || 'neutral'} | event ${row.news_event_label || 'unknown'}`,
+        body: (row) => {
+          const eventBits = [
+            `event bias ${row.news_event_bias || 'neutral'}`,
+            `event conf ${fmtNumber(row.news_event_confidence, 2)}`,
+          ];
+          return `score ${fmtNumber(row.aggregate_score, 2)} | confidence ${fmtNumber(row.confidence, 2)} | news ${fmtNumber(row.news_count)} | reddit ${fmtNumber(row.reddit_count)} | ${eventBits.join(' | ')} | ${fmtDate(row.ts)}`;
+        },
       });
 
       renderMemoryRows(hybridRouteList, Array.isArray(data.latestHybridRouteDecisions) ? data.latestHybridRouteDecisions : [], {
         title: (row) => `${row.bot_profile || '-'} ${row.symbol || row.chain_key || 'unknown'} | ${row.final_signal || 'HOLD'}`,
         body: (row) => {
           const route = parseJsonSafe(row.route_json, {});
+          const bayesian = route.bayesian?.posterior ?? route.bayesianNetwork?.probability;
+          const ml = route.ml?.score ?? route.mlScore;
+          const rl = route.rl?.signal ?? route.rlAction;
           const routeParts = [];
-          if (route.selectedRoute) routeParts.push(`route ${route.selectedRoute}`);
-          if (route.mlScore !== undefined) routeParts.push(`ml ${fmtNumber(route.mlScore, 2)}`);
-          if (route.rlAction) routeParts.push(`rl ${route.rlAction}`);
+          if (ml !== undefined) routeParts.push(`ml ${fmtNumber(ml, 2)}`);
+          if (rl) routeParts.push(`rl ${rl}`);
+          if (bayesian !== undefined) routeParts.push(`bayes ${fmtNumber(bayesian, 2)}`);
           if (route.sentimentSignal) routeParts.push(`sentiment ${route.sentimentSignal}`);
-          return `${row.task_class || '-'} | ${row.regime_family || 'any'} | confidence ${fmtNumber(row.confidence, 2)}${routeParts.length ? ` | ${routeParts.join(' | ')}` : ''}`;
+          return `${row.regime_family || 'any'} | conf ${fmtNumber(row.confidence, 2)}${routeParts.length ? ` | ${routeParts.join(' | ')}` : ''}`;
         },
       });
 
@@ -1415,25 +1653,21 @@
       } else {
         const html = [];
         if (openRows.length) {
-          html.push(...openRows.slice(0, 12).map((row) => `
+          html.push(...openRows.slice(0, 6).map((row) => `
             <div class="memory-row">
               <div class="memory-title">OPEN ${escapeHtml(row.symbol || row.address || 'unknown')} | ${escapeHtml(row.chain_key || '-')}</div>
-              <div class="muted">24h ${escapeHtml(fmtNumber(row.price_change_24h, 2))}% | conf ${escapeHtml(fmtNumber(row.confidence, 2))} | vol ${escapeHtml(fmtNumber(row.volume_spike, 3))} | accel ${escapeHtml(fmtNumber(row.acceleration_score, 2))} | strong scans ${escapeHtml(fmtNumber(row.consecutive_strong_scans))}</div>
+              <div class="muted">24h ${escapeHtml(fmtNumber(row.price_change_24h, 2))}% | conf ${escapeHtml(fmtNumber(row.confidence, 2))} | accel ${escapeHtml(fmtNumber(row.acceleration_score, 2))}</div>
             </div>
           `));
         }
         if (blockedRows.length) {
-          html.push(...blockedRows.slice(0, 12).map((row) => {
+          html.push(...blockedRows.slice(0, 6).map((row) => {
             const context = row.rotation_context || {};
-            const weakest = context.weakestComponents || {};
-            const candidate = context.candidateComponents || {};
             return `
               <div class="memory-row">
                 <div class="memory-title">CANDIDATE ${escapeHtml(row.symbol || row.address || 'unknown')} blocked</div>
                 <div class="muted">${escapeHtml(row.not_bought_reason || 'rotation blocked')}</div>
                 <div class="muted">candidate score ${escapeHtml(fmtNumber(context.candidateScore, 2))} vs weakest ${escapeHtml(context.weakestSymbol || '-')} score ${escapeHtml(fmtNumber(context.weakestScore, 2))}</div>
-                <div class="muted">candidate: 24h ${escapeHtml(fmtNumber(candidate.priceChange24h, 2))}% | conf ${escapeHtml(fmtNumber(candidate.confidence, 2))} | vol ${escapeHtml(fmtNumber(candidate.volumeSpike, 3))} | accel ${escapeHtml(fmtNumber(candidate.accelerationScore, 2))} | strong ${escapeHtml(fmtNumber(candidate.consecutiveStrongScans))}</div>
-                <div class="muted">weakest: 24h ${escapeHtml(fmtNumber(weakest.priceChange24h, 2))}% | pnl ${escapeHtml(fmtNumber(weakest.pnlPct, 2))}% | conf ${escapeHtml(fmtNumber(weakest.confidence, 2))} | vol ${escapeHtml(fmtNumber(weakest.volumeSpike, 3))} | accel ${escapeHtml(fmtNumber(weakest.accelerationScore, 2))} | strong ${escapeHtml(fmtNumber(weakest.consecutiveStrongScans))}</div>
               </div>
             `;
           }));
@@ -1505,7 +1739,10 @@
     }
 
     function renderTables(data) {
-      const sections = Object.entries(data || {}).map(([key, rows]) => renderTableSection(key, Array.isArray(rows) ? rows : []));
+      const noisy = new Set(['pnlHistory', 'tradeCadence', 'decisionTimeline', 'entryReasonAudit', 'paperLiveCadenceComparison', 'modelArtifactHealth', 'walkForwardProfitability']);
+      const sections = Object.entries(data || {})
+        .filter(([key]) => !noisy.has(key))
+        .map(([key, rows]) => renderTableSection(key, Array.isArray(rows) ? rows.slice(0, 80) : []));
       tablesRoot.innerHTML = sections.join('');
     }
 
@@ -1533,9 +1770,16 @@
     }
 
     function toggleSections() {
-      decisionSections.classList.toggle('hidden', !(Array.isArray(currentPayload?.data?.decisionQualitySummary) && currentPayload.data.decisionQualitySummary.length));
+      decisionSections.classList.toggle('hidden', !(
+        (Array.isArray(currentPayload?.data?.decisionQualitySummary) && currentPayload.data.decisionQualitySummary.length)
+        || (Array.isArray(currentPayload?.data?.latestDecisions) && currentPayload.data.latestDecisions.length)
+        || (Array.isArray(currentPayload?.data?.entryReasonAudit) && currentPayload.data.entryReasonAudit.length)
+        || (Array.isArray(currentPayload?.data?.paperLiveCadenceComparison) && currentPayload.data.paperLiveCadenceComparison.length)
+      ));
       modelSections.classList.toggle('hidden', !(
         (Array.isArray(currentPayload?.data?.activeModelVersions) && currentPayload.data.activeModelVersions.length)
+        || (Array.isArray(currentPayload?.data?.modelArtifactHealth) && currentPayload.data.modelArtifactHealth.length)
+        || (Array.isArray(currentPayload?.data?.walkForwardProfitability) && currentPayload.data.walkForwardProfitability.length)
         || (Array.isArray(currentPayload?.data?.latestSentimentSnapshots) && currentPayload.data.latestSentimentSnapshots.length)
         || (Array.isArray(currentPayload?.data?.latestRlPolicyMetrics) && currentPayload.data.latestRlPolicyMetrics.length)
         || (Array.isArray(currentPayload?.data?.latestHybridRouteDecisions) && currentPayload.data.latestHybridRouteDecisions.length)
@@ -1550,12 +1794,13 @@
       const data = payload?.data || {};
       subtitle.textContent = 'Structured SQL analytics dashboard';
       metaGenerated.textContent = `generated: ${fmtDate(payload.generatedAt)}`;
-      metaSource.textContent = `source: /api/sql-report?report=${report}`;
       setStatus('Loaded', `SQL report ${report} rendered successfully.`);
       renderAnalysis(data);
       renderKpis(data);
       renderHistory(data);
       renderDecisionQuality(Array.isArray(data.decisionQualitySummary) ? data.decisionQualitySummary : []);
+      renderEntryAudit(Array.isArray(data.entryReasonAudit) ? data.entryReasonAudit : []);
+      renderCadenceComparison(Array.isArray(data.paperLiveCadenceComparison) ? data.paperLiveCadenceComparison : []);
       renderModelSections(data);
       renderMemoryRows(latestDecisionList, Array.isArray(data.latestDecisions) ? data.latestDecisions : [], {
         title: (row) => `${row.bot_profile || 'bot'} ${row.decision_stage || 'decision'} -> ${row.final_action || row.status || 'n/a'}`,
@@ -1602,10 +1847,14 @@
       discoveryList.innerHTML = '';
       modelVersionList.innerHTML = '';
       rlPolicyList.innerHTML = '';
+      artifactHealthList.innerHTML = '';
+      walkForwardList.innerHTML = '';
       sentimentList.innerHTML = '';
       hybridRouteList.innerHTML = '';
       decisionQualityList.innerHTML = '';
       latestDecisionList.innerHTML = '';
+      entryAuditList.innerHTML = '';
+      cadenceCompareList.innerHTML = '';
       approvalList.innerHTML = '';
       rotationDebugList.innerHTML = '';
       tablesRoot.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;

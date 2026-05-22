@@ -337,6 +337,54 @@ function renderRiskAlerts(portfolio) {
       `).join('');
 }
 
+function fmtProfitFactor(value) {
+  if (value === null || value === undefined) return '—';
+  const n = Number(value);
+  if (n === Infinity) return '∞';
+  return Number.isFinite(n) ? n.toFixed(2) : '—';
+}
+
+function renderBullFlagStats(stats) {
+  const data = stats && typeof stats === 'object' ? stats : null;
+  const setText = (id, value) => { if (el(id)) el(id).textContent = value; };
+  if (!data) {
+    setText('bf-enabled', 'offline');
+    setText('bf-updated', 'stats unavailable');
+    setText('bf-total', '—');
+    setText('bf-closed', '—');
+    setText('bf-winrate', '—');
+    setText('bf-pnl', '—');
+    setText('bf-pf', '—');
+    if (el('bf-exit-body')) {
+      el('bf-exit-body').innerHTML = '<tr><td colspan="2" class="muted small">Endpoint unavailable.</td></tr>';
+    }
+    return;
+  }
+
+  setText('bf-enabled', data.enabled ? 'enabled' : 'disabled');
+  setText('bf-updated', `Updated ${fmtTime(data.timestamp)}`);
+  setText('bf-total', String(Number(data.totalTrades || 0)));
+  setText('bf-closed', String(Number(data.sells || 0)));
+  setText('bf-winrate', `${fmt(data.winRatePct, 1)}%`);
+  const pnl = Number(data.totalPnlUsd || 0);
+  setText('bf-pnl', `${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}`);
+  setText('bf-pf', fmtProfitFactor(data.profitFactor));
+
+  const pnlEl = el('bf-pnl');
+  if (pnlEl) {
+    pnlEl.classList.remove('pnl-pos', 'pnl-neg');
+    pnlEl.classList.add(pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+  }
+
+  const reasons = Object.entries(data.exitReasonBreakdown || {})
+    .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0));
+  if (el('bf-exit-body')) {
+    el('bf-exit-body').innerHTML = reasons.length > 0
+      ? reasons.map(([reason, count]) => `<tr><td>${esc(reason)}</td><td>${esc(count)}</td></tr>`).join('')
+      : '<tr><td colspan="2" class="muted small">No bull-flag exits yet.</td></tr>';
+  }
+}
+
 // ─── Chart (TradingView lightweight-charts) ───────────────────────────────
 
 function chartMsg(text, color) {
@@ -622,9 +670,10 @@ function renderSymbolList(filter = '') {
 async function refreshAll() {
   el('sb-sync').textContent = fmtTime(new Date().toISOString());
 
-  const [status, tracked] = await Promise.all([
+  const [status, tracked, bullFlagStats] = await Promise.all([
     api('/api/status'),
     api('/api/tracked-tokens'),
+    api('/api/bull-flag-stats'),
   ]);
 
   // Update bot indicator (green=alive, yellow=paper, red=down)
@@ -644,6 +693,7 @@ async function refreshAll() {
   renderTrades(portfolio.recentTrades || []);
   renderSignals(status.market?.recentSignals || []);
   renderRiskAlerts(portfolio);
+  renderBullFlagStats(bullFlagStats);
 
   if (tracked) {
     renderTracked(tracked);

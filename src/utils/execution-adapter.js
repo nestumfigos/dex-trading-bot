@@ -52,9 +52,19 @@ async function executeBuyViaVenue({
   }
 
   const nativeQuote = await getNativeQuote(chainName, tokenData);
+  if (!Number.isFinite(nativeQuote) || nativeQuote <= 0) {
+    throw new Error(`Native quote unavailable for ${chainName}:${tokenData?.symbol || tokenData?.address} — cannot size order (got ${nativeQuote})`);
+  }
   const nativeAmount = sizeUsd / nativeQuote;
+  const maxSlippageBps = Number.isFinite(Number(tokenData.maxSlippageBps))
+    ? Number(tokenData.maxSlippageBps)
+    : (Number.isFinite(Number(tokenData._strategyMaxSlippagePct)) ? Math.round(Number(tokenData._strategyMaxSlippagePct) * 100) : undefined);
   return withTimeout(
-    exchange.executeBuy(tokenData.address, nativeAmount, { strategyName }),
+    exchange.executeBuy(tokenData.address, nativeAmount, {
+      strategyName,
+      maxSlippageBps,
+      useMevJitter: tokenData.useMevJitter === true,
+    }),
     execTimeoutMs,
     `${chainName} buy timed out for ${tokenData.symbol}`
   );

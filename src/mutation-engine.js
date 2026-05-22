@@ -29,10 +29,17 @@ class MutationEngine {
     if (!oldLine || !newLine) {
       return { ok: false, reason: `Invalid exact_line_replace payload for ${change.file}` };
     }
+    // Refuse near-empty / structural-only lines that would explode into thousands of matches.
+    // Mutation engine ambiguity historically silently No-op'd when a "}" line matched 34K+ rows.
+    const trimmed = oldLine.trim();
+    if (trimmed.length < 8 || /^[{}\[\]();,]+$/.test(trimmed)) {
+      return { ok: false, reason: `Ambiguous oldLine for ${change.file}: refusing structural-only or <8-char line ("${trimmed}")` };
+    }
     const regex = this.buildLineRegex(oldLine);
     const matches = source.match(new RegExp(regex.source, 'gm')) || [];
     if (matches.length !== 1) {
-      return { ok: false, reason: `Exact line match count for ${change.file} was ${matches.length}, expected 1` };
+      const sev = matches.length > 50 ? 'EXPLODED' : 'mismatch';
+      return { ok: false, reason: `[${sev}] Exact line match count for ${change.file} was ${matches.length}, expected 1 — refusing patch` };
     }
     const nextSource = source.replace(regex, newLine);
     if (nextSource === source) {
@@ -49,6 +56,12 @@ class MutationEngine {
     }
     const start = `/* ${marker}:start */`;
     const end = `/* ${marker}:end */`;
+    // Refuse if marker pair is not unique — non-greedy regex would silently pick the first pair.
+    const startCount = (source.match(new RegExp(start.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+    const endCount = (source.match(new RegExp(end.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+    if (startCount !== 1 || endCount !== 1) {
+      return { ok: false, reason: `Template marker "${marker}" not unique in ${change.file} (start=${startCount}, end=${endCount}) — refusing patch` };
+    }
     const blockRegex = new RegExp(`${start}[\\s\\S]*?${end}`, 'm');
     if (!blockRegex.test(source)) {
       return { ok: false, reason: `Template markers missing for ${change.file}` };

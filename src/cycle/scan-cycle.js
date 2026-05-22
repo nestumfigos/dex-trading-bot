@@ -5,20 +5,19 @@
  *
  * Two cycles:
  *   - runStrategyScanCycle(strategyName)
- *     Per-strategy (momentum / swing) entry scanner. Iterates enabled chains,
+ *     Per-strategy entry scanner. Iterates enabled chains,
  *     timeboxes each chain's scanChain() call, persists state + portfolio
  *     snapshot, releases scan-status indicators.
  *
  *     Momentum: scans solana + bsc + kucoin in parallel (Promise.allSettled).
- *     Swing: kucoin only (EMA(50/200) crossover doesn't fit DEX flow).
+ *     Paper-only strategies scan their configured chain only.
  *
  *   - runDetachedKucoinMomentumScan(cycleStats?)
  *     Standalone KuCoin momentum scan path used when the main loop is in
  *     swing-cycle window or paused. Respects shouldPauseKucoinEntryScans()
  *     for daily-reset warmup window + per-loss-streak halt.
  *
- * Reentrancy: each scan guards with loopLocks[name] = true/false. Lock keys:
- * 'momentumScan', 'swingScan', 'kucoinMomentumScan'.
+ * Reentrancy: each scan guards with loopLocks[name] = true/false.
  *
  * Trading window: returns early when !isWithinTradingWindow().
  *
@@ -30,6 +29,39 @@
  *   await sc.runStrategyScanCycle('momentum');
  *   await sc.runDetachedKucoinMomentumScan();
  */
+
+const DEFAULT_SCAN_CHAINS = Object.freeze({
+  momentum: ['solana', 'bsc', 'kucoin'],
+  spot_day_bull_flag: ['kucoin'],
+  backes_swing: ['kucoin'],
+  bsc_flow_breakout: ['bsc'],
+  base_dex_momentum_reclaim: ['base'],
+  solana_bull_flag_v2: ['solana'],
+});
+
+function normalizeStrategyName(strategyName) {
+  return String(strategyName || 'momentum').trim().toLowerCase();
+}
+
+function normalizeChains(value) {
+  if (Array.isArray(value)) return value.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
+  return String(value || '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
+}
+
+function getScanLockKey(strategyName) {
+  if (strategyName === 'spot_day_bull_flag') return 'bullFlagScan';
+  if (strategyName === 'momentum') return 'momentumScan';
+  return `${strategyName}Scan`;
+}
+
+function getConfiguredScanChains(config, exchanges, isStrategyScanEnabled, strategyName) {
+  const configured = normalizeChains(config?.strategies?.[strategyName]?.enabledChains);
+  const defaults = DEFAULT_SCAN_CHAINS[strategyName] || [];
+  const candidates = configured.length ? configured : defaults;
+  return [...new Set(candidates)]
+    .filter((chainName) => exchanges?.[chainName])
+    .filter((chainName) => isStrategyScanEnabled(chainName, strategyName));
+}
 
 function create({
   // state
@@ -63,11 +95,8 @@ function create({
   if (typeof scanChain !== 'function') throw new Error('scan-cycle.create: scanChain required');
 
   async function runStrategyScanCycle(strategyName) {
-    const lockKey = strategyName === 'swing'
-      ? 'swingScan'
-      : strategyName === 'spot_day_bull_flag'
-        ? 'bullFlagScan'
-        : 'momentumScan';
+    strategyName = normalizeStrategyName(strategyName);
+    const lockKey = getScanLockKey(strategyName);
     if (loopLocks[lockKey]) {
       return;
     }
@@ -90,63 +119,25 @@ function create({
     loopLocks[lockKey] = true;
     if (typeof refreshScanInFlightFlag === 'function') refreshScanInFlightFlag();
     try {
-      if (strategyName === 'momentum') {
-        const chainScans = [
-          ['solana', exchanges.solana],
-          ['bsc', exchanges.bsc],
-          ['kucoin', exchanges.kucoin],
-        ].filter(([chainName]) => isStrategyScanEnabled(chainName, strategyName));
+      const chainScans = getConfiguredScanChains(config, exchanges, isStrategyScanEnabled, strategyName)
+        .map((chainName) => [chainName, exchanges[chainName]]);
 
-        await Promise.allSettled(
-          chainScans.map(([chainName, exchange]) => withTimeout(
-            scanChain(chainName, exchange, strategyName, { cycleStats }),
-            chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs,
-            `${chainName} ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs}ms`
-          ))
-        ).then((results) => {
-          results.forEach((result, index) => {
-            if (result.status === 'rejected') {
-              const [chainName] = chainScans[index];
-              logger.error(`${chainName} ${strategyName} scan failed`, {
-                reason: result.reason?.message || String(result.reason || 'unknown_error'),
-              });
-            }
-          });
-        });
-      } else if (strategyName === 'swing' && isStrategyScanEnabled('kucoin', strategyName)) {
-        await withTimeout(
-          scanChain('kucoin', exchanges.kucoin, strategyName, { cycleStats }),
-          chainDiscoveryTimeoutMs.kucoin,
-          `kucoin ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs.kucoin}ms`
-        ).catch((error) => {
-          logger.error(`kucoin ${strategyName} scan failed`, { reason: error.message });
-        });
-      } else if (strategyName === 'spot_day_bull_flag') {
-        const chainScans = [
-          ['kucoin', exchanges.kucoin],
-          ['base', exchanges.base],
-          ['bsc', exchanges.bsc],
-        ].filter(([chainName]) => isStrategyScanEnabled(chainName, strategyName));
-
-        if (chainScans.length) {
-          await Promise.allSettled(
-            chainScans.map(([chainName, exchange]) => withTimeout(
-              scanChain(chainName, exchange, strategyName, { cycleStats }),
-              chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs,
-              `${chainName} ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs}ms`
-            ))
-          ).then((results) => {
-            results.forEach((result, index) => {
-              if (result.status === 'rejected') {
-                const [chainName] = chainScans[index];
-                logger.error(`${chainName} ${strategyName} scan failed`, {
-                  reason: result.reason?.message || String(result.reason || 'unknown_error'),
-                });
-              }
+      await Promise.allSettled(
+        chainScans.map(([chainName, exchange]) => withTimeout(
+          scanChain(chainName, exchange, strategyName, { cycleStats }),
+          chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs,
+          `${chainName} ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs}ms`
+        ))
+      ).then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            const [chainName] = chainScans[index];
+            logger.error(`${chainName} ${strategyName} scan failed`, {
+              reason: result.reason?.message || String(result.reason || 'unknown_error'),
             });
-          });
-        }
-      }
+          }
+        });
+      });
 
       if (typeof recordPortfolioSnapshot === 'function') recordPortfolioSnapshot(`scan_${strategyName}`);
       if (typeof saveState === 'function') {
@@ -160,42 +151,15 @@ function create({
     } finally {
       if (typeof finalizeFilterCycle === 'function') finalizeFilterCycle(strategyName);
 
-      // Set scan status back to idle for all chains
-      if (strategyName === 'momentum') {
-        ['solana', 'bsc', 'kucoin'].forEach((chainName) => {
-          if (isStrategyScanEnabled(chainName, strategyName)) {
-            const status = getStrategyScanStatus?.(chainName, strategyName);
-            if (status) {
-              status.status = 'idle';
-              status.currentToken = '-';
-              status.lastUpdate = new Date().toISOString();
-              syncChainScanStatus?.(chainName);
-            }
-          }
-        });
-      } else if (strategyName === 'spot_day_bull_flag') {
-        ['kucoin', 'base', 'bsc', 'solana'].forEach((chainName) => {
-          if (isStrategyScanEnabled(chainName, strategyName)) {
-            const status = getStrategyScanStatus?.(chainName, strategyName);
-            if (status) {
-              status.status = 'idle';
-              status.currentToken = '-';
-              status.lastUpdate = new Date().toISOString();
-              syncChainScanStatus?.(chainName);
-            }
-          }
-        });
-      } else if (strategyName === 'swing') {
-        if (isStrategyScanEnabled('kucoin', strategyName)) {
-          const status = getStrategyScanStatus?.('kucoin', strategyName);
+      getConfiguredScanChains(config, exchanges, isStrategyScanEnabled, strategyName).forEach((chainName) => {
+        const status = getStrategyScanStatus?.(chainName, strategyName);
           if (status) {
             status.status = 'idle';
             status.currentToken = '-';
             status.lastUpdate = new Date().toISOString();
-            syncChainScanStatus?.('kucoin');
+          syncChainScanStatus?.(chainName);
           }
-        }
-      }
+      });
 
       loopLocks[lockKey] = false;
       if (typeof refreshScanInFlightFlag === 'function') refreshScanInFlightFlag();

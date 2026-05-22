@@ -2,14 +2,10 @@ function buildChainSummary({
   trackedTokens = [],
   chainLabels = {},
   scanStatus = {},
-  supportsSwingOnChain,
 }) {
   return Object.keys(chainLabels).map((chainKey) => {
     const chainTokens = trackedTokens.filter((token) => token.chainKey === chainKey);
     const actionableTokens = chainTokens.filter((token) => token.finalSignal !== 'INSUFFICIENT DATA');
-    const chainStrategies = supportsSwingOnChain(chainKey)
-      ? scanStatus[chainKey]?.strategies
-      : { momentum: scanStatus[chainKey]?.strategies?.momentum || {} };
     return {
       chainKey,
       name: scanStatus[chainKey]?.name,
@@ -24,7 +20,7 @@ function buildChainSummary({
       tokensScanned: scanStatus[chainKey]?.tokensScanned,
       lastUpdate: scanStatus[chainKey]?.lastUpdate,
       suppressedTokenErrors: scanStatus[chainKey]?.suppressedTokenErrors || 0,
-      strategies: chainStrategies,
+      strategies: scanStatus[chainKey]?.strategies || {},
     };
   });
 }
@@ -50,8 +46,19 @@ function buildDashboardStatePayload({
   backtests,
   simulations,
   chainLabels,
-  supportsSwingOnChain,
 }) {
+  const filterStrategyNames = new Set(['momentum']);
+  Object.values(scanStatus || {}).forEach((chainState) => {
+    Object.keys(chainState?.strategies || {}).forEach((name) => filterStrategyNames.add(name));
+  });
+  Object.keys(filterStatsState.signalDrought || {})
+    .filter((name) => name !== 'global')
+    .forEach((name) => filterStrategyNames.add(name));
+  Object.keys(filterStatsState.consecutiveZeroSignalCycles || {})
+    .forEach((name) => filterStrategyNames.add(name));
+
+  const visibleTrackedTokens = trackedTokens
+    .filter((token) => String(token?.strategy || '').toLowerCase() !== 'swing');
   const state = {
     timestamp: new Date().toISOString(),
     uptimeSeconds: runtime.uptimeSeconds,
@@ -70,14 +77,12 @@ function buildDashboardStatePayload({
     },
     filterStats: {
       signalDrought: {
-        momentum: Boolean(filterStatsState.signalDrought?.momentum),
-        swing: Boolean(filterStatsState.signalDrought?.swing),
+        ...Object.fromEntries([...filterStrategyNames]
+          .map((name) => [name, Boolean(filterStatsState.signalDrought?.[name])])),
         global: Boolean(filterStatsState.signalDrought?.global),
       },
-      consecutiveZeroSignalCycles: {
-        momentum: Number(filterStatsState.consecutiveZeroSignalCycles?.momentum || 0),
-        swing: Number(filterStatsState.consecutiveZeroSignalCycles?.swing || 0),
-      },
+      consecutiveZeroSignalCycles: Object.fromEntries([...filterStrategyNames]
+        .map((name) => [name, Number(filterStatsState.consecutiveZeroSignalCycles?.[name] || 0)])),
       currentCycle: compact ? undefined : filterStatsState.currentCycle,
       recentCycles: compact ? undefined : filterStatsState.recentCycles,
     },
@@ -87,16 +92,15 @@ function buildDashboardStatePayload({
     },
     evolution: evolutionState,
     market: {
-      trackedTokens,
+      trackedTokens: visibleTrackedTokens,
       catalystPairs,
       recentSignals,
       backtests,
       simulations,
       chainSummary: buildChainSummary({
-        trackedTokens,
+        trackedTokens: visibleTrackedTokens,
         chainLabels,
         scanStatus,
-        supportsSwingOnChain,
       }),
     },
   };

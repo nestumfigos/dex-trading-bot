@@ -424,6 +424,23 @@ ORDER BY ts DESC
 
       const context = getSelfEvolutionContext();
       context.paperLiveComparison = await getPaperLiveComparisonSnapshot();
+
+      // Pre-apply baseline capture (Week 6+ delta validator, 2026-05-17 fix).
+      // Without this, pre-existing broken tests in test/*.js (research-handlers,
+      // agent-memory-ai-budget, etc.) make every patch falsely fail validation,
+      // blocking all self-evolution. Delta mode only fails on NEW regressions
+      // introduced by the patch.
+      let baseline = null;
+      if (config.paperTrading) {
+        try {
+          const cap = await evolutionValidator.captureBaseline({ changedFiles: [] });
+          baseline = cap.map;
+          logger.info(`[Self-evolution] Baseline captured: ${cap.summary.passedChecks}/${cap.summary.totalChecks} passing pre-patch`);
+        } catch (err) {
+          logger.warn(`[Self-evolution] Baseline capture failed (falling back to strict validation): ${err.message}`);
+        }
+      }
+
       const result = await selfEvolution.runCycle(context);
       if (result?.skipped) logger.info(`Self-evolution cycle skipped: ${result.reason}`);
       else if (result?.proposed) logger.warn(`Self-evolution proposal generated: ${result.proposalPath}`);
@@ -434,9 +451,11 @@ ORDER BY ts DESC
         if (config.paperTrading) {
           validationReport = await evolutionValidator.validateCandidate({
             changedFiles: result.applyResult?.changedFiles || [],
+            baseline,
           });
           if (!validationReport.ok) {
-            logger.error(`[Self-evolution] Validation failed after apply; rolling back candidate. Failed checks=${validationReport.failed.length}`);
+            const m = validationReport.summary;
+            logger.error(`[Self-evolution] Validation failed after apply; rolling back candidate. NEW failures=${m.newFailures ?? validationReport.failed.length} (pre-existing=${m.preexistingFailures ?? 0}, mode=${m.mode || 'strict'})`);
             const rollbackResult = await selfEvolution.rollbackPlan(result.applyResult?.backupRoot, result.applyResult?.touched || []);
             marketState.evolution.lastRollback = {
               id: null,

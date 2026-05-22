@@ -19,10 +19,28 @@ class RiskGuardian {
     // Cache with TTL: map of cacheKey => { result, timestamp }
     this.honeypotCache = {};
     this.honeypotCacheTtlMs = 30 * 60 * 1000; // 30 minutes
+    // In-flight order tracking: { chainKey => totalUsd }
+    this._inFlightUsd = {};
   }
 
   buildPositionKey(chainKey, address) {
     return `${String(chainKey || '').trim().toLowerCase()}:${String(address || '').trim().toLowerCase()}`;
+  }
+
+  registerInFlightOrder(chainKey, sizeUsd) {
+    const k = String(chainKey || '').toLowerCase();
+    this._inFlightUsd[k] = (this._inFlightUsd[k] || 0) + Math.max(0, Number(sizeUsd || 0));
+  }
+
+  releaseInFlightOrder(chainKey, sizeUsd) {
+    const k = String(chainKey || '').toLowerCase();
+    this._inFlightUsd[k] = Math.max(0, (this._inFlightUsd[k] || 0) - Math.max(0, Number(sizeUsd || 0)));
+  }
+
+  invalidateHoneypotCache(tokenAddress, chain) {
+    const normalizedChain = this.normalizeChain(chain);
+    const cacheKey = `${normalizedChain}:${String(tokenAddress || '').toLowerCase()}`;
+    delete this.honeypotCache[cacheKey];
   }
 
   getLocalDateStamp(date = new Date()) {
@@ -43,12 +61,13 @@ class RiskGuardian {
     const maxCorr = Number(config.risk.maxCorrelationPct ?? 75) / 100;
     const openKeys = Object.keys(this.portfolio.positions).filter((key) => key !== candidateKey);
 
-    if (!openKeys.length || !priceHistories[candidateKey]) {
-      logger.debug(
-        `Correlation guard skipped for ${candidateAddress.slice(0, 8)}: ` +
-        `${openKeys.length ? 'candidate has no price history yet' : 'no open positions'}`
-      );
+    if (!openKeys.length) {
+      logger.debug(`Correlation guard skipped for ${candidateAddress.slice(0, 8)}: no open positions`);
       return { blocked: false };
+    }
+    if (!priceHistories[candidateKey]) {
+      logger.debug(`Correlation guard: ${candidateAddress.slice(0, 8)} has no price history — applying conservative size cap`);
+      return { blocked: false, noHistoryCapMultiplier: 0.5 };
     }
 
     const subset = { [candidateKey]: priceHistories[candidateKey] };
@@ -67,7 +86,10 @@ class RiskGuardian {
 
       for (let j = 0; j < tokens.length; j++) {
         if (j === candIdx) continue;
-        const corr = matrix[candIdx][j];
+        const row = matrix[candIdx];
+        if (!Array.isArray(row) || j >= row.length) continue;
+        const corr = row[j];
+        if (!Number.isFinite(corr)) continue;
         if (strongestCorr === null || corr > strongestCorr) {
           strongestCorr = corr;
           strongestToken = tokens[j];
@@ -147,7 +169,8 @@ class RiskGuardian {
     const profileKey = this.getBrainProfileKey(tokenData, strategyName);
     const profile = learning.brainProfiles?.[profileKey];
     if (!profile || typeof profile !== 'object') {
-      return { allowed: true, multiplier: 1, profileKey, reason: null };
+      const unseenMultiplier = Math.max(0.1, Number(config.risk?.brainUnseenMultiplier || 0.75));
+      return { allowed: true, multiplier: unseenMultiplier, profileKey, reason: null };
     }
 
     const minSamples = Math.max(3, Number(config.risk?.brainMinSamples || 8));
@@ -269,6 +292,14 @@ class RiskGuardian {
     const chainWalletBalance = Number(this.portfolio?.walletBalancesUsd?.[normalized]);
     if (Number.isFinite(chainWalletBalance) && chainWalletBalance > 0) {
       return chainWalletBalance;
+    }
+    // Paper-trading fallback (no-op on live): per-chain wallets don't exist in paper mode,
+    // so allocate from total portfolio balance. Day 4 paper-side fix subtracts known balances first.
+    if (config.paperTrading) {
+      const totalBalance = Number(this.portfolio?.balance || 0);
+      if (totalBalance > 0) {
+        return totalBalance / 4;
+      }
     }
     return 0;
   }
@@ -551,7 +582,8 @@ class RiskGuardian {
       }
     }
     const candidateSizeUsd = this.positionSize(tokenData, strategyName);
-    const totalSizeUsd = this.getChainExposureUsd(chainKey);
+    const inFlightUsd = Number(this._inFlightUsd[String(chainKey).toLowerCase()] || 0);
+    const totalSizeUsd = this.getChainExposureUsd(chainKey) + inFlightUsd;
     const currentHeatPct = (totalSizeUsd / chainCapitalBaseUsd) * 100;
     const projectedTotalSizeUsd = totalSizeUsd + Math.max(0, candidateSizeUsd);
     const heatPct = (projectedTotalSizeUsd / chainCapitalBaseUsd) * 100;
@@ -769,12 +801,43 @@ class RiskGuardian {
     }
 
     const chainKey = this.normalizeChain(tokenData.chainKey || tokenData.chain);
-    if (chainKey === 'bsc' && !config.paperTrading && honeypotCheck.unavailable) {
-      return {
-        allowed: false,
-        reason: 'GoPlus security data unavailable for BSC token - trade blocked in live mode',
-        code: 'goplus_unavailable',
-      };
+    const DEX_CHAINS_GUARDIAN = ['bsc', 'solana', 'base'];
+    if (DEX_CHAINS_GUARDIAN.includes(chainKey) && !config.paperTrading && honeypotCheck.unavailable) {
+      const fallbackEnabled = config.risk?.goplusFallbackHeuristicEnabled !== false;
+      if (fallbackEnabled) {
+        const buyTax = Number(tokenData.buyTax || 0);
+        const sellTax = Number(tokenData.sellTax || 0);
+        const topHoldersPct = Number(tokenData.topHoldersPct || 0);
+        const listingAgeHours = Number(tokenData.listingAgeDays || 0) * 24;
+        const liquidityUsd = Number(tokenData.liquidityUsd || 0);
+
+        const taxRedFlag = buyTax > 8 || sellTax > 8;
+        const concentrationRedFlag = topHoldersPct > 70;
+        const tooNew = listingAgeHours > 0 && listingAgeHours < 1;
+        const tooThin = liquidityUsd > 0 && liquidityUsd < Math.max(20000, Number(config.risk?.goplusFallbackMinLiquidityUsd || 30000));
+
+        if (taxRedFlag || concentrationRedFlag || tooNew || tooThin) {
+          const reasons = [];
+          if (taxRedFlag) reasons.push(`tax buy=${buyTax}% sell=${sellTax}%`);
+          if (concentrationRedFlag) reasons.push(`top holders ${topHoldersPct}%`);
+          if (tooNew) reasons.push(`age ${listingAgeHours.toFixed(1)}h`);
+          if (tooThin) reasons.push(`liquidity $${liquidityUsd.toFixed(0)}`);
+          return {
+            allowed: false,
+            reason: `GoPlus unavailable — heuristic fallback blocked: ${reasons.join(', ')}`,
+            code: 'goplus_fallback_blocked',
+          };
+        }
+
+        logger.warn(`GoPlus unavailable for ${tokenData.symbol} on ${chainKey} — passed heuristic fallback`);
+        tokenData._goplusHeuristicFallback = true;
+      } else {
+        return {
+          allowed: false,
+          reason: `GoPlus security data unavailable for ${chainKey.toUpperCase()} token - trade blocked in live mode`,
+          code: 'goplus_unavailable',
+        };
+      }
     }
     const unknownTopHoldersPct = tokenData.topHoldersPct == null || !Number.isFinite(Number(tokenData.topHoldersPct));
     if (chainKey === 'bsc' && !config.paperTrading && unknownTopHoldersPct) {
@@ -809,6 +872,9 @@ class RiskGuardian {
     const corrCheck = this.checkCorrelation(candidateKey, tokenData.address, priceHistories);
     if (corrCheck.blocked) {
       return { allowed: false, reason: corrCheck.reason };
+    }
+    if (corrCheck.noHistoryCapMultiplier) {
+      tokenData._corrNoHistoryMultiplier = corrCheck.noHistoryCapMultiplier;
     }
 
     return { allowed: true };
@@ -877,6 +943,12 @@ class RiskGuardian {
       logger.info(`${tokenData.symbol}: macro intelligence size multiplier ${macroSizeMultiplier.toFixed(2)}`);
     }
 
+    const corrNoHistoryMultiplier = Number(tokenData?._corrNoHistoryMultiplier || 1);
+    if (corrNoHistoryMultiplier < 1) {
+      pct *= corrNoHistoryMultiplier;
+      logger.info(`${tokenData.symbol}: correlation no-history cap multiplier ${corrNoHistoryMultiplier.toFixed(2)}`);
+    }
+
     const rolloutMultiplier = Number(tokenData?._promotionRolloutMultiplier || 1);
     const rolloutStage = String(tokenData?._promotionRolloutStage || '');
     if (rolloutMultiplier > 0 && rolloutMultiplier !== 1) {
@@ -938,6 +1010,18 @@ class RiskGuardian {
       logger.info(`${tokenData.symbol}: BSC relaxed continuation multiplier ${relaxedMultiplier.toFixed(2)}`);
     }
 
+    if (chainKey === 'kucoin' && tokenData?.isEarlyBreakout === true) {
+      const ebMultiplier = Number(config.risk?.kucoinEarlyBreakoutPositionSizeMultiplier || 0.70);
+      pct *= ebMultiplier;
+      logger.info(`${tokenData.symbol}: KuCoin early breakout position size multiplier ${ebMultiplier.toFixed(2)}`);
+    }
+
+    if (tokenData?._goplusHeuristicFallback === true) {
+      const fallbackMultiplier = Number(config.risk?.goplusFallbackSizeMultiplier || 0.5);
+      pct *= fallbackMultiplier;
+      logger.info(`${tokenData.symbol}: GoPlus fallback size multiplier ${fallbackMultiplier.toFixed(2)}`);
+    }
+
     let agePenaltyMultiplier = 1;
     if (tokenData.listingAgeDays < 1) {
       pct *= 0.5;
@@ -966,6 +1050,44 @@ class RiskGuardian {
       chainWalletBalanceUsd = chainWalletBalanceUsd * 0.8;
     }
     let targetSizeUsd = chainWalletBalanceUsd * pct;
+
+    if (config.portfolioOptimization?.enabled !== false && config.portfolioOptimization?.sizeControlEnabled === true) {
+      const hrpTargetWeight = Number(tokenData?.hrpTargetWeight);
+      const minTargetWeight = Number(config.portfolioOptimization?.minTargetWeight || 0.02);
+      const maxSizeMultiplier = Number(config.portfolioOptimization?.maxSizeMultiplier || 1.25);
+      if (Number.isFinite(hrpTargetWeight) && hrpTargetWeight > 0) {
+        const effectiveWeight = Math.max(minTargetWeight, Math.min(1, hrpTargetWeight));
+        const hrpCapUsd = chainWalletBalanceUsd * effectiveWeight * Math.max(0.1, maxSizeMultiplier);
+        if (hrpCapUsd > 0 && targetSizeUsd > hrpCapUsd) {
+          logger.info(`${tokenData.symbol}: HRP allocation cap reduced size from $${targetSizeUsd.toFixed(2)} to $${hrpCapUsd.toFixed(2)} (targetWeight=${(effectiveWeight * 100).toFixed(1)}%)`);
+          targetSizeUsd = hrpCapUsd;
+        }
+      }
+    }
+
+    // ATR / volatility-informed risk-per-trade cap.
+    // If the stop distance is wide, cut size so a normal adverse move does not consume too much equity.
+    if (config.risk?.atrRiskSizingEnabled !== false) {
+      const equityBaseUsd = Math.max(0, Number(this.getEquityBalanceUsd() || chainWalletBalanceUsd || 0));
+      const riskBudgetUsd = equityBaseUsd * (Math.max(0.05, Number(config.risk?.riskPerTradePct || 0.6)) / 100);
+      const atrProxyPct = Math.max(
+        Number(tokenData?.atrProxyPct || 0),
+        Number(tokenData?.garchVolatilityPct || 0) * 0.65,
+        Number(tokenData?.realizedVolPct || 0) * 0.55,
+        Number(config.risk?.atrFallbackStopPct || 3.5)
+      );
+      const effectiveStopPct = Math.max(Number(config.risk?.stopLossPct || 8) * 0.5, atrProxyPct);
+      if (riskBudgetUsd > 0 && effectiveStopPct > 0) {
+        const atrCappedSizeUsd = riskBudgetUsd / (effectiveStopPct / 100);
+        if (atrCappedSizeUsd > 0 && targetSizeUsd > atrCappedSizeUsd) {
+          logger.info(
+            `${tokenData.symbol}: ATR risk cap reduced size from $${targetSizeUsd.toFixed(2)} to $${atrCappedSizeUsd.toFixed(2)} ` +
+            `(riskBudget=$${riskBudgetUsd.toFixed(2)}, stop~${effectiveStopPct.toFixed(2)}%)`
+          );
+          targetSizeUsd = atrCappedSizeUsd;
+        }
+      }
+    }
 
     // Liquidity-depth aware sizing: scale position down for thin-book tokens to limit
     // exit slippage. Without this, the bot can take a position that consumes 5%+ of
@@ -1064,7 +1186,10 @@ class RiskGuardian {
   async checkHoneypot(tokenAddress, chain) {
     const normalizedChain = this.normalizeChain(chain);
     const cacheKey = `${normalizedChain}:${tokenAddress.toLowerCase()}`;
-    const failClosedForMissingData = normalizedChain === 'bsc' && !config.paperTrading;
+    // Fail-closed for all live DEX chains (BSC, Solana, Base) — not CEX, not paper trading.
+    // Previously only BSC was fail-closed; Solana and Base would silently pass if GoPlus was down.
+    const DEX_CHAINS = ['bsc', 'solana', 'base'];
+    const failClosedForMissingData = DEX_CHAINS.includes(normalizedChain) && !config.paperTrading;
 
     if (normalizedChain === 'kucoin') {
       logger.debug(`Honeypot check skipped for KuCoin (CEX): ${tokenAddress}`);

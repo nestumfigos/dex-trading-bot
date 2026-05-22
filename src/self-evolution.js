@@ -7,6 +7,7 @@ const { execFile, execFileSync } = require('child_process');
 const os = require('os');
 const { redactSecretsInText } = require('./utils/redaction');
 const MutationEngine = require('./mutation-engine');
+const { canPromoteEvolutionPatch, loadThresholds } = require('./policy/preconditions');
 
 class SelfEvolutionEngine {
   constructor({ config, logger, projectRoot, agentMemory = null, portfolio = null }) {
@@ -51,11 +52,19 @@ class SelfEvolutionEngine {
   }
 
   async loadPendingValidations() {
+    let raw;
     try {
-      const raw = await fs.readFile(this.pendingValidationsPath, 'utf8');
+      raw = await fs.readFile(this.pendingValidationsPath, 'utf8');
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return [];
+      log.warn(`[SelfEvolution] pending-validations read failed: ${err.message}`);
+      return [];
+    }
+    try {
       const arr = JSON.parse(raw);
       return Array.isArray(arr) ? arr : [];
-    } catch (_) {
+    } catch (err) {
+      log.error(`[SelfEvolution] pending-validations CORRUPT JSON at ${this.pendingValidationsPath}: ${err.message}. Returning empty list — manual recovery required.`);
       return [];
     }
   }
@@ -73,14 +82,67 @@ class SelfEvolutionEngine {
     if (!pending.length) return;
     const stillPending = [];
     const now = Date.now();
+    // TTL: auto-expire entries past 3× their holdout window. Past behavior left them
+    // pending forever when the bot restarted mid-window, growing the queue unbounded.
+    const ttlMultiplier = Number(this.config.selfEvolution?.pendingValidationTtlMultiplier || 3);
     for (const entry of pending) {
       const elapsedHours = (now - Number(entry.snapshotAt || 0)) / 3_600_000;
       const holdoutHours = Number(entry.holdoutWindowHours || 24);
+      if (elapsedHours > holdoutHours * ttlMultiplier) {
+        this.logger.warn(`[Evolution] Pending validation ${entry.patchId} expired after ${elapsedHours.toFixed(1)}h (TTL=${(holdoutHours * ttlMultiplier).toFixed(0)}h) — auto-dropping`);
+        if (this.agentMemory?.recordEvolutionOutcome) {
+          try {
+            this.agentMemory.recordEvolutionOutcome({
+              patchId: entry.patchId,
+              patchType: entry.patchType,
+              patchSummary: entry.summary,
+              paramsChanged: entry.paramsChanged,
+              pfBefore: entry.before?.profitFactor || 0,
+              pfAfter: entry.before?.profitFactor || 0,
+              wrBefore: entry.before?.winRate || 0,
+              wrAfter: entry.before?.winRate || 0,
+              sampleSizeBefore: entry.before?.sampleSize || 0,
+              sampleSizeAfter: 0,
+              holdoutWindowHours: holdoutHours,
+              regimeFamily: entry.regimeFamily || 'unknown',
+              verdict: 'expired_ttl',
+            });
+            await this.agentMemory.saveIfDirty?.();
+          } catch (_) { /* best-effort */ }
+        }
+        continue;
+      }
       if (elapsedHours < holdoutHours) {
         stillPending.push(entry);
         continue;
       }
       const after = this.capturePerformanceSnapshot();
+      // Week 5: pre-promote policy gate. Compute causal delta + check policy.
+      // If denied, tag verdict so future rollback orchestration can act on it.
+      const wrDelta = (after.winRate || 0) - (entry.before?.winRate || 0);
+      const pnlDelta = (after.pnlUsd || 0) - (entry.before?.pnlUsd || 0);
+      const sampleDelta = Math.max(0, (after.sampleSize || 0) - (entry.before?.sampleSize || 0));
+      // FAIL-CLOSED: if policy check throws, treat as DENY (not auto-allow).
+      // Past behaviour silently auto-promoted patches when SQL was down — that masked breakage.
+      let policyVerdict = 'auto_denied_error';
+      try {
+        const { getPool } = require('./utils/sqlServer');
+        const sqlPool = await getPool(this.logger).catch(() => null);
+        const scope = String(process.env.BOT_PROFILE || 'global').toLowerCase();
+        const thresholds = await loadThresholds({ sql: sqlPool, scope });
+        const policy = canPromoteEvolutionPatch({
+          winRate: after.winRate,
+          pnlUsd: pnlDelta,
+          samples: sampleDelta,
+          causalDeltaWinRate: wrDelta,
+        }, thresholds);
+        policyVerdict = policy.allow ? 'auto' : 'auto_denied';
+        if (!policy.allow) {
+          this.logger.warn(`[Evolution/policy] DENY promote ${entry.patchId}: ${policy.reason}`);
+        }
+      } catch (err) {
+        this.logger.error(`[Evolution/policy] check FAILED for ${entry.patchId}: ${err?.message || err} — fail-closed verdict=auto_denied_error`);
+      }
       try {
         this.agentMemory.recordEvolutionOutcome({
           patchId: entry.patchId,
@@ -92,10 +154,10 @@ class SelfEvolutionEngine {
           wrBefore: entry.before?.winRate || 0,
           wrAfter: after.winRate,
           sampleSizeBefore: entry.before?.sampleSize || 0,
-          sampleSizeAfter: Math.max(0, after.sampleSize - (entry.before?.sampleSize || 0)),
+          sampleSizeAfter: sampleDelta,
           holdoutWindowHours: holdoutHours,
           regimeFamily: entry.regimeFamily || 'unknown',
-          verdict: 'auto',
+          verdict: policyVerdict,
         });
         await this.agentMemory.saveIfDirty?.();
         this.logger.info(`[Evolution] Validated patch ${entry.patchId}: pfΔ=${(after.profitFactor - (entry.before?.profitFactor || 0)).toFixed(2)} wrΔ=${(after.winRate - (entry.before?.winRate || 0)).toFixed(1)}pp`);
@@ -619,6 +681,21 @@ class SelfEvolutionEngine {
         }
         const after = replaceResult.nextSource;
 
+        // Syntax-validate `after` BEFORE writing. Bad mutations must not reach disk.
+        if (String(change.file).endsWith('.js')) {
+          const tmpCheckPath = path.join(backupRoot, `__syntaxcheck__${change.file.replace(/[\\/]/g, '__')}`);
+          await fs.writeFile(tmpCheckPath, after, 'utf8');
+          const syntaxResult = await new Promise((resolve) => {
+            execFile(process.execPath, ['--check', tmpCheckPath], { timeout: 10000 }, (err, _stdout, stderr) => {
+              resolve({ ok: !err, stderr: String(stderr || '') });
+            });
+          });
+          await fs.unlink(tmpCheckPath).catch(() => {});
+          if (!syntaxResult.ok) {
+            return { ok: false, reason: `Syntax check failed for ${change.file}: ${syntaxResult.stderr.slice(0, 500)}` };
+          }
+        }
+
         const backupPath = path.join(backupRoot, change.file.replace(/[\\/]/g, '__'));
         await fs.writeFile(backupPath, before, 'utf8');
         await fs.writeFile(targetPath, after, 'utf8');
@@ -627,6 +704,8 @@ class SelfEvolutionEngine {
       }
 
       this.logger.warn(`Self-evolution applied ${touched.length} change(s). Restart required to load new code/config.`);
+      // Backup retention: keep last 10 backup directories, delete older to bound disk + rollback ambiguity.
+      await this._pruneOldBackups(10).catch((err) => this.logger.debug(`[Evolution] backup prune failed: ${err.message}`));
       return { ok: true, backupRoot, changedFiles, changedEnvKeys, touched };
     } catch (error) {
       for (const file of touched.reverse()) {
@@ -638,6 +717,27 @@ class SelfEvolutionEngine {
         }
       }
       return { ok: false, reason: error.message };
+    }
+  }
+
+  async _pruneOldBackups(keep = 10) {
+    let entries;
+    try {
+      entries = await fs.readdir(this.backupDir, { withFileTypes: true });
+    } catch (err) {
+      if (err.code === 'ENOENT') return;
+      throw err;
+    }
+    const dirs = entries
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort(); // ISO-stamped names sort chronologically
+    const toDelete = dirs.slice(0, Math.max(0, dirs.length - keep));
+    for (const name of toDelete) {
+      await fs.rm(path.join(this.backupDir, name), { recursive: true, force: true }).catch(() => {});
+    }
+    if (toDelete.length > 0) {
+      this.logger.info(`[Evolution] Pruned ${toDelete.length} old backup(s), kept newest ${Math.min(keep, dirs.length)}`);
     }
   }
 
@@ -910,7 +1010,9 @@ If no safe changes are needed, return: { "reasoning": "...", "changes": [] }`;
       return null;
     };
 
-    const fullPrompt = `${prompt}\n\nIMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code fences, no extra text — just the raw JSON starting with {`;
+    // Sanitize prompt before sending to external LLMs — strip API keys, wallet addresses, secret-like tokens.
+    const sanitizedPrompt = redactSecretsInText(prompt);
+    const fullPrompt = `${sanitizedPrompt}\n\nIMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code fences, no extra text — just the raw JSON starting with {`;
 
     // 1. Try Mistral first (1B tokens/month, strong reasoning, own rate pool)
     const mistralKey = process.env.MISTRAL_API_KEY || '';
@@ -988,9 +1090,9 @@ If no safe changes are needed, return: { "reasoning": "...", "changes": [] }`;
       const geminiModel = process.env.GEMINI_EVOLUTION_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
       const result = await callProvider('gemini', async () => {
         const res = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
           { contents: [{ role: 'user', parts: [{ text: fullPrompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 1500 } },
-          { headers: { 'Content-Type': 'application/json' }, timeout: 45000 }
+          { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey }, timeout: 45000 }
         );
         return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       });

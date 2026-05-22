@@ -473,10 +473,11 @@ function sanitizeReport(raw) {
 // ── Main class ───────────────────────────────────────────────────────────────
 
 class MarketIntelligenceAgent {
-  constructor({ portfolio, config, agentMemory = null }) {
+  constructor({ portfolio, config, agentMemory = null, marketState = null }) {
     this.portfolio = portfolio;
     this.config = config;
     this.agentMemory = agentMemory;
+    this.marketState = marketState;
     this.locked = false;
     this.lastRunAt = 0;
     this.intervalMs = Math.max(15 * 60_000, Number(process.env.INTELLIGENCE_INTERVAL_MINUTES || 30) * 60_000);
@@ -554,6 +555,12 @@ class MarketIntelligenceAgent {
    * bullish+aggressive → 1.1, bearish+conservative → 0.75, else 1.0
    */
   getMacroSizeMultiplier() {
+    const regime = String(this.marketState?.macroRegime?.regime || '').toLowerCase();
+    if (regime === 'risk_off') return 0.50;
+    if (regime === 'capitulation') return 0.30;
+    if (regime === 'reversal_pending') return 0.80;
+    if (regime === 'bull_pullback') return 1.00;
+
     const report = this.getReport();
     if (!report) return 1.0;
     const { macroSentiment, strategyRecommendation } = report;

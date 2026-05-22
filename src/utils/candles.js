@@ -5,9 +5,15 @@ const logger = require('./logger');
 
 const GECKO_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 const OHLCV_CACHE = new Map();
+let KUCOIN_OHLCV_PROVIDER = null;
+
+function setKucoinOhlcvProvider(provider) {
+  KUCOIN_OHLCV_PROVIDER = provider || null;
+}
 
 function normalizeChain(chainKey) {
   const key = String(chainKey || '').toLowerCase();
+  if (key === 'kucoin' || key === 'kcs') return 'kucoin';
   if (key === 'bsc' || key === 'binance' || key === 'binance-smart-chain') return 'bsc';
   if (key === 'base') return 'base';
   if (key === 'solana' || key === 'sol') return 'solana';
@@ -32,6 +38,17 @@ function parseInterval(interval) {
   }
 
   return { resolution: 'minute', aggregate: value, cacheTtlMs: 45_000 };
+}
+
+function normalizeKucoinSymbol({ symbol, address, pairAddress }) {
+  const raw = String(symbol || address || pairAddress || '').trim();
+  if (!raw) return '';
+  const upper = raw.toUpperCase().replace('-', '/');
+  if (upper.includes('/')) return upper;
+  if (upper.endsWith('USDT') && upper.length > 4) {
+    return `${upper.slice(0, -4)}/USDT`;
+  }
+  return `${upper}/USDT`;
 }
 
 function intervalToMs(intervalSpec) {
@@ -86,8 +103,37 @@ async function fetchGeckoOhlcv(url, params) {
   return parseRows(response.data);
 }
 
-async function getOhlcvSeries({ chainKey, address, pairAddress, interval = '15m', limit = 120 }) {
+async function getOhlcvSeries({ chainKey, symbol, address, pairAddress, interval = '15m', limit = 120 }) {
   const network = normalizeChain(chainKey);
+  if (network === 'kucoin') {
+    const provider = KUCOIN_OHLCV_PROVIDER;
+    const marketSymbol = normalizeKucoinSymbol({ symbol, address, pairAddress });
+    if (!provider || typeof provider.getKlines !== 'function' || !marketSymbol) return null;
+    const bars = Math.max(30, Math.min(300, Number(limit || 120)));
+    const cacheKey = `${network}:${marketSymbol}:${interval}:${bars}`;
+    const cached = OHLCV_CACHE.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.value;
+    }
+    const rows = await provider.getKlines(marketSymbol, interval, bars);
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const candles = rows
+      .filter((row) => row && Number(row.close) > 0)
+      .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+    if (!candles.length) return null;
+    const value = {
+      candles,
+      closes: candles.map((row) => row.close),
+      volumes: candles.map((row) => row.volume),
+      source: 'kucoin',
+    };
+    OHLCV_CACHE.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + 60_000,
+    });
+    return value;
+  }
+
   const tokenAddress = String(address || '').trim();
   const poolAddress = String(pairAddress || '').trim();
   if (!network || !tokenAddress) return null;
@@ -148,4 +194,5 @@ async function getOhlcvSeries({ chainKey, address, pairAddress, interval = '15m'
 
 module.exports = {
   getOhlcvSeries,
+  setKucoinOhlcvProvider,
 };
