@@ -1,5 +1,15 @@
 const fs = require('fs').promises;
 
+// 2026-05-23: serializes concurrent saveState calls so two writers don't race
+// on the shared state.tmp.json -> state.json rename (was causing intermittent
+// ENOENT in logs when scan-cycle save and wallet-balance save overlapped).
+let _saveInFlight = Promise.resolve();
+function _serializeSave(fn) {
+  const next = _saveInFlight.catch(() => null).then(fn);
+  _saveInFlight = next.catch(() => null);
+  return next;
+}
+
 function createStatePersistence(deps = {}) {
   const {
     logger,
@@ -153,12 +163,14 @@ function createStatePersistence(deps = {}) {
       }
 
       try {
-        await fs.writeFile(STATE_TMP_PATH, serialized);
-        await fs.writeFile(MARKET_STATE_TMP_PATH, marketStateSerialized);
-        await fs.rename(STATE_TMP_PATH, STATE_PATH);
-        await fs.rename(MARKET_STATE_TMP_PATH, MARKET_STATE_PATH);
-        await fs.copyFile(STATE_PATH, STATE_BACKUP_PATH);
-        await fs.copyFile(MARKET_STATE_PATH, MARKET_STATE_BACKUP_PATH);
+        await _serializeSave(async () => {
+          await fs.writeFile(STATE_TMP_PATH, serialized);
+          await fs.writeFile(MARKET_STATE_TMP_PATH, marketStateSerialized);
+          await fs.rename(STATE_TMP_PATH, STATE_PATH);
+          await fs.rename(MARKET_STATE_TMP_PATH, MARKET_STATE_PATH);
+          await fs.copyFile(STATE_PATH, STATE_BACKUP_PATH);
+          await fs.copyFile(MARKET_STATE_PATH, MARKET_STATE_BACKUP_PATH);
+        });
       } catch (error) {
         diskSaveError = error;
         logger.warn(`Disk state backup save failed: ${error.message}`);
@@ -406,12 +418,14 @@ function createStatePersistence(deps = {}) {
           },
         });
         const marketCheckpoint = JSON.stringify(marketState);
-        await fs.writeFile(STATE_TMP_PATH, checkpoint);
-        await fs.writeFile(MARKET_STATE_TMP_PATH, marketCheckpoint);
-        await fs.rename(STATE_TMP_PATH, STATE_PATH);
-        await fs.rename(MARKET_STATE_TMP_PATH, MARKET_STATE_PATH);
-        await fs.copyFile(STATE_PATH, STATE_BACKUP_PATH);
-        await fs.copyFile(MARKET_STATE_PATH, MARKET_STATE_BACKUP_PATH);
+        await _serializeSave(async () => {
+          await fs.writeFile(STATE_TMP_PATH, checkpoint);
+          await fs.writeFile(MARKET_STATE_TMP_PATH, marketCheckpoint);
+          await fs.rename(STATE_TMP_PATH, STATE_PATH);
+          await fs.rename(MARKET_STATE_TMP_PATH, MARKET_STATE_PATH);
+          await fs.copyFile(STATE_PATH, STATE_BACKUP_PATH);
+          await fs.copyFile(MARKET_STATE_PATH, MARKET_STATE_BACKUP_PATH);
+        });
       } catch (checkpointError) {
         logger.error('State checkpoint update failed after load', {
           reason: checkpointError.message,
