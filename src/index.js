@@ -5165,10 +5165,16 @@ async function main() {
     // walletBalanceUsd is the free cash in the wallet — token positions are already excluded
     // (the USDT spent on them left the wallet at buy time). Do NOT subtract deployedCapitalUsd
     // again or the ledger starts at $0 and immediately triggers a 100% drift halt on every restart.
-    portfolio.balance = Number(portfolio.walletBalanceUsd || 0);
-    portfolio.startingBalance = portfolio.balance;
-    // Clear any drift halt that was triggered by the stale persisted balance before this correction.
-    portfolio.balanceDriftHalt = false;
+    // 2026-05-23: if wallet returned 0 (RPCs down at boot), keep persisted balance instead
+    // of overwriting it with 0 — wallet-balance-refresh will auto-rebase once coverage recovers.
+    const bootWalletUsd = Number(portfolio.walletBalanceUsd || 0);
+    if (bootWalletUsd > 0) {
+      portfolio.balance = bootWalletUsd;
+      portfolio.startingBalance = portfolio.balance;
+      portfolio.balanceDriftHalt = false;
+    } else {
+      logger.warn(`Boot wallet balance is $0 (likely RPC unavailable); keeping persisted cash ledger $${Number(portfolio.balance || 0)}`);
+    }
     if (risk.dailyResetDate !== risk.getLocalDateStamp()) {
       logger.info(`Risk day rollover detected on startup: ${risk.dailyResetDate || 'none'} -> ${risk.getLocalDateStamp()}`);
       risk.resetDaily();

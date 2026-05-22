@@ -123,8 +123,18 @@ async function updateWalletBalance(ctx, logger) {
     const kucoinBalance = balanceResults[3].status === 'fulfilled' ? (balanceResults[3].value || 0) : 0;
     const deployedCapitalUsd = Object.values(portfolio.positions || {})
       .reduce((sum, position) => sum + Number(position?.costBasisUsd || position?.initialSizeUsd || 0), 0);
-    const ledgerCash = Number(portfolio.balance || 0);
-    const driftAmountUsd = Math.abs(Number(portfolio.walletBalanceUsd || 0) - ledgerCash);
+    let ledgerCash = Number(portfolio.balance || 0);
+    // 2026-05-23: auto-rebase stale ledger when no positions are open and ledger
+    // is 0 while wallet shows real funds. Mirrors live fix for boot-time RPC outage.
+    const walletUsd = Number(portfolio.walletBalanceUsd || 0);
+    if (deployedCapitalUsd === 0 && ledgerCash === 0 && walletUsd > 0) {
+      portfolio.balance = walletUsd;
+      portfolio.startingBalance = portfolio.startingBalance || walletUsd;
+      portfolio.balanceDriftHalt = false;
+      ledgerCash = walletUsd;
+      logger.info(`Auto-rebased empty cash ledger to wallet balance $${round(walletUsd)} (no positions open)`);
+    }
+    const driftAmountUsd = Math.abs(walletUsd - ledgerCash);
     const driftDenominator = Math.max(1, Math.abs(ledgerCash || Number(portfolio.walletBalanceUsd || 0)));
     const driftPct = (driftAmountUsd / driftDenominator) * 100;
     portfolio.balanceDrift = {
