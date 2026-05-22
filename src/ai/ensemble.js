@@ -5,7 +5,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
 const config = require('../../config');
 const logger = require('../utils/logger');
-const { evaluateToken: evaluateWithClaude } = require('../brain/anthropic');
+const { evaluateToken: evaluateWithClaude } = require('../utils/anthropic');
 const { fetchCryptoNews } = require('../utils/news');
 const { trackAi } = require('./decision-tracker');
 
