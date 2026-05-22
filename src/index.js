@@ -1515,7 +1515,9 @@ const strategy = {
 
     // Block entry if symbol has 3+ recent losses (unless very high confidence override)
     if (signal === 'BUY' && symbolPenalty >= 10) {
-      const currentConfidence = Number(evaluation?.details?.confidence || 0.5);
+      // Bug-fix 2026-05-22: was `evaluation?.details?.confidence` but `evaluation` is undefined here
+      // (this method PRODUCES the evaluation object). Fall back to tokenData.aiConfidence.
+      const currentConfidence = Number(tokenData?.aiConfidence || 0.5);
       const requiredConfidence = 0.70 + (symbolPenalty / 100);
 
       if (currentConfidence < requiredConfidence) {

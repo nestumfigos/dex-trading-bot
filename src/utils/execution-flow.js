@@ -892,6 +892,42 @@ function createExecutionFlow(deps = {}) {
     const errorText = String(error?.message || error || '');
     deps.recordExchangeFailure(chainName, error.message);
     logger.error(`SELL execution failed for ${tokenData.symbol}: ${error.message}`);
+
+    // POSITION_DUST: estimated exit value below exchange quoteMinSize. Mark as written-off.
+    if (error?.code === 'POSITION_DUST' && position) {
+      if (!portfolio.writtenOffPositions || typeof portfolio.writtenOffPositions !== 'object') {
+        portfolio.writtenOffPositions = {};
+      }
+      const writeOffKey = buildTokenKey(chainName, tokenData.address);
+      if (!portfolio.writtenOffPositions[writeOffKey]) {
+        portfolio.writtenOffPositions[writeOffKey] = {
+          symbol: tokenData.symbol || 'UNKNOWN',
+          chainKey: chainName,
+          address: String(tokenData.address || '').trim(),
+          writtenOffAt: new Date().toISOString(),
+          estimatedFunds: Number(error.dustEstimatedFunds || 0),
+          minFunds: Number(error.dustMinFunds || 0),
+          reason: 'dust_below_quoteMinSize',
+          originalPosition: {
+            entryPrice: position.entryPrice,
+            quantity: position.quantity,
+            costBasisUsd: position.costBasisUsd,
+            openedAt: position.openedAt,
+            strategy: position.strategy,
+          },
+        };
+        logger.warn(`[Dust] WRITE-OFF ${tokenData.symbol} on ${chainName} — value $${Number(error.dustEstimatedFunds || 0).toFixed(4)} below exchange minimum. Future exit attempts SKIPPED.`);
+      }
+      if (portfolio.positions) {
+        const posKey = buildTokenKey(chainName, tokenData.address);
+        if (portfolio.positions[posKey]) {
+          delete portfolio.positions[posKey];
+          logger.warn(`[Dust] Removed ${tokenData.symbol} from active positions (kept in writtenOffPositions for ledger).`);
+        }
+      }
+      return; // do NOT mark as stuck or schedule retries
+    }
+
     const failureKey = `${chainName}:${String(tokenData.address || tokenData.symbol || '').toLowerCase()}`;
     const runtime = portfolio.runtime = portfolio.runtime || {};
     runtime.sellFailureHistory = runtime.sellFailureHistory || {};
