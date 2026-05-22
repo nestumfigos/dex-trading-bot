@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M015: regime_patterns
 -- Populated by ML retrain. Each row = one (regime, strategy, scope) action
 -- recommendation derived from historical PnL. Pre-trade contract reads the
@@ -26,7 +29,17 @@ BEGIN
     updated_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- One active row per (regime, strategy, scope) — hot read at every entry decision.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='UX_regime_patterns_regime_strat_scope_active' AND object_id=OBJECT_ID('dbo.regime_patterns'))
@@ -35,7 +48,17 @@ BEGIN
     ON dbo.regime_patterns (regime, strategy, scope)
     WHERE active = 1;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- History scan (compare last vs current recommendation).
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_regime_patterns_measured_at' AND object_id=OBJECT_ID('dbo.regime_patterns'))
@@ -43,4 +66,12 @@ BEGIN
   CREATE INDEX IX_regime_patterns_measured_at ON dbo.regime_patterns (measured_at DESC)
     INCLUDE (regime, strategy, recommendation, confidence);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

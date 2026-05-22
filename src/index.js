@@ -253,19 +253,9 @@ class Cache {
 
 const cache = new Cache();
 
-// Mutex that serialises position entry. Prevents concurrent processToken() calls
-// from both passing the position-count check and both writing to portfolio.positions.
-class AsyncMutex {
-  constructor() { this._queue = Promise.resolve(); }
-  lock() {
-    let release;
-    const releasePromise = new Promise((res) => { release = res; });
-    const prev = this._queue;
-    this._queue = prev.then(() => releasePromise).catch(() => {});
-    return prev.then(() => release);
-  }
-}
-const positionMutex = new AsyncMutex();
+// Mutex that serialises position entry. Implementation extracted to utils/async-mutex.js.
+const { createAsyncMutex } = require('./utils/async-mutex');
+const positionMutex = createAsyncMutex({ logger, projectRoot: path.resolve(__dirname, '..') });
 const sqlCoordination = new SqlCoordination({
   logger,
   botId: `${process.env.BOT_PROFILE || 'bot'}:${process.pid}`,

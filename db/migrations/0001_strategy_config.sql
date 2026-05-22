@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M002: strategy_config
 -- Hot-reloadable config knobs. Replaces scattered .env vars over time.
 -- Defense-in-depth: code falls back to env → hardcoded default if a row is missing.
@@ -33,3 +36,12 @@ BEGIN
 
   CREATE INDEX IX_strategy_config_knob ON dbo.strategy_config(knob) WHERE active = 1;
 END;
+
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
+GO

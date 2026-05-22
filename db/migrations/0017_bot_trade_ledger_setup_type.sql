@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M018: bot_trade_ledger.setup_type
 -- Promote setup type from raw_trade_json into a first-class column for
 -- strategy/setup-level reporting.
@@ -7,7 +10,17 @@ BEGIN
   ALTER TABLE dbo.bot_trade_ledger
     ADD setup_type NVARCHAR(40) NULL;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 IF NOT EXISTS (
   SELECT 1
@@ -21,4 +34,12 @@ BEGIN
     INCLUDE (trade_type, symbol, chain_key, strategy, pnl_usd)
     WHERE setup_type IS NOT NULL;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

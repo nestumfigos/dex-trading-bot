@@ -503,7 +503,7 @@ function startDashboard(portfolio, ctx) {
   });
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server });
-  const publicDir = path.join(__dirname, 'public');
+  const publicDir = path.resolve(__dirname, '..', 'public');
   const adminToken = String(config.dashboard?.adminToken || '').trim();
   const riskBounds = {
     maxPositionSizePct: { min: 0, max: 100 },

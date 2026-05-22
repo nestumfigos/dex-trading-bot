@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M009: risk_rules
 -- Catalog of risk gates registered by the pre-trade contract. Each gate can be
 -- toggled active/inactive + severity adjusted without code change.
@@ -19,7 +22,17 @@ BEGIN
     updated_by    NVARCHAR(128) NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Unique rule per (name, scope). Hot lookup by pre-trade contract.
 IF NOT EXISTS (
@@ -31,7 +44,17 @@ BEGIN
   CREATE UNIQUE INDEX UX_risk_rules_name_scope
     ON dbo.risk_rules (name, scope);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Filter: enabled rules per scope (hot list at every trade attempt).
 IF NOT EXISTS (
@@ -44,4 +67,12 @@ BEGIN
     ON dbo.risk_rules (scope, enabled)
     INCLUDE (name, severity);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

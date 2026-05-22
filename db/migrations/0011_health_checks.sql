@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M012: health_checks
 -- Per-cycle canary log. Each row = one canary run with check-by-check pass/fail.
 -- 30d retention. Read by dashboard /api/health panel.
@@ -19,7 +22,17 @@ BEGIN
     bot_version     NVARCHAR(64)  NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Hot scan: dashboard latest + recent canary status.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_health_checks_checked_at' AND object_id = OBJECT_ID('dbo.health_checks'))
@@ -28,7 +41,17 @@ BEGIN
     ON dbo.health_checks (checked_at DESC)
     INCLUDE (scope, overall_status, check_name, status);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Per-check trend.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_health_checks_check_name' AND object_id = OBJECT_ID('dbo.health_checks'))
@@ -37,7 +60,17 @@ BEGIN
     ON dbo.health_checks (check_name, scope, checked_at DESC)
     INCLUDE (status, value_observed);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Failure-only filter.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_health_checks_failures' AND object_id = OBJECT_ID('dbo.health_checks'))
@@ -47,4 +80,12 @@ BEGIN
     INCLUDE (check_name, status, message)
     WHERE status = 'FAIL';
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

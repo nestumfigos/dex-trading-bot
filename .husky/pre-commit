@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+# Husky / git pre-commit hook (Windows-friendly via bash).
+# Runs the smoke suite + Week 1-5 critical tests + linter (if present).
+# Block commit if any failure. Bypass: `git commit --no-verify` (discouraged).
+
+set -e
+
+echo "[pre-commit] running smoke suite..."
+node --test test/smoke/boot.test.js
+
+echo "[pre-commit] running Week 1-6 critical tests..."
+node --test \
+  test/policy/preconditions.test.js \
+  test/risk/pre-trade-contract.test.js \
+  test/ai/decision-tracker.test.js \
+  test/cycle/health-canary.test.js \
+  test/memory/roundtrip.test.js \
+  test/memory/merge-completeness.test.js \
+  test/boot-lifecycle.test.js \
+  test/errors-taxonomy.test.js \
+  test/config-schema.test.js \
+  test/integration/db-migration.test.js \
+  test/integration/memory-persistence.test.js \
+  test/dashboard/extensions.test.js
+
+echo "[pre-commit] OK"

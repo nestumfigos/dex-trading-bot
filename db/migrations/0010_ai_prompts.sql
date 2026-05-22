@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M011: ai_prompts
 -- Versioned prompt templates. Bot reads the active row per (name, scope).
 -- Update prompt → INSERT new version, mark new active=1, old active=0
@@ -21,7 +24,17 @@ BEGIN
     updated_by    NVARCHAR(128) NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- One active version per (name, scope).
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ai_prompts_name_scope_active' AND object_id = OBJECT_ID('dbo.ai_prompts'))
@@ -30,7 +43,17 @@ BEGIN
     ON dbo.ai_prompts (name, scope)
     WHERE active = 1;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Version history scan.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ai_prompts_name_version' AND object_id = OBJECT_ID('dbo.ai_prompts'))
@@ -38,4 +61,12 @@ BEGIN
   CREATE INDEX IX_ai_prompts_name_version
     ON dbo.ai_prompts (name, scope, version DESC);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

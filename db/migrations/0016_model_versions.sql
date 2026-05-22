@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M017: ml_model_versions
 -- Tracks every ML artifact trained (.pkl, .pt). `active=1` row per (name, scope)
 -- is what the bot loads; previous versions retained for rollback. Distinct from
@@ -29,7 +32,17 @@ BEGIN
     bot_version       NVARCHAR(64)  NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- One active row per (name, scope) — what the bot loads.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='UX_ml_model_versions_name_scope_active' AND object_id=OBJECT_ID('dbo.ml_model_versions'))
@@ -38,7 +51,17 @@ BEGIN
     ON dbo.ml_model_versions (name, scope)
     WHERE active = 1;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Version history per model.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_ml_model_versions_name_created' AND object_id=OBJECT_ID('dbo.ml_model_versions'))
@@ -47,7 +70,17 @@ BEGIN
     ON dbo.ml_model_versions (name, created_at DESC)
     INCLUDE (version, scope, active, retired_at);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Stale artifact sweep (find retired but not yet deleted from disk).
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_ml_model_versions_retired_at' AND object_id=OBJECT_ID('dbo.ml_model_versions'))
@@ -57,4 +90,12 @@ BEGIN
     INCLUDE (name, artifact_path)
     WHERE retired_at IS NOT NULL;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+
