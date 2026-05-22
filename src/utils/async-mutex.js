@@ -23,9 +23,12 @@ const fs = require('fs');
 const path = require('path');
 const lockfile = require('proper-lockfile');
 
-function resolveLockFilePath(projectRoot) {
+function resolveLockFilePath(projectRoot, explicitProfile = null) {
   const dataDir = process.env.BOT_DATA_DIR || 'data';
-  const profile = String(process.env.BOT_PROFILE || 'bot').toLowerCase();
+  // Prefer caller-supplied profile so the index.js BOT_PROFILE derivation (which
+  // handles PAPER_TRADING-only setups) is respected even if process.env.BOT_PROFILE
+  // is unset. Falls back to env, then 'bot' generic.
+  const profile = String(explicitProfile || process.env.BOT_PROFILE || 'bot').toLowerCase();
   return path.resolve(projectRoot, dataDir, `.position-${profile}.lock`);
 }
 
@@ -76,8 +79,8 @@ class AsyncMutex {
   }
 }
 
-function createAsyncMutex({ logger, projectRoot } = {}) {
-  const lockFilePath = projectRoot ? resolveLockFilePath(projectRoot) : null;
+function createAsyncMutex({ logger, projectRoot, profile = null } = {}) {
+  const lockFilePath = projectRoot ? resolveLockFilePath(projectRoot, profile) : null;
   if (lockFilePath) ensureLockTarget(lockFilePath);
   return new AsyncMutex({ logger, lockFilePath });
 }

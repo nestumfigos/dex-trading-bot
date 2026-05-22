@@ -1,5 +1,7 @@
 @echo off
 cd /d "C:\Users\User_\Desktop\dex-trading-bot"
+set BOT_PROFILE=live
+set PORT=3002
 
 :restart
 node src/index.js

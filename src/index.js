@@ -258,7 +258,7 @@ const cache = new Cache();
 // Distributed: file-lock outer guard (cross-process) + in-process FIFO queue.
 // Implementation extracted to utils/async-mutex.js Day 7 follow-up.
 const { createAsyncMutex } = require('./utils/async-mutex');
-const positionMutex = createAsyncMutex({ logger, projectRoot: path.resolve(__dirname, '..') });
+const positionMutex = createAsyncMutex({ logger, projectRoot: path.resolve(__dirname, '..'), profile: BOT_PROFILE });
 const sqlCoordination = new SqlCoordination({
   logger,
   botId: `${process.env.BOT_PROFILE || 'bot'}:${process.pid}`,

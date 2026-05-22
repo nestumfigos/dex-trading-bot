@@ -63,8 +63,11 @@ async function runScript(projectRoot, scriptRelPath, opts = {}) {
 
 function runDirect(projectRoot, scriptRelPath, { timeoutMs, fallbackReason = null } = {}) {
   const absPath = path.join(projectRoot, scriptRelPath);
+  // BOT_TEST_RUNNER=1 tells the logger module to skip file transports so the test
+  // child does not pollute production logs/combined-*.log with mock errors.
+  const childEnv = { ...process.env, BOT_TEST_RUNNER: '1', NODE_ENV: 'test' };
   return new Promise((resolve) => {
-    execFile(process.execPath, [absPath], { cwd: projectRoot, timeout: timeoutMs }, (err, stdout, stderr) => {
+    execFile(process.execPath, [absPath], { cwd: projectRoot, timeout: timeoutMs, env: childEnv }, (err, stdout, stderr) => {
       const result = classifyResult(err);
       resolve({
         ok: result.status === 'passed',
