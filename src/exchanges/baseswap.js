@@ -5,6 +5,7 @@ const config = require('../../config');
 const logger = require('../utils/logger');
 const { getTokenMetrics } = require('../utils/coingecko');
 const { getNativeAssetPrice } = require('../utils/market-data');
+const dexscreenerClient = require('../utils/dexscreener-client');
 
 /**
  * Bug 7 — age-adaptive cache TTL for token data.
@@ -112,6 +113,34 @@ class BaseSwapExchange {
     if (this.wallet) {
       this._nonceManager = new NonceManager(this.provider, this.wallet.address);
     }
+  }
+
+  async reconnectProvider() {
+    const baseRpcs = [
+      config.base.rpcUrl,
+      config.base.alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${config.base.alchemyKey}` : null,
+      'https://mainnet.base.org',
+      'https://rpc.ankr.com/base',
+    ].filter(Boolean);
+    for (const rpc of baseRpcs) {
+      try {
+        const newProvider = new ethers.JsonRpcProvider(rpc);
+        await newProvider.getBlockNumber();
+        this.provider = newProvider;
+        if (this.wallet) {
+          this.wallet = this.wallet.connect(newProvider);
+        }
+        this.router = new ethers.Contract(config.base.baseswapRouter, ROUTER_ABI, this.wallet || this.provider);
+        if (this._nonceManager && this.wallet) {
+          this._nonceManager.reset();
+        }
+        logger.info(`[RPC] BaseSwap provider reconnected via ${rpc} (nonce manager preserved)`);
+        return;
+      } catch (err) {
+        logger.debug(`BaseSwap reconnect RPC ${rpc} failed: ${err.message}`);
+      }
+    }
+    throw new Error('All Base RPCs failed during reconnect');
   }
 
   hasPrivateTxRoute() {
@@ -518,15 +547,17 @@ class BaseSwapExchange {
       }).then((res) => parseGeckoResponse(res.data)),
     ]);
 
-    await Promise.allSettled(
-      DISCOVERY_FEEDS.map(async (url) => {
-        const res = await axios.get(url, { timeout: 10000 });
-        const items = Array.isArray(res.data) ? res.data : [];
+    for (const url of DISCOVERY_FEEDS) {
+      try {
+        const data = await dexscreenerClient.throttledFetch(url, { timeoutMs: 10000, cacheTtlMs: 60_000 });
+        const items = Array.isArray(data) ? data : [];
         items
           .filter((item) => item.chainId === 'base' && item.tokenAddress)
           .forEach((item) => addresses.add(item.tokenAddress));
-      })
-    );
+      } catch (err) {
+        logger.debug(`[BaseSwap] discovery feed ${url} failed: ${err.message}`);
+      }
+    }
 
     const tokens = Array.from(addresses);
     this.discoveryCache = { tokens, fetchedAt: Date.now() };

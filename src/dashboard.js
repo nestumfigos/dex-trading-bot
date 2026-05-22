@@ -13,6 +13,7 @@ const { enforceRollingWindow, searchArchive, MAX_SIGNALS } = require('./utils/si
 const { redactObject, redactSecretsInText } = require('./utils/redaction');
 const { getPool, ensureSchema, sql } = require('./utils/sqlServer');
 const { runRegimeAwareMonteCarlo } = require('./utils/backtest-utils');
+const { getImplementedStrategyNames } = require('./strategies/deployment');
 
 function roundMetric(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
@@ -400,7 +401,7 @@ function startDashboard(portfolio, ctx) {
         : false;
       let anthropicBackoff = null;
       try {
-        const brain = require('./brain/anthropic');
+        const brain = require('./utils/anthropic');
         if (typeof brain.getBackoffStatus === 'function') anthropicBackoff = brain.getBackoffStatus();
       } catch (_) {}
       const now = Date.now();
@@ -516,9 +517,7 @@ function startDashboard(portfolio, ctx) {
   };
   const botBounds = {
     momentumScanIntervalSeconds: { min: 5, max: 86400 },
-    swingScanIntervalMinutes: { min: 1, max: 10080 },
     momentumExitCheckMinutes: { min: 1, max: 10080 },
-    swingExitCheckMinutes: { min: 1, max: 10080 },
     walletBalanceRefreshSeconds: { min: 5, max: 86400 },
     aiFailureThreshold: { min: 1, max: 1000 },
     exchangeFailureThreshold: { min: 1, max: 1000 },
@@ -674,8 +673,8 @@ function startDashboard(portfolio, ctx) {
       validationErrors.push(...validateNumericBounds(payload.strategy, strategyBounds, 'strategy'));
     }
     if (payload.strategies && typeof payload.strategies === 'object') {
-      ['swing', 'momentum'].forEach((name) => {
-        if (payload.strategies[name] && typeof payload.strategies[name] === 'object') {
+      Object.keys(payload.strategies).forEach((name) => {
+        if (config.strategies?.[name] && payload.strategies[name] && typeof payload.strategies[name] === 'object') {
           validationErrors.push(...validateNumericBounds(payload.strategies[name], strategyBounds, `strategies.${name}`));
         }
       });
@@ -698,8 +697,8 @@ function startDashboard(portfolio, ctx) {
     }
 
     if (payload.strategies && typeof payload.strategies === 'object') {
-      ['swing', 'momentum'].forEach((name) => {
-        if (payload.strategies[name] && typeof payload.strategies[name] === 'object') {
+      Object.keys(payload.strategies).forEach((name) => {
+        if (config.strategies?.[name] && payload.strategies[name] && typeof payload.strategies[name] === 'object') {
           Object.assign(config.strategies[name], payload.strategies[name]);
         }
       });
@@ -748,7 +747,9 @@ function startDashboard(portfolio, ctx) {
   });
 
   app.get('/api/tracked-tokens', (req, res) => {
-    res.json({ tokens: ctx.getTrackedTokens() });
+    const tokens = ctx.getTrackedTokens()
+      .filter((token) => String(token?.strategy || '').toLowerCase() !== 'swing');
+    res.json({ tokens });
   });
 
   // ─── Logs tail ─────────────────────────────────────────────────────────
@@ -933,12 +934,17 @@ function startDashboard(portfolio, ctx) {
 
   app.get('/api/strategies', (req, res) => {
     const state = ctx.getDashboardState();
-    const strategies = state.portfolio?.strategies || {};
+    const runtimeStrategies = new Set(getImplementedStrategyNames());
+    const strategies = Object.fromEntries(
+      Object.entries(state.portfolio?.strategies || {})
+        .filter(([name, stats]) => (
+          runtimeStrategies.has(name) &&
+          config.strategies?.[name]?.enabled !== false
+        ) || Number(stats?.openPositionCount || 0) > 0)
+    );
     res.json({
       timestamp: state.timestamp,
-      swing: strategies.swing || {},
-      momentum: strategies.momentum || {},
-      spot_day_bull_flag: strategies.spot_day_bull_flag || {},
+      strategies,
       aggregate: {
         openPositionCount: state.portfolio?.openPositionCount,
         totalExecutions: state.portfolio?.totalExecutions,
@@ -982,6 +988,56 @@ function startDashboard(portfolio, ctx) {
       profitFactor: grossLosses > 0 ? grossWins / grossLosses : (grossWins > 0 ? Infinity : 0),
       exitReasonBreakdown: reasonBreakdown,
       enabled: Boolean(state?.config?.strategies?.spot_day_bull_flag?.enabled),
+    });
+  });
+
+  app.get('/api/backes-stats', (req, res) => {
+    const state = ctx.getDashboardState();
+    const trades = state.portfolio?.trades || [];
+    const backesTrades = trades.filter((t) => t?.setupType === 'backes_swing');
+    const sells = backesTrades.filter((t) => String(t?.type).toUpperCase() === 'SELL');
+    const wins = sells.filter((t) => Number(t?.pnl || 0) > 0);
+    const losses = sells.filter((t) => Number(t?.pnl || 0) <= 0);
+    const totalPnl = sells.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
+    const grossWins = wins.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
+    const grossLosses = Math.abs(losses.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0));
+    const byStructureType = backesTrades.reduce((acc, trade) => {
+      const key = String(trade?.structureType || 'unknown');
+      if (!acc[key]) {
+        acc[key] = { totalTrades: 0, buys: 0, sells: 0, wins: 0, losses: 0, pnlUsd: 0 };
+      }
+      acc[key].totalTrades += 1;
+      if (String(trade?.type).toUpperCase() === 'BUY') acc[key].buys += 1;
+      if (String(trade?.type).toUpperCase() === 'SELL') {
+        const pnl = Number(trade?.pnl || 0);
+        acc[key].sells += 1;
+        acc[key].pnlUsd += pnl;
+        if (pnl > 0) acc[key].wins += 1;
+        else acc[key].losses += 1;
+      }
+      return acc;
+    }, {});
+    const exitReasonBreakdown = sells.reduce((acc, trade) => {
+      const reason = String(trade?.reason || 'UNKNOWN');
+      acc[reason] = (acc[reason] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({
+      timestamp: state.timestamp,
+      totalTrades: backesTrades.length,
+      buys: backesTrades.length - sells.length,
+      sells: sells.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRatePct: sells.length > 0 ? (wins.length / sells.length) * 100 : 0,
+      totalPnlUsd: totalPnl,
+      avgWinUsd: wins.length > 0 ? grossWins / wins.length : 0,
+      avgLossUsd: losses.length > 0 ? grossLosses / losses.length : 0,
+      profitFactor: grossLosses > 0 ? grossWins / grossLosses : (grossWins > 0 ? Infinity : 0),
+      byStructureType,
+      exitReasonBreakdown,
+      macroRegime: state.macroRegime || null,
+      enabled: Boolean(state?.config?.strategies?.backes_swing?.enabled),
     });
   });
 
@@ -1515,10 +1571,16 @@ WHERE version_id = @version_id
     }
   });
 
-  app.post('/api/paper/reset', requireWriteAccess, (req, res) => {
+  app.post('/api/paper/reset', requireWriteAccess, async (req, res) => {
     try {
+      if (!config.paperTrading) {
+        return res.status(409).json({ error: 'Paper reset is only available in paper mode' });
+      }
       const balance = sanitizeNumber(req.body?.balance, config.paperBalance);
       const snapshot = ctx.resetPaperPortfolio(balance);
+      if (typeof ctx.saveState === 'function') {
+        await ctx.saveState();
+      }
       return res.json({ success: true, snapshot });
     } catch (error) {
       logger.error(`Paper reset failed: ${error.message}`);

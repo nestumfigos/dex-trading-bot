@@ -19,8 +19,27 @@ function getLogCleanupIntervalMs() {
   return intervalMinutes * 60 * 1000;
 }
 
+function getTradeRetentionMs() {
+  const retentionDays = Math.max(1, Number(config.bot?.tradeLogRetentionDays || 30));
+  return retentionDays * 24 * 60 * 60 * 1000;
+}
+
+function getTradeLogMaxBytes() {
+  const maxMb = Math.max(1, Number(config.bot?.tradeLogMaxSizeMb || 20));
+  return maxMb * 1024 * 1024;
+}
+
 function isPermanentTradeLog(fileName = '') {
   return /trade/i.test(String(fileName));
+}
+
+function isRotatedTradeLog(fileName = '') {
+  return /^trades-.*\.log(\.gz)?$/i.test(String(fileName));
+}
+
+function buildArchiveName(prefix = 'trades-legacy') {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `${prefix}-${stamp}.log`;
 }
 
 function parseEntryTimestampMs(line = '') {
@@ -72,11 +91,34 @@ async function cleanupNonTradeLogs(logger = null) {
   try {
     await fs.mkdir(LOG_DIR, { recursive: true });
     const cutoffMs = Date.now() - getRetentionMs();
+    const tradeCutoffMs = Date.now() - getTradeRetentionMs();
+    const tradeMaxBytes = getTradeLogMaxBytes();
     const entries = await fs.readdir(LOG_DIR, { withFileTypes: true });
     let prunedFiles = 0;
+    let prunedTradeFiles = 0;
 
     for (const entry of entries) {
       if (!entry.isFile()) {
+        continue;
+      }
+
+      const filePath = path.join(LOG_DIR, entry.name);
+
+      if (isRotatedTradeLog(entry.name)) {
+        const stats = await fs.stat(filePath);
+        if (stats.mtimeMs < tradeCutoffMs) {
+          await fs.unlink(filePath);
+          prunedTradeFiles += 1;
+        }
+        continue;
+      }
+
+      if (/^trades\.log$/i.test(entry.name)) {
+        const stats = await fs.stat(filePath);
+        if (stats.size > tradeMaxBytes) {
+          await fs.rename(filePath, path.join(LOG_DIR, buildArchiveName()));
+          prunedTradeFiles += 1;
+        }
         continue;
       }
 
@@ -84,7 +126,6 @@ async function cleanupNonTradeLogs(logger = null) {
         continue;
       }
 
-      const filePath = path.join(LOG_DIR, entry.name);
       const result = await pruneTextLogFile(filePath, cutoffMs);
       if (result.pruned) {
         prunedFiles += 1;
@@ -94,13 +135,16 @@ async function cleanupNonTradeLogs(logger = null) {
     if (logger && prunedFiles > 0) {
       logger.info(`Log cleanup complete: pruned ${prunedFiles} non-trade log file(s) older than ${config.bot?.nonTradeLogRetentionHours || 24}h`);
     }
+    if (logger && prunedTradeFiles > 0) {
+      logger.info(`Trade log cleanup complete: archived/pruned ${prunedTradeFiles} trade log file(s)`);
+    }
 
-    return { ok: true, skipped: false, prunedFiles };
+    return { ok: true, skipped: false, prunedFiles, prunedTradeFiles };
   } catch (error) {
     if (logger) {
       logger.warn(`Log cleanup skipped: ${error.message}`);
     }
-    return { ok: false, skipped: false, reason: error.message, prunedFiles: 0 };
+    return { ok: false, skipped: false, reason: error.message, prunedFiles: 0, prunedTradeFiles: 0 };
   } finally {
     maintenanceInFlight = false;
   }

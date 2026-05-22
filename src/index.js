@@ -7,7 +7,6 @@ const { ethers } = require('ethers');
 const config = require('../config');
 const logger = require('./utils/logger');
 const RiskGuardian = require('./risk/guardian');
-// const MomentumStrategy = require('./strategy/momentum');
 const MarketAnalyst = require('./agent/marketAnalyst');
 const { applyPositionJitter, getRandomEntryDelay, shouldSplitSolanaTrade, generateSplitTradeSchedule, sleep } = require('./utils/anti-pattern');
 const JupiterExchange = require('./exchanges/jupiter');
@@ -53,7 +52,7 @@ const { createTradeRepairHelpers } = require('./utils/trade-repair');
 const { createResearchHandlers } = require('./utils/research-handlers');
 const { createSelfEvolutionOrchestration } = require('./utils/self-evolution-orchestration');
 const { createStatePersistence } = require('./utils/state-persistence');
-const { createScanOrchestration } = require('./utils/scan-orchestration');
+const { createWindow, createAnomalyAlerter } = require('./utils/anomaly-detector');
 const SelfEvolutionEngine = require('./self-evolution');
 const EvolutionGovernor = require('./evolution-governor');
 const EvolutionValidator = require('./evolution-validator');
@@ -71,11 +70,22 @@ const {
 } = require('./utils/catalyst');
 const { rsi: computeRsi, volumeSpike: computeVolumeSpike, computeRegime } = require('./utils/indicators');
 const { analyzeEstablishedTokenPatterns, isEstablishedTokenCandidate } = require('./utils/pattern-recognition');
-const { getOhlcvSeries } = require('./utils/candles');
+const { getOhlcvSeries, setKucoinOhlcvProvider } = require('./utils/candles');
 const { detectBullFlag } = require('./strategies/bull-flag-detector');
 const { createBullFlagEvaluator } = require('./strategies/bull-flag-evaluator');
+const { createBackesEvaluator } = require('./strategies/backes-evaluator');
+const { createBscFlowEvaluator } = require('./strategies/bsc-flow-evaluator');
+const { createBaseDexMomentumReclaimEvaluator } = require('./strategies/base-dex-momentum-reclaim-evaluator');
+const { createSolanaBullFlagEvaluator } = require('./strategies/bull-flag-evaluator-solana');
+const {
+  getDeploymentSummary,
+  getImplementedStrategyNames,
+  getStrategyOrderForChain,
+  isStrategyEnabledForChain,
+} = require('./strategies/deployment');
+const RUNTIME_STRATEGY_NAMES = getImplementedStrategyNames();
 const { executeBuyViaVenue, executeSellViaVenue } = require('./utils/execution-adapter');
-const { runPreTrade: runPreTradeContract, registerInFlight: registerPreTradeInFlight, releaseInFlight: releasePreTradeInFlight } = require('./risk/pre-trade-runtime');
+const { runPreTrade: runPreTradeContract } = require('./risk/pre-trade-runtime');
 const { runHyperopt, runValidation, buildBaseBacktestOptions } = require('./utils/research');
 const { computeStrategyVersionHash, normalizeRegimeLabel, classifyRegimeFamily } = require('./utils/promotion-governance');
 const { ModelRegistry } = require('./utils/model-registry');
@@ -126,7 +136,8 @@ const configSchema = require('./config/schema');
 const configSourceAudit = require('./config/source-audit');
 
 // Week 11.1 — boot-time config integrity. Strict-unknown env var rejection +
-// .env vs ecosystem.config.js conflict detection.
+// .env vs ecosystem.config.js conflict detection. Both gated by env flags
+// (default lenient for grace period; flip to strict after canary).
 try {
   const strictMode = String(process.env.CONFIG_STRICT_UNKNOWN || 'false').toLowerCase() === 'true';
   const schemaResult = configSchema.validate(process.env, { strictUnknown: strictMode });
@@ -842,25 +853,11 @@ function classifyRejectReason(reasonOrCode = '') {
 }
 
 const filterStatsState = {
-  currentCycle: {
-    momentum: makeFilterCycleStats('momentum'),
-    swing: makeFilterCycleStats('swing'),
-    spot_day_bull_flag: makeFilterCycleStats('spot_day_bull_flag'),
-  },
-  recentCycles: {
-    momentum: [],
-    swing: [],
-    spot_day_bull_flag: [],
-  },
-  consecutiveZeroSignalCycles: {
-    momentum: 0,
-    swing: 0,
-    spot_day_bull_flag: 0,
-  },
+  currentCycle: Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((name) => [name, makeFilterCycleStats(name)])),
+  recentCycles: Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((name) => [name, []])),
+  consecutiveZeroSignalCycles: Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((name) => [name, 0])),
   signalDrought: {
-    momentum: false,
-    swing: false,
-    spot_day_bull_flag: false,
+    ...Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((name) => [name, false])),
     global: false,
   },
 };
@@ -961,7 +958,9 @@ function getRuntimeSnapshot() {
 }
 
 function startFilterCycle(strategyName) {
-  if (!['momentum', 'swing'].includes(strategyName)) return;
+  if (!RUNTIME_STRATEGY_NAMES.includes(strategyName)) return;
+  filterStatsState.recentCycles[strategyName] = filterStatsState.recentCycles[strategyName] || [];
+  filterStatsState.consecutiveZeroSignalCycles[strategyName] = Number(filterStatsState.consecutiveZeroSignalCycles[strategyName] || 0);
   filterStatsState.currentCycle[strategyName] = makeFilterCycleStats(strategyName);
 }
 
@@ -999,7 +998,10 @@ function buildGateRejectPercentages(gateRejectCounts = {}, evaluated = 0) {
 }
 
 function finalizeFilterCycle(strategyName) {
-  if (!['momentum', 'swing'].includes(strategyName)) return;
+  if (!RUNTIME_STRATEGY_NAMES.includes(strategyName)) return;
+  filterStatsState.currentCycle[strategyName] = filterStatsState.currentCycle[strategyName] || makeFilterCycleStats(strategyName);
+  filterStatsState.recentCycles[strategyName] = filterStatsState.recentCycles[strategyName] || [];
+  filterStatsState.consecutiveZeroSignalCycles[strategyName] = Number(filterStatsState.consecutiveZeroSignalCycles[strategyName] || 0);
 
   const cycleStats = {
     ...filterStatsState.currentCycle[strategyName],
@@ -1021,7 +1023,9 @@ function finalizeFilterCycle(strategyName) {
   }
 
   filterStatsState.signalDrought[strategyName] = filterStatsState.consecutiveZeroSignalCycles[strategyName] > 3;
-  filterStatsState.signalDrought.global = Boolean(filterStatsState.signalDrought.momentum && filterStatsState.signalDrought.swing);
+  filterStatsState.signalDrought.global = RUNTIME_STRATEGY_NAMES
+    .filter((name) => name !== strategyName || filterStatsState.signalDrought[name] != null)
+    .every((name) => Boolean(filterStatsState.signalDrought[name]));
   if (filterStatsState.signalDrought[strategyName]) {
     logger.warn('Signal drought detected', {
       reason: 'zero signals for N consecutive cycles — filters may be too restrictive',
@@ -1044,6 +1048,7 @@ const marketState = {
   trackedTokens: {}, // key: { ...tokenData, lastUpdated: ISO string }
   signals: [], // { ...signalData, lastUpdated: ISO string }
   externalSignals: [],
+  macroRegime: null,
   backtests: [],
   simulations: [],
   evolution: {
@@ -1161,6 +1166,14 @@ const exchanges = {
   base: new BaseSwapExchange(cache),
   kucoin: new KuCoinExchange(cache),
 };
+setKucoinOhlcvProvider(exchanges.kucoin);
+
+function makeStrategyScanStatusMap() {
+  return Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((strategyName) => [
+    strategyName,
+    { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
+  ]));
+}
 
 const scanStatus = {
   solana: {
@@ -1172,11 +1185,7 @@ const scanStatus = {
     evaluatedTokens: 0,
     lastUpdate: null,
     suppressedTokenErrors: 0,
-    strategies: {
-      momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-    },
+    strategies: makeStrategyScanStatusMap(),
   },
   bsc: {
     name: 'PancakeSwap (BSC)',
@@ -1187,11 +1196,7 @@ const scanStatus = {
     evaluatedTokens: 0,
     lastUpdate: null,
     suppressedTokenErrors: 0,
-    strategies: {
-      momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-    },
+    strategies: makeStrategyScanStatusMap(),
   },
   base: {
     name: 'BaseSwap (Base)',
@@ -1202,11 +1207,7 @@ const scanStatus = {
     evaluatedTokens: 0,
     lastUpdate: null,
     suppressedTokenErrors: 0,
-    strategies: {
-      momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-    },
+    strategies: makeStrategyScanStatusMap(),
   },
   kucoin: {
     name: 'KuCoin (CEX)',
@@ -1217,46 +1218,24 @@ const scanStatus = {
     evaluatedTokens: 0,
     lastUpdate: null,
     suppressedTokenErrors: 0,
-    strategies: {
-      momentum: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      swing: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-      spot_day_bull_flag: { status: 'idle', currentToken: '-', currentPair: '-', tokensScanned: 0, discoveredTokens: 0, evaluatedTokens: 0, lastUpdate: null },
-    },
+    strategies: makeStrategyScanStatusMap(),
   },
 };
 
 function isStrategyScanEnabled(chainName, strategyName = 'momentum') {
-  const chain = String(chainName || '').toLowerCase();
-  const strategy = String(strategyName || 'momentum').toLowerCase();
-  const isLiveBot = !config.paperTrading;
-
-  // spot_day_bull_flag respects its own enabled flag + enabledChains list,
-  // intersected with live/paper chain restrictions.
-  if (strategy === 'spot_day_bull_flag') {
-    const cfg = config.strategies?.spot_day_bull_flag;
-    if (!cfg?.enabled) return false;
-    const enabledChains = Array.isArray(cfg.enabledChains) ? cfg.enabledChains : [];
-    if (!enabledChains.includes(chain)) return false;
-    if (isLiveBot) return chain === 'kucoin';
-    return true;
-  }
-
-  // Live bot: KuCoin only
-  if (isLiveBot) {
-    return chain === 'kucoin';
-  }
-
-  // Paper bot: all chains
-  if (chain === 'base') return false;
-  if (strategy === 'swing') return chain === 'kucoin';
-  return ['solana', 'bsc', 'kucoin'].includes(chain);
+  return isStrategyEnabledForChain({
+    config,
+    chainName,
+    strategyName,
+    paperTrading: config.paperTrading,
+  });
 }
 
 function applyDisabledScanStates() {
   Object.keys(scanStatus).forEach((chainName) => {
     const chainState = scanStatus[chainName];
     if (!chainState?.strategies) return;
-    ['momentum', 'swing', 'spot_day_bull_flag'].forEach((strategyName) => {
+    getImplementedStrategyNames().forEach((strategyName) => {
       if (!isStrategyScanEnabled(chainName, strategyName)) {
         chainState.strategies[strategyName] = {
           status: 'disabled',
@@ -1305,6 +1284,22 @@ const bullFlagEvaluator = createBullFlagEvaluator({
   detectBullFlag,
 });
 
+const backesEvaluator = createBackesEvaluator({
+  logger,
+  fetchOhlcv: getOhlcvSeries,
+});
+
+const bscFlowEvaluator = createBscFlowEvaluator();
+
+const baseDexMomentumReclaimEvaluator = createBaseDexMomentumReclaimEvaluator({
+  fetchOhlcv: getOhlcvSeries,
+});
+
+const solanaBullFlagEvaluator = createSolanaBullFlagEvaluator({
+  logger,
+  fetchOhlcv: getOhlcvSeries,
+});
+
 // Local strategy adapter used by processToken/scanChain.
 const strategy = {
   priceHistory: {},
@@ -1326,15 +1321,34 @@ const strategy = {
     // Adapter uses live config reads in evaluateForStrategy.
   },
 
+  passesStrategyPrefilter(strategyName, chainName, tokenData = {}) {
+    const cfgBase = config.strategies?.[strategyName] || {};
+    const cfg = {
+      ...cfgBase,
+      ...(cfgBase.perChainOverrides?.[chainName] || {}),
+    };
+    const volume24hUsd = Number(tokenData.volume24hUsd || tokenData.volume24h || 0);
+    const liquidityUsd = Number(tokenData.liquidityUsd || 0);
+    const minVol = Number(cfg.min24hVolumeUsd || 0);
+    const minLiq = Number(cfg.minLiquidityUsd || 0);
+    if (minVol > 0 && volume24hUsd < minVol) return false;
+    if (minLiq > 0 && liquidityUsd < minLiq) return false;
+    if (Number(cfg.minTokenAgeDays || 0) > 0) {
+      const ageDays = Number(tokenData.ageDays || tokenData.tokenAgeDays || 0);
+      if (ageDays > 0 && ageDays < Number(cfg.minTokenAgeDays)) return false;
+    }
+    return true;
+  },
+
   determineApplicableStrategies(tokenData = {}) {
     const chainName = normalizeChainKey(tokenData?.chainKey || tokenData?.chain);
     const lane = String(tokenData?.discoveryLane || '').toLowerCase() || null;
-    return {
-      momentum: isStrategyScanEnabled(chainName, 'momentum'),
-      swing: isStrategyScanEnabled(chainName, 'swing'),
-      spot_day_bull_flag: isStrategyScanEnabled(chainName, 'spot_day_bull_flag'),
-      momentumLane: lane,
-    };
+    const applicable = { momentumLane: lane };
+    for (const strategyName of getImplementedStrategyNames()) {
+      applicable[strategyName] = isStrategyScanEnabled(chainName, strategyName)
+        && this.passesStrategyPrefilter(strategyName, chainName, tokenData);
+    }
+    return applicable;
   },
 
   async evaluateForStrategy(_tokenKey, strategyName, tokenData = {}) {
@@ -1344,6 +1358,33 @@ const strategy = {
     // Bull-flag delegate: spot_day_bull_flag uses a separate detector pipeline.
     if (strategyName === 'spot_day_bull_flag') {
       return bullFlagEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
+    }
+
+    if (strategyName === 'backes_swing') {
+      const result = await backesEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
+      if (result?.details?.macroRegime) {
+        marketState.macroRegime = {
+          regime: result.details.macroRegime,
+          reasons: result.details.macroReasons || [],
+          scores: result.details.macroScores || {},
+          sizeMultiplier: Number(result.details.macroSizeMultiplier || result.details.sizeMultiplier || 1),
+          updatedAt: new Date().toISOString(),
+          source: 'backes_macro',
+        };
+      }
+      return result;
+    }
+
+    if (strategyName === 'bsc_flow_breakout') {
+      return bscFlowEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
+    }
+
+    if (strategyName === 'base_dex_momentum_reclaim') {
+      return baseDexMomentumReclaimEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
+    }
+
+    if (strategyName === 'solana_bull_flag_v2') {
+      return solanaBullFlagEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
     }
 
     const adaptiveParams = strategyBrain.getAdaptiveParameters(chainName, strategyName, strategyCfg, tokenData);
@@ -1372,7 +1413,7 @@ const strategy = {
     const buyRatioRecentPct = Number(tokenData?.buyRatioRecentPct || tokenData?.buyRatio10mPct || 0);
     const netBuyFlowUsd10m = Number(tokenData?.netBuyFlowUsd10m || 0);
     const liquidityUsd = Number(tokenData?.liquidityUsd || 0);
-    const patternAnalysis = (strategyName === 'swing' || chainName === 'kucoin') && isEstablishedTokenCandidate(tokenData)
+    const patternAnalysis = (strategyName === 'backes_swing' || chainName === 'kucoin') && isEstablishedTokenCandidate(tokenData)
       ? await analyzeEstablishedTokenPatterns({ ...tokenData, chainKey: chainName }).catch(() => null)
       : null;
 
@@ -1404,13 +1445,13 @@ const strategy = {
       }
     }
 
-    const defaultRsiMin = strategyName === 'swing' ? 35 : 40;
-    const defaultRsiMax = strategyName === 'swing' ? 80 : 75;
-    const defaultVolumeSpikeMin = strategyName === 'swing' ? 1.05 : 1.35;
-    const defaultStrongMoveThreshold = strategyName === 'swing' ? 6 : 12;
-    const defaultExtremeMoveThreshold = strategyName === 'swing' ? 35 : 60;
-    const defaultMinBuyRatio = strategyName === 'swing' ? 48 : 50;
-    const defaultMinNetBuyFlowUsd = strategyName === 'swing' ? 1500 : 3500;
+    const defaultRsiMin = 40;
+    const defaultRsiMax = 75;
+    const defaultVolumeSpikeMin = 1.35;
+    const defaultStrongMoveThreshold = Number(strategyCfg?.strongMoveThresholdPct || 12);
+    const defaultExtremeMoveThreshold = Number(strategyCfg?.extremeMoveThresholdPct || 60);
+    const defaultMinBuyRatio = 50;
+    const defaultMinNetBuyFlowUsd = 3500;
 
     const rsiMin = Number(adaptiveParams?.rsiBuyThreshold || strategyCfg?.rsiBuyThreshold || defaultRsiMin);
     const rsiMax = Number(adaptiveParams?.rsiBuyMaxThreshold || strategyCfg?.rsiBuyMaxThreshold || defaultRsiMax);
@@ -1512,9 +1553,9 @@ const strategy = {
       reasons.push('brain_explore_bypass');
     }
 
-    const triggerTimeframe = extremeMove
+    const triggerTimeframe = strategyCfg?.triggerTimeframe || (extremeMove
       ? 'extreme_24h_momentum'
-      : (strongMove ? 'kucoin_relaxed_momentum' : 'momentum_breakout');
+      : (strongMove ? `${strategyName}_strong_move` : `${strategyName}_breakout`));
 
     // ── Learned bad pattern: hard-ban gate ─────────────────────────────────
     if (signal === 'BUY') {
@@ -1768,33 +1809,32 @@ const strategy = {
       };
     }
 
-    if (String(strategyName) === 'swing') {
-      const swingExitRsi = Number(strategyCfg.rsiExitThreshold || 78);
-      if (Number.isFinite(rsi) && rsi >= swingExitRsi && profitPct > 2) {
-        return {
-          shouldExit: true,
-          reason: 'RSI_OVERBOUGHT_SWING',
-          details: { rsi, profitPct, priceChange24h, volumeDivergencePct },
-        };
-      }
+    const strategyKey = String(strategyName || 'strategy').toUpperCase();
+    const exitRsiThreshold = Number(strategyCfg.rsiExitThreshold || 78);
+    const minProfitPct = Number(strategyCfg.exitSignalMinProfitPct || 2);
+    const maxSellRatioPct = Number(strategyCfg.exitSellPressureRatioPct || 60);
 
-      // New: swing exit confluence — volume collapse + sell pressure + winning, no RSI needed
-      if (hasVolumeCollapse && sellRatio10mPct >= 60 && profitPct > 2) {
-        return {
-          shouldExit: true,
-          reason: 'SWING_VOLUME_DIVERGENCE',
-          details: { rsi, sellRatio10mPct, profitPct, volumeDivergencePct },
-        };
-      }
-
+    if (Number.isFinite(rsi) && rsi >= exitRsiThreshold && profitPct > minProfitPct) {
       return {
-        shouldExit: false,
-        reason: null,
-        details: { rsi, sellRatio10mPct, profitPct, priceChange24h, volumeDivergencePct },
+        shouldExit: true,
+        reason: `${strategyKey}_RSI_OVERBOUGHT`,
+        details: { rsi, profitPct, priceChange24h, volumeDivergencePct },
       };
     }
 
-    return { shouldExit: false, reason: null, details: { unsupportedStrategy: strategyName } };
+    if (hasVolumeCollapse && sellRatio10mPct >= maxSellRatioPct && profitPct > minProfitPct) {
+      return {
+        shouldExit: true,
+        reason: `${strategyKey}_VOLUME_DIVERGENCE`,
+        details: { rsi, sellRatio10mPct, profitPct, volumeDivergencePct },
+      };
+    }
+
+    return {
+      shouldExit: false,
+      reason: null,
+      details: { rsi, sellRatio10mPct, profitPct, priceChange24h, volumeDivergencePct },
+    };
   },
 };
 const risk = new RiskGuardian(portfolio);
@@ -1844,7 +1884,7 @@ const strategyLab = new StrategyLab({
 const agentMemory = new AgentMemory({ logger, config });
 selfEvolution.bindDependencies({ agentMemory, portfolio });
 const modelRegistry = new ModelRegistry({ logger, botProfile: BOT_PROFILE });
-const intelligenceAgent = new MarketIntelligenceAgent({ portfolio, config, agentMemory });
+const intelligenceAgent = new MarketIntelligenceAgent({ portfolio, config, agentMemory, marketState });
 const agent = new MarketAnalyst({
   portfolio,
   exchanges,
@@ -1884,19 +1924,23 @@ let scanInFlight = false;
 const loopLocks = {
   momentumScan: false,
   kucoinMomentumScan: false,
-  swingScan: false,
+  bullFlagScan: false,
   momentumExit: false,
-  swingExit: false,
+  bullFlagExit: false,
   realtimeStop: false,
-  swingRefresh: false,
   selfEvolution: false,
   intelligence: false,
 };
+RUNTIME_STRATEGY_NAMES.forEach((strategyName) => {
+  loopLocks[`${strategyName}Scan`] = false;
+  loopLocks[`${strategyName}Exit`] = false;
+});
 
 const scanCursorByChainStrategy = {
   kucoin: {
     momentum: 0,
-    swing: 0,
+    spot_day_bull_flag: 0,
+    backes_swing: 0,
   },
 };
 
@@ -1913,7 +1957,7 @@ function getRotatingScanWindow(tokens, chainName, strategyName) {
     ? Math.min(list.length, Math.max(20, perCycleCapRaw))
     : list.length;
   const chainCursor = scanCursorByChainStrategy[chainName] || {};
-  const strategyKey = strategyName === 'swing' ? 'swing' : 'momentum';
+  const strategyKey = String(strategyName || 'momentum').toLowerCase();
   const start = Number(chainCursor[strategyKey] || 0) % list.length;
 
   const selected = [];
@@ -1930,15 +1974,20 @@ function getRotatingScanWindow(tokens, chainName, strategyName) {
 // null = loop has not completed even once since startup.
 const loopLastCompletedAt = {
   momentumScan: null,
-  swingScan: null,
+  bullFlagScan: null,
   momentumExit: null,
-  swingExit: null,
+  bullFlagExit: null,
   realtimeStop: null,
   walletBalanceRefresh: null,
 };
+RUNTIME_STRATEGY_NAMES.forEach((strategyName) => {
+  loopLastCompletedAt[`${strategyName}Scan`] = null;
+  loopLastCompletedAt[`${strategyName}Exit`] = null;
+});
 
 function refreshScanInFlightFlag() {
-  scanInFlight = Boolean(loopLocks.momentumScan || loopLocks.kucoinMomentumScan || loopLocks.swingScan);
+  scanInFlight = Object.entries(loopLocks).some(([key, value]) => Boolean(value) && key.endsWith('Scan'))
+    || Boolean(loopLocks.kucoinMomentumScan);
 }
 
 function setStatePersistenceError(enabled) {
@@ -1954,15 +2003,19 @@ const _mainLoopModule = require('./cycle/main-loop');
 const _mainLoopState = {
   scanTimer: null,
   momentumScanTimer: null,
-  swingScanTimer: null,
+  bullFlagScanTimer: null,
   momentumExitTimer: null,
-  swingExitTimer: null,
+  bullFlagExitTimer: null,
+  strategyScanTimers: {},
+  strategyExitTimers: {},
   realtimeStopTimer: null,
-  swingWatchlistRefreshTimer: null,
   walletBalanceRefreshTimer: null,
   bscNativePriceRefreshTimer: null,
   selfEvolutionTimer: null,
+  selfEvolutionBootTimer: null,
   intelligenceTimer: null,
+  intelligenceBootTimer: null,
+  bscNativePriceBootTimer: null,
   rlTrainingTimer: null,
   mlTrainingSchedulerDispose: null,
 };
@@ -2014,15 +2067,9 @@ function syncChainScanStatus(chainName) {
   const strategyState = chainState?.strategies;
   if (!chainState || !strategyState) return;
 
-  const momentum = strategyState.momentum || {};
-  const swing = strategyState.swing || {};
-  const states = [momentum, swing];
+  const strategyEntries = Object.entries(strategyState);
+  const states = strategyEntries.map(([, state]) => state || {});
   const nowIso = new Date().toISOString();
-
-  const momentumScanned = Number(momentum.tokensScanned || 0);
-  const momentumEvaluated = Number(momentum.evaluatedTokens || 0);
-  const swingScanned = Number(swing.tokensScanned || 0);
-  const swingEvaluated = Number(swing.evaluatedTokens || 0);
 
   const checkStrategyCounters = (strategyName, scanned, evaluated) => {
     const scopeKey = `${chainName}:${strategyName}`;
@@ -2045,12 +2092,17 @@ function syncChainScanStatus(chainName) {
     warnScanCounterMismatch(scopeKey, mismatch);
   };
 
-  checkStrategyCounters('momentum', momentumScanned, momentumEvaluated);
-  checkStrategyCounters('swing', swingScanned, swingEvaluated);
+  strategyEntries.forEach(([strategyName, state]) => {
+    checkStrategyCounters(
+      strategyName,
+      Number(state?.tokensScanned || 0),
+      Number(state?.evaluatedTokens || 0)
+    );
+  });
 
-  chainState.tokensScanned = momentumScanned + swingScanned;
-  chainState.discoveredTokens = Number(momentum.discoveredTokens || 0) + Number(swing.discoveredTokens || 0);
-  chainState.evaluatedTokens = momentumEvaluated + swingEvaluated;
+  chainState.tokensScanned = states.reduce((sum, state) => sum + Number(state.tokensScanned || 0), 0);
+  chainState.discoveredTokens = states.reduce((sum, state) => sum + Number(state.discoveredTokens || 0), 0);
+  chainState.evaluatedTokens = states.reduce((sum, state) => sum + Number(state.evaluatedTokens || 0), 0);
 
   if (chainState.tokensScanned === chainState.evaluatedTokens) {
     delete scanCounterMismatchLastWarnAt[chainName];
@@ -2068,11 +2120,10 @@ function syncChainScanStatus(chainName) {
     warnScanCounterMismatch(chainName, mismatch);
   }
 
-  chainState.currentToken = momentum.status === 'scanning'
-    ? (momentum.currentToken || '-')
-    : (swing.status === 'scanning' ? (swing.currentToken || '-') : '-');
+  const scanningState = states.find((state) => state.status === 'scanning') || null;
+  chainState.currentToken = scanningState?.currentToken || '-';
 
-  if (states.some((state) => state.status === 'scanning')) {
+  if (scanningState) {
     chainState.status = 'scanning';
   } else if (states.some((state) => state.status === 'error')) {
     chainState.status = 'error';
@@ -2218,7 +2269,6 @@ const { buildDashboardState, getAgentActionFeed } = createDashboardState({
   getHealthStatus,
   getPortfolioSnapshot,
   getPrioritizedKucoinCatalystPairs,
-  supportsSwingOnChain,
   getScanStatus: () => scanStatus,
   getBrainState: () => brainState,
   getFilterStatsState: () => filterStatsState,
@@ -2539,9 +2589,16 @@ async function refreshBtcRiskOff() {
   try {
     const ku = exchanges?.kucoin;
     if (!ku || typeof ku.exchange?.fetchTicker !== 'function') return;
-    const ticker = await ku.exchange.fetchTicker('BTC/USDT').catch(() => null);
+    const ticker = await ku.exchange.fetchTicker('BTC/USDT').catch((err) => {
+      logger.warn(`[btcRiskOff] BTC/USDT fetch failed: ${err?.message || err} — stale price retained`);
+      return null;
+    });
     const last = Number(ticker?.last || 0);
-    if (!last || !Number.isFinite(last)) return;
+    if (!last || !Number.isFinite(last)) {
+      btcRiskOffState.lastFetchFailedAt = Date.now();
+      return;
+    }
+    btcRiskOffState.lastFetchFailedAt = null;
     const now = Date.now();
     btcRiskOffState.lastPriceUsd = last;
     btcRiskOffState.lastCheckedAt = now;
@@ -2832,39 +2889,82 @@ function getHealthStatus() {
     && discoveryEventStaleness.some((row) => row.unhealthy);
   const discoveryHealthy = !discoveryBlockingFailure;
 
-  const momentumEnabled = config.strategies?.momentum?.enabled !== false;
-  const swingEnabled = config.strategies?.swing?.enabled !== false;
+  const isRuntimeStrategyEnabled = (strategyName) => strategyName === 'momentum'
+    ? config.strategies?.momentum?.enabled !== false
+    : config.strategies?.[strategyName]?.enabled === true;
+  const enabledRuntimeStrategyNames = RUNTIME_STRATEGY_NAMES.filter(isRuntimeStrategyEnabled);
+  const getScanLockKey = (strategyName) => {
+    if (strategyName === 'spot_day_bull_flag') return 'bullFlagScan';
+    if (strategyName === 'momentum') return 'momentumScan';
+    return `${strategyName}Scan`;
+  };
+  const getExitLockKey = (strategyName) => {
+    if (strategyName === 'spot_day_bull_flag') return 'bullFlagExit';
+    if (strategyName === 'momentum') return 'momentumExit';
+    return `${strategyName}Exit`;
+  };
+  const getScanTimer = (strategyName) => {
+    if (strategyName === 'momentum') return _mainLoopState.momentumScanTimer;
+    if (strategyName === 'spot_day_bull_flag') return _mainLoopState.bullFlagScanTimer;
+    return _mainLoopState.strategyScanTimers?.[strategyName];
+  };
+  const getExitTimer = (strategyName) => {
+    if (strategyName === 'momentum') return _mainLoopState.momentumExitTimer;
+    if (strategyName === 'spot_day_bull_flag') return _mainLoopState.bullFlagExitTimer;
+    return _mainLoopState.strategyExitTimers?.[strategyName];
+  };
   // Staleness thresholds: stale if loop has completed before but not within N × its configured interval.
   const healthNow = Date.now();
   const momentumScanMs = Math.max(60_000, Number(config.bot.momentumScanIntervalSeconds || 75) * 1000);
-  const swingScanMs = Math.max(10 * 60_000, Number(config.bot.swingScanIntervalMinutes || 15) * 60_000);
+  const bullFlagScanMs = Math.max(60_000, Number(config.bot.bullFlagScanIntervalSeconds || 90) * 1000);
   const momentumExitMs = Math.max(5 * 60_000, Number(config.bot.momentumExitCheckMinutes || 15) * 60_000);
-  const swingExitMs = Math.max(30 * 60_000, Number(config.bot.swingExitCheckMinutes || 60) * 60_000);
+  const bullFlagExitMs = Math.max(5 * 60_000, Number(config.bot.bullFlagExitCheckMinutes || config.bot.momentumExitCheckMinutes || 15) * 60_000);
   const realtimeStopMs = Math.max(2_000, Number(config.risk?.realtimeStopCheckSeconds || 8) * 1000);
   const walletBalanceMs = Math.max(30_000, Number(config.bot.walletBalanceRefreshSeconds || 60) * 1000);
   const checkStale = (key, intervalMs, multiplier) => {
     const ts = loopLastCompletedAt[key];
     return ts !== null && (healthNow - ts) > multiplier * intervalMs;
   };
+  const getStrategyScanIntervalMs = (strategyName) => {
+    if (strategyName === 'momentum') return momentumScanMs;
+    if (strategyName === 'spot_day_bull_flag') return bullFlagScanMs;
+    if (strategyName === 'backes_swing') return Math.max(10 * 60_000, Number(config.strategies?.backes_swing?.scanIntervalMinutes || 30) * 60_000);
+    return Math.max(60_000, Number(config.strategies?.[strategyName]?.scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
+  };
+  const getStrategyExitIntervalMs = (strategyName) => {
+    if (strategyName === 'spot_day_bull_flag') return bullFlagExitMs;
+    if (strategyName === 'backes_swing') return Math.max(30 * 60_000, Number(config.strategies?.backes_swing?.exitCheckMinutes || 60) * 60_000);
+    return momentumExitMs;
+  };
+  const strategyLoopStaleness = Object.fromEntries(enabledRuntimeStrategyNames.map((strategyName) => [
+    strategyName,
+    {
+      scan: checkStale(getScanLockKey(strategyName), getStrategyScanIntervalMs(strategyName), 3),
+      exit: checkStale(getExitLockKey(strategyName), getStrategyExitIntervalMs(strategyName), 3),
+    },
+  ]));
   const loopStaleness = {
     momentumScan: checkStale('momentumScan', momentumScanMs, 3),
-    swingScan: checkStale('swingScan', swingScanMs, 2),
+    bullFlagScan: checkStale('bullFlagScan', bullFlagScanMs, 3),
     momentumExit: checkStale('momentumExit', momentumExitMs, 3),
-    swingExit: checkStale('swingExit', swingExitMs, 2),
+    bullFlagExit: checkStale('bullFlagExit', bullFlagExitMs, 3),
     realtimeStop: Boolean(config.risk?.realtimeStopLossEnabled !== false) ? checkStale('realtimeStop', realtimeStopMs, 4) : false,
     walletBalanceRefresh: checkStale('walletBalanceRefresh', walletBalanceMs, 3),
   };
+  const anyStrategyLoopStale = enabledRuntimeStrategyNames.some((strategyName) => {
+    const stale = strategyLoopStaleness[strategyName] || {};
+    return stale.scan || stale.exit;
+  });
   const anyLoopStale = loopStaleness.walletBalanceRefresh
     || loopStaleness.realtimeStop
-    || (momentumEnabled && (loopStaleness.momentumScan || loopStaleness.momentumExit))
-    || (swingEnabled && (loopStaleness.swingScan || loopStaleness.swingExit));
+    || anyStrategyLoopStale;
+  const strategyTimersActive = enabledRuntimeStrategyNames.every((strategyName) => Boolean(getScanTimer(strategyName)) && Boolean(getExitTimer(strategyName)));
   const loopsTimersActive = Boolean(_mainLoopState.walletBalanceRefreshTimer)
     && (config.risk?.realtimeStopLossEnabled === false || Boolean(_mainLoopState.realtimeStopTimer))
-    && (!momentumEnabled || (Boolean(_mainLoopState.momentumScanTimer) && Boolean(_mainLoopState.momentumExitTimer)))
-    && (!swingEnabled || (Boolean(_mainLoopState.swingScanTimer) && Boolean(_mainLoopState.swingExitTimer) && Boolean(_mainLoopState.swingWatchlistRefreshTimer)));
+    && strategyTimersActive;
   const loopsHealthy = loopsTimersActive && !anyLoopStale;
   const skippedExitThreshold = Math.max(1, Number(config.risk?.skippedExitChecksAlertThreshold || 3));
-  const strategyDegradation = ['momentum', 'swing'].map((strategyName) => {
+  const strategyDegradation = getImplementedStrategyNames().map((strategyName) => {
     const skipped = Number(portfolio.strategies?.[strategyName]?.stats?.skippedExitChecks || 0);
     const exitErrorCount = Number(portfolio.strategies?.[strategyName]?.stats?.exitErrorCount || 0);
     return {
@@ -2879,8 +2979,10 @@ function getHealthStatus() {
   const safeMode = Boolean(portfolio.safeMode);
   const persistenceError = Boolean(statePersistenceError || portfolio.statePersistenceError);
   const signalDrought = {
-    momentum: Boolean(filterStatsState.signalDrought?.momentum),
-    swing: Boolean(filterStatsState.signalDrought?.swing),
+    ...Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((strategyName) => [
+      strategyName,
+      Boolean(filterStatsState.signalDrought?.[strategyName]),
+    ])),
     global: Boolean(filterStatsState.signalDrought?.global),
   };
   const overallOk = unhealthyDeps === 0
@@ -2893,12 +2995,9 @@ function getHealthStatus() {
     && !persistenceError
     && sqlHealth.healthy;
 
-  if (signalDrought.momentum) {
-    degradedReasons.push('signal_drought_momentum');
-  }
-  if (signalDrought.swing) {
-    degradedReasons.push('signal_drought_swing');
-  }
+  RUNTIME_STRATEGY_NAMES.forEach((strategyName) => {
+    if (signalDrought[strategyName]) degradedReasons.push(`signal_drought_${strategyName}`);
+  });
   if (!bscNativePriceHealthy) {
     degradedReasons.push('bsc_native_price_degraded');
   }
@@ -2955,32 +3054,35 @@ function getHealthStatus() {
     scanInFlight,
     momentumScanActive: Boolean(loopLocks.momentumScan),
     kucoinMomentumScanActive: Boolean(loopLocks.kucoinMomentumScan),
-    swingScanActive: Boolean(loopLocks.swingScan),
+    strategyScanActive: Object.fromEntries(RUNTIME_STRATEGY_NAMES.map((strategyName) => [
+      strategyName,
+      Boolean(loopLocks[getScanLockKey(strategyName)]),
+    ])),
     loops: {
       healthy: loopsHealthy,
       timersActive: loopsTimersActive,
       anyStale: anyLoopStale,
+      strategies: Object.fromEntries(enabledRuntimeStrategyNames.map((strategyName) => [
+        strategyName,
+        {
+          scanTimerActive: Boolean(getScanTimer(strategyName)),
+          exitTimerActive: Boolean(getExitTimer(strategyName)),
+          scanLastCompletedAt: loopLastCompletedAt[getScanLockKey(strategyName)] ? new Date(loopLastCompletedAt[getScanLockKey(strategyName)]).toISOString() : null,
+          exitLastCompletedAt: loopLastCompletedAt[getExitLockKey(strategyName)] ? new Date(loopLastCompletedAt[getExitLockKey(strategyName)]).toISOString() : null,
+          scanStale: Boolean(strategyLoopStaleness[strategyName]?.scan),
+          exitStale: Boolean(strategyLoopStaleness[strategyName]?.exit),
+        },
+      ])),
       momentumScan: {
         timerActive: Boolean(_mainLoopState.momentumScanTimer),
         lastCompletedAt: loopLastCompletedAt.momentumScan ? new Date(loopLastCompletedAt.momentumScan).toISOString() : null,
         stale: loopStaleness.momentumScan,
-      },
-      swingScan: {
-        timerActive: Boolean(_mainLoopState.swingScanTimer),
-        lastCompletedAt: loopLastCompletedAt.swingScan ? new Date(loopLastCompletedAt.swingScan).toISOString() : null,
-        stale: loopStaleness.swingScan,
       },
       momentumExit: {
         timerActive: Boolean(_mainLoopState.momentumExitTimer),
         lastCompletedAt: loopLastCompletedAt.momentumExit ? new Date(loopLastCompletedAt.momentumExit).toISOString() : null,
         stale: loopStaleness.momentumExit,
       },
-      swingExit: {
-        timerActive: Boolean(_mainLoopState.swingExitTimer),
-        lastCompletedAt: loopLastCompletedAt.swingExit ? new Date(loopLastCompletedAt.swingExit).toISOString() : null,
-        stale: loopStaleness.swingExit,
-      },
-      swingWatchlistRefreshTimerActive: Boolean(_mainLoopState.swingWatchlistRefreshTimer),
       walletBalanceRefresh: {
         timerActive: Boolean(_mainLoopState.walletBalanceRefreshTimer),
         lastCompletedAt: loopLastCompletedAt.walletBalanceRefresh ? new Date(loopLastCompletedAt.walletBalanceRefresh).toISOString() : null,
@@ -3026,10 +3128,8 @@ function getHealthStatus() {
         : [],
     },
     signalDrought,
-    signalDroughtCycles: {
-      momentum: Number(filterStatsState.consecutiveZeroSignalCycles?.momentum || 0),
-      swing: Number(filterStatsState.consecutiveZeroSignalCycles?.swing || 0),
-    },
+    signalDroughtCycles: Object.fromEntries(Object.entries(filterStatsState.consecutiveZeroSignalCycles || {})
+      .map(([strategyName, value]) => [strategyName, Number(value || 0)])),
     incidentState,
     filterStats: {
       currentCycle: filterStatsState.currentCycle,
@@ -3165,7 +3265,7 @@ function getPortfolioSnapshot(options = {}) {
     ? (portfolio.stats.wins / portfolio.stats.closedTrades) * 100
     : null;
 
-  const strategySummaries = ['swing', 'momentum'].reduce((acc, strategyName) => {
+  const strategySummaries = Object.keys(portfolio.strategies || {}).reduce((acc, strategyName) => {
     const bucket = portfolio.strategies?.[strategyName] || {};
     const stats = bucket.stats || defaultStatsShape();
     const strategyPositions = Object.values(bucket.positions || {});
@@ -3381,13 +3481,20 @@ async function handleLiquiditySentinelTrigger(chainName, pairAddress, txHash = n
 
   const reason = `Liquidity sentinel detected LP burn for ${normalizedChain}:${targetPair}${txHash ? ` tx=${txHash}` : ''}`;
   logger.warn(reason, { chain: normalizedChain, pairAddress: targetPair, txHash, positions: impactedPositions.length });
-  await sendErrorAlert(reason).catch(() => undefined);
+  await sendErrorAlert(reason).catch((err) => logger.error(`[liquidation-sentinel] alert send failed: ${err?.message || err}`));
 
   for (const position of impactedPositions) {
     try {
-      const tokenData = await exchange.getTokenData(position.address).catch(() => null);
+      const tokenData = await exchange.getTokenData(position.address).catch((err) => {
+        logger.warn(`[liquidation-sentinel] getTokenData failed for ${position.symbol || position.address}: ${err?.message || err}`);
+        return null;
+      });
+      if (!tokenData || !Number.isFinite(Number(tokenData?.price)) || Number(tokenData.price) <= 0) {
+        logger.error(`[liquidation-sentinel] SKIP sell for ${position.symbol || position.address}: fresh price unavailable — refusing stale-price liquidation`);
+        continue;
+      }
       const exitToken = {
-        ...(tokenData || {}),
+        ...tokenData,
         address: position.address,
         symbol: position.symbol,
         chain: position.chain,
@@ -3450,6 +3557,30 @@ function syncLiquiditySentinelsFromPortfolio() {
   });
 }
 
+const sellPnlAnomalyWindow = createWindow(Number(process.env.SELL_PNL_ANOMALY_WINDOW || 40));
+const sellPnlAnomalyAlerter = createAnomalyAlerter({
+  sendAlert: (msg) => sendErrorAlert(msg).catch(() => undefined),
+  logger,
+  cooldownMs: Number(process.env.SELL_PNL_ANOMALY_COOLDOWN_MS || 60 * 60_000),
+});
+
+function recordSellPnlAnomaly(trade) {
+  if (String(trade?.type || '').toUpperCase() !== 'SELL') return null;
+  const pnlUsd = Number(trade.pnl);
+  if (!Number.isFinite(pnlUsd)) return null;
+  const result = sellPnlAnomalyAlerter.check(
+    'sell_pnl_usd',
+    pnlUsd,
+    sellPnlAnomalyWindow.snapshot(),
+    {
+      minSamples: Number(process.env.SELL_PNL_ANOMALY_MIN_SAMPLES || 8),
+      sigmaThreshold: Number(process.env.SELL_PNL_ANOMALY_SIGMA || 3),
+    },
+  );
+  sellPnlAnomalyWindow.push(pnlUsd);
+  return result;
+}
+
 // Trade schema: `quantity` always represents the confirmed on-chain filled base-token amount,
 // not the requested/intended amount. Requested amounts are stored in executionMeta.requestedQuantity.
 function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalSource = 'technical', reason = '', executionMeta = {}, strategyName = 'momentum') {
@@ -3483,8 +3614,10 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
     privateRouteUsed: Boolean(executionMeta.privateRouteUsed),
     quotedPriceImpactPct: Number.isFinite(Number(executionMeta.quotedPriceImpactPct)) ? round(executionMeta.quotedPriceImpactPct, 4) : null,
     realizedVsQuoteSlippagePct: Number.isFinite(Number(executionMeta.realizedVsQuoteSlippagePct)) ? round(executionMeta.realizedVsQuoteSlippagePct, 4) : null,
-    // Bull-flag setup telemetry (Week 12 B.8).
+    // Bull-flag setup telemetry (Week 12 B.8). Tags each trade with its setup
+    // classification so dashboards / SQL reports can segment performance by setup.
     setupType: tokenData.setupType || executionMeta.setupType || null,
+    structureType: tokenData.structureType || executionMeta.structureType || null,
     setupStopPrice: Number.isFinite(Number(executionMeta.setupStopPrice)) ? round(executionMeta.setupStopPrice, 8) : null,
     setupTargetPrice: Number.isFinite(Number(executionMeta.setupTargetPrice)) ? round(executionMeta.setupTargetPrice, 8) : null,
     setupIsAPlus: executionMeta.setupIsAPlus === true ? true : undefined,
@@ -3498,6 +3631,7 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
 
   portfolio.trades.unshift(trade);
   telemetry.logTradeLedger(trade);
+  recordSellPnlAnomaly(trade);
   if (portfolio.trades.length > 250) {
     portfolio.trades.pop();
   }
@@ -3582,7 +3716,7 @@ async function findRecoverableKucoinBuyFill(exchange, walletPosition) {
   return recoveredFill;
 }
 
-function restoreKucoinRecoveredBuy(walletPosition, recoveredFill) {
+async function restoreKucoinRecoveredBuy(walletPosition, recoveredFill) {
   if (!walletPosition?.address || !recoveredFill?.txid) {
     return false;
   }
@@ -3590,10 +3724,16 @@ function restoreKucoinRecoveredBuy(walletPosition, recoveredFill) {
   ensureStatsShape();
   const chainName = 'kucoin';
   const address = String(walletPosition.address || '').trim();
+  if (!address) return false;
   const tokenKey = buildTokenKey(chainName, address);
-  if (!address || portfolio.positions?.[tokenKey]) {
-    return false;
-  }
+
+  // Acquire positionMutex BEFORE the check-then-write to prevent two concurrent
+  // recoveries both passing the !positions[tokenKey] guard and double-creating a position.
+  const release = await positionMutex.lock();
+  try {
+    if (portfolio.positions?.[tokenKey]) {
+      return false;
+    }
 
   const tracked = marketState.trackedTokens?.[tokenKey] || null;
   const recoveredAt = recoveredFill.timestamp || new Date().toISOString();
@@ -3715,7 +3855,10 @@ function restoreKucoinRecoveredBuy(walletPosition, recoveredFill) {
   }
 
   logger.warn(`Recovered historical BUY position for ${walletPosition.symbol || address} from KuCoin trade history: ${recoveredFill.txid}`);
-  return true;
+    return true;
+  } finally {
+    release();
+  }
 }
 
 
@@ -3738,11 +3881,6 @@ async function initializeExchanges() {
   await refreshDependencyHealth();
 }
 
-function supportsSwingOnChain(chainName) {
-  return String(chainName || '').toLowerCase() === 'kucoin';
-}
-
-
 async function getTokensForStrategy(chainName, exchange, strategyName = 'momentum', options = {}) {
   if (!isStrategyScanEnabled(chainName, strategyName)) {
     return [];
@@ -3755,67 +3893,6 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
   const watchlistTokens = watchlists[chainName] || [];
   const discoveryStatus = wsDiscovery.getStatus();
   const forcePollingOnly = discoveryStrategy === 'momentum' && Boolean(discoveryStatus?.bootstrapFailed);
-
-  if (strategyName === 'swing') {
-    if (!supportsSwingOnChain(chainName)) {
-      return [];
-    }
-
-    const swingSet = new Set(watchlistTokens);
-
-    // Expand swing universe via adapter-specific candidates, or fall back to filtering
-    // getNewTokens() through minimum swing eligibility thresholds.
-    let adapterCandidates = [];
-    if (typeof exchange.getSwingCandidates === 'function') {
-      adapterCandidates = await exchange.getSwingCandidates().catch((err) => {
-        logger.warn(`getSwingCandidates failed on ${chainName}: ${err.message}`);
-        return [];
-      });
-    }
-
-    if (adapterCandidates.length > 0) {
-      adapterCandidates.forEach((addr) => swingSet.add(addr));
-    } else if (typeof exchange.getNewTokens === 'function') {
-      // Fall back: poll getNewTokens and filter through swing eligibility thresholds.
-      const swingMinLiquidityUsd = Number(config.strategies?.swing?.minLiquidityUsd || 500000);
-      const swingMinVolume24h = Number(config.strategies?.swing?.min24hVolumeUsd || 100000);
-      const swingMinAgeDays = Number(config.strategies?.swing?.minTokenAgeDays || 7);
-      try {
-        const newTokenAddrs = await exchange.getNewTokens().catch(() => []);
-        await Promise.allSettled(newTokenAddrs.slice(0, 30).map(async (addr) => {
-          try {
-            const token = await exchange.getTokenData(addr);
-            if (
-              token &&
-              token.price > 0 &&
-              Number(token.liquidityUsd || 0) >= swingMinLiquidityUsd &&
-              Number(token.volume24h || 0) >= swingMinVolume24h &&
-              Number(token.listingAgeDays || 0) >= swingMinAgeDays
-            ) {
-              swingSet.add(token.address || addr);
-            }
-          } catch (err) {
-            logger.debug(`Swing candidate token error on ${chainName}: addr=${addr}, ${err.message}`);
-            if (scanStatus[chainName]) {
-              scanStatus[chainName].suppressedTokenErrors = (scanStatus[chainName].suppressedTokenErrors || 0) + 1;
-              const maxSuppressed = Math.max(1, Number(config.risk?.maxSuppressedTokenErrors || 10));
-              if (scanStatus[chainName].suppressedTokenErrors === maxSuppressed) {
-                logger.warn(`suppressedTokenErrors threshold reached on ${chainName} this cycle`, {
-                  chain: chainName,
-                  suppressedTokenErrors: scanStatus[chainName].suppressedTokenErrors,
-                  threshold: maxSuppressed,
-                });
-              }
-            }
-          }
-        }));
-      } catch (err) {
-        logger.warn(`Swing candidate fallback polling failed on ${chainName}: ${err.message}`);
-      }
-    }
-
-    return [...swingSet];
-  }
 
   const wsTokens = wsDiscovery.getRecentTokens(chainName, 2 * 60 * 60 * 1000); // Last 2h of websocket discoveries
   const configuredMode = String(config.bot.discoveryMode || 'new').toLowerCase();
@@ -4037,7 +4114,7 @@ async function scanChain(chainName, exchange, strategyName = 'momentum', options
 
         try {
           await processToken(chainName, exchange, tokenAddress, {
-            forcedStrategies: [strategyName],
+            forcedStrategies: options.forceStrategyPerScan === true ? [strategyName] : null,
             scanStrategy: strategyName,
           });
         } catch (error) {
@@ -4130,7 +4207,11 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
   if (chainName === 'bsc' && applicability.momentumLane && !tokenData.discoveryLane) {
     tokenData.discoveryLane = applicability.momentumLane;
   }
-  const strategyOrder = ['swing', 'momentum', 'spot_day_bull_flag'];
+  const strategyOrder = getStrategyOrderForChain({
+    config,
+    chainName,
+    paperTrading: config.paperTrading,
+  });
   const forced = Array.isArray(options.forcedStrategies) ? options.forcedStrategies : null;
   const applicableStrategies = strategyOrder
     .filter((name) => applicability[name])
@@ -4254,6 +4335,28 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
       tokenData.manualCutDeadlineAt = new Date(Date.now() + cutCandles * cutTimeframeMin * 60_000).toISOString();
       tokenData._bullFlagRiskPct = Number(evaluation.details.riskPct) || null;
       tokenData._bullFlagIsAPlus = Boolean(evaluation.details.isAPlus);
+    } else if (strategyName === 'backes_swing' && evaluation.details.setupType === 'backes_swing') {
+      tokenData.setupType = 'backes_swing';
+      tokenData.strategyVariant = 'backes_swing';
+      tokenData.structureType = evaluation.details.structureType || null;
+      tokenData.structuralStopPrice = Number(evaluation.details.invalidationPrice || evaluation.details.stopPrice) || null;
+      tokenData.measuredMoveTargetPrice = Array.isArray(evaluation.details.targetPrices)
+        ? Number(evaluation.details.targetPrices[0]) || null
+        : Number(evaluation.details.targetPrice) || null;
+      tokenData.targetPrices = Array.isArray(evaluation.details.targetPrices) ? evaluation.details.targetPrices : [];
+      tokenData.invalidationPrice = tokenData.structuralStopPrice;
+      tokenData.macroRegime = evaluation.details.macroRegime || null;
+      tokenData._backesRiskPct = Number(evaluation.details.riskPct) || null;
+      tokenData._macroSizeMultiplier = Number(evaluation.details.macroSizeMultiplier || evaluation.details.sizeMultiplier || 1);
+    } else if (strategyName !== 'momentum') {
+      tokenData.setupType = strategyName;
+      tokenData.strategyVariant = strategyName;
+      tokenData.structureType = evaluation.details.structureType || strategyName;
+      tokenData.structuralStopPrice = Number(evaluation.details.stopPrice || evaluation.details.invalidationPrice) || null;
+      tokenData.measuredMoveTargetPrice = Number(evaluation.details.targetPrice) || null;
+      tokenData._strategyRiskPct = Number(evaluation.details.riskPct) || null;
+      tokenData._strategyMaxSlippagePct = Number(evaluation.details.maxSlippagePct) || null;
+      tokenData.useMevJitter = evaluation.details.useMevJitter === true;
     }
 
     const activeRollout = getActivePromotionRolloutContext();
@@ -4281,7 +4384,7 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     tokenData._recoveryMultiplier = _rm.active ? _rm.sizeMultiplier : 1;
     tokenData._recoverySeverity = _rm.active ? _rm.severity : 'none';
     // Macro intelligence size multiplier — bullish market allows slightly larger positions
-    tokenData._macroSizeMultiplier = Number(evaluation.details.macroSizeMultiplier || 1);
+    tokenData._macroSizeMultiplier = Number(tokenData._macroSizeMultiplier || evaluation.details.macroSizeMultiplier || 1);
 
     const proposal = buildDecisionProposal({
       chainName,
@@ -4418,13 +4521,26 @@ function resetPaperPortfolio(balance) {
 
   portfolio.startingBalance = nextBalance;
   portfolio.balance = nextBalance;
+  portfolio.walletBalanceUsd = null;
+  portfolio.walletBalancesUsd = {
+    solana: null,
+    bsc: null,
+    base: null,
+    kucoin: null,
+  };
+  portfolio.balanceCoverageCount = null;
+  portfolio.balanceDrift = { amountUsd: 0, pct: 0 };
+  portfolio.balanceDriftHalt = false;
+  portfolio.executionJournal = {};
   portfolio.positions = {};
   portfolio.trades = [];
   portfolio.stats = defaultStatsShape();
-  portfolio.strategies = {
-    swing: { positions: {}, trades: [], stats: defaultStatsShape() },
-    momentum: { positions: {}, trades: [], stats: defaultStatsShape() },
-  };
+  portfolio.strategies = Object.fromEntries(
+    RUNTIME_STRATEGY_NAMES.map((strategyName) => [
+      strategyName,
+      { positions: {}, trades: [], stats: defaultStatsShape() },
+    ])
+  );
   portfolio.pnlHistory = [];
 
   risk.dailyStartBalance = nextBalance;
@@ -4597,12 +4713,6 @@ const _exitPassFactory = require('./cycle/exit-pass').create({
 });
 const runStrategyExitCycle = _exitPassFactory.runStrategyExitCycle;
 const runRealtimeRiskStopCycle = _exitPassFactory.runRealtimeRiskStopCycle;
-
-// refreshSwingWatchlists extracted to src/cycle/maintenance.js (Week 9.5, 2026-05-18).
-const refreshSwingWatchlists = _maintenanceModule.createRefreshSwingWatchlists({
-  loopLocks, logger, config, exchanges, watchlists, scanStatus,
-  strategy, supportsSwingOnChain, isExchangeAvailable,
-});
 
 async function runMarketIntelligenceCycle() {
   if (loopLocks.intelligence) return;
@@ -4789,38 +4899,6 @@ const statePersistence = createStatePersistence({
   enterSafeMode: (...args) => enterSafeMode(...args),
 });
 
-const scanOrchestration = createScanOrchestration({
-  logger,
-  config,
-  exchanges,
-  marketState,
-  scanStatus,
-  filterStatsState,
-  loopLocks,
-  loopLastCompletedAt,
-  getStrategyScanStatus,
-  isExchangeAvailable,
-  syncChainScanStatus,
-  getTokensForStrategy,
-  refreshKucoinCatalystCache,
-  getPrioritizedKucoinCatalystPairs,
-  getBscDiscoveryRankSummary,
-  getRotatingScanWindow,
-  sleep,
-  processToken: (...args) => processToken(...args),
-  withTimeout,
-  recordExchangeSuccess,
-  recordExchangeFailure,
-  isWithinTradingWindow,
-  startFilterCycle,
-  finalizeFilterCycle,
-  isStrategyScanEnabled,
-  recordPortfolioSnapshot,
-  saveState: (...args) => saveState(...args),
-  refreshScanInFlightFlag,
-  shouldPauseKucoinEntryScans,
-});
-
 function getSelfEvolutionContext() {
   return selfEvolutionOrchestration.getSelfEvolutionContext();
 }
@@ -4898,6 +4976,7 @@ function setupHealthCanary() {
       aiCircuit,
       getMemorySnapshot: () => agentMemory?.data,
       getPositions: () => portfolio?.positions,
+      getDailyPnlUsd: () => Number(portfolio?.stats?.todaysPnl || 0),
       sendHealthAlert: typeof sendHealthAlert === 'function' ? sendHealthAlert : null,
     },
   });
@@ -4916,7 +4995,6 @@ function restartLoopSchedulers() {
       runStrategyScanCycle,
       runStrategyExitCycle,
       runRealtimeRiskStopCycle,
-      refreshSwingWatchlists,
       updateWalletBalance,
       refreshBscNativePrice,
       runSelfEvolutionCycle,
@@ -4924,6 +5002,7 @@ function restartLoopSchedulers() {
       evictStuckPositions,
       startOracleStopWatchers,
       stopOracleStopWatchers,
+      strategyNames: RUNTIME_STRATEGY_NAMES,
       mlTrainingSchedulerRegister: _mlTrainingSchedulerModule.register,
       mlTrainingSchedulerCtx: {
         config,
@@ -4963,6 +5042,27 @@ async function main() {
   sqlRuntimeState.selfTestOk = Boolean(sqlSelfTest?.ok);
   sqlRuntimeState.selfTestReason = sqlSelfTest?.reason || (sqlSelfTest?.enabled === false ? 'sql_disabled' : 'ok');
   sqlRuntimeState.lastSelfTestAt = new Date().toISOString();
+
+  // Week 11.3 — Schema version gate. Lenient by default (warn only); flip to
+  // strict via VERSION_GATE_STRICT=true after release cadence stabilizes.
+  try {
+    const { checkSchemaVersion } = require('./boot/version-gate');
+    const { getPool } = require('./utils/sqlServer');
+    const minV = Number(process.env.BOT_MIN_SCHEMA_VERSION || 17); // M001..M017 applied as of Week 6
+    const maxV = process.env.BOT_MAX_SCHEMA_VERSION ? Number(process.env.BOT_MAX_SCHEMA_VERSION) : undefined;
+    const strict = String(process.env.VERSION_GATE_STRICT || 'false').toLowerCase() === 'true';
+    await checkSchemaVersion({
+      getPool,
+      logger,
+      minSchemaVersion: minV,
+      maxSchemaVersion: maxV,
+      strict,
+    });
+  } catch (e) {
+    if (e.code && String(e.code).startsWith('VERSION_GATE_')) throw e;
+    logger.warn(`[version-gate] check skipped: ${e.message}`);
+  }
+
   if (sqlSelfTest?.enabled !== false) {
     const sqlStatus = getSqlStatus();
     logger.info(
@@ -4971,20 +5071,6 @@ async function main() {
       `schema=${sqlStatus.schemaReady ? 'ready' : 'not_ready'}`
     );
   }
-
-  // Week 11.3 — Schema version gate. Lenient by default.
-  try {
-    const { checkSchemaVersion } = require('./boot/version-gate');
-    const { getPool } = require('./utils/sqlServer');
-    const minV = Number(process.env.BOT_MIN_SCHEMA_VERSION || 17);
-    const maxV = process.env.BOT_MAX_SCHEMA_VERSION ? Number(process.env.BOT_MAX_SCHEMA_VERSION) : undefined;
-    const strict = String(process.env.VERSION_GATE_STRICT || 'false').toLowerCase() === 'true';
-    await checkSchemaVersion({ getPool, logger, minSchemaVersion: minV, maxSchemaVersion: maxV, strict });
-  } catch (e) {
-    if (e.code && String(e.code).startsWith('VERSION_GATE_')) throw e;
-    logger.warn(`[version-gate] check skipped: ${e.message}`);
-  }
-
   await agentMemory.load();
   // Boot-heartbeat: touch agent-memory.json so memory_mtime canary passes even
   // when SQL is primary (save() returns early on SQL success without writing file).
@@ -5039,18 +5125,20 @@ async function main() {
   });
 
   logger.info('=========================================');
-  logger.info(' DEX Trading Bot - Starting up (dual strategy)');
+  logger.info(' DEX Trading Bot - Starting up (multi strategy)');
   logger.info(` Runtime profile: ${BOT_PROFILE} (paper=${config.paperTrading ? 'yes' : 'no'}) dataDir=${BOT_DATA_DIR}`);
   logger.info(`  Mode: ${config.paperTrading ? 'PAPER TRADING' : 'LIVE TRADING'}`);
   logger.info(`  Discovery Mode: ${config.bot.discoveryMode || 'hybrid'}`);
-  logger.info(`  Swing: ${config.strategies?.swing?.enabled !== false ? 'enabled' : 'disabled'} | EMA(${config.strategies?.swing?.emaFast}/${config.strategies?.swing?.emaSlow}) | max positions ${config.strategies?.swing?.maxConcurrentPositions}`);
-  logger.info(`  Momentum: ${config.strategies?.momentum?.enabled !== false ? 'enabled' : 'disabled'} | EMA(${config.strategies?.momentum?.emaFast}/${config.strategies?.momentum?.emaSlow}) | max positions ${config.strategies?.momentum?.maxConcurrentPositions}`);
+  getDeploymentSummary(config, config.paperTrading).forEach((row) => {
+    const status = row.enabled ? `enabled on ${row.chains.join(',') || 'none'}` : 'disabled';
+    const suffix = row.implemented ? '' : ' (planned, no runtime)';
+    logger.info(`  Strategy ${row.strategy}: ${status} | ${row.stage}${suffix}`);
+  });
   logger.info(`  Momentum Scan Interval: ${config.bot.momentumScanIntervalSeconds || 75}s`);
-  logger.info(`  Swing Scan Interval: ${config.bot.swingScanIntervalMinutes || 15}m`);
+  logger.info(`  Bull-Flag Scan Interval: ${config.bot.bullFlagScanIntervalSeconds || 90}s`);
   logger.info(`  Momentum Exit Checks: every ${config.bot.momentumExitCheckMinutes || 15}m`);
-  logger.info(`  Swing Exit Checks: every ${config.bot.swingExitCheckMinutes || 60}m`);
+  logger.info(`  Bull-Flag Exit Checks: every ${config.bot.bullFlagExitCheckMinutes || config.bot.momentumExitCheckMinutes || 15}m`);
   logger.info(`  Realtime Stop Monitor: ${config.risk?.realtimeStopLossEnabled !== false ? `enabled (${config.risk?.realtimeStopCheckSeconds || 8}s)` : 'disabled'}`);
-  logger.info(`  Swing Watchlist Refresh: every ${config.bot.swingWatchlistRefreshHours || 24}h`);
   logger.info(`  AI Brain: ${config.anthropic.enabled ? config.anthropic.model : 'disabled'}`);
   logger.info(
     `  Self-Evolution: ${config.selfEvolution?.enabled === true
@@ -5126,6 +5214,7 @@ async function main() {
     ingestExternalSignal,
     getResearchTargets,
     resetPaperPortfolio,
+    saveState,
     onConfigUpdated,
     getHealthStatus,
     getFilterStatsHistory: () => {
@@ -5337,10 +5426,6 @@ async function main() {
   cron.schedule('0 0 * * *', () => {
     logger.info('Daily reset - resetting risk guardian drawdown tracker');
     risk.resetDaily();
-  });
-
-  cron.schedule('15 0 * * *', () => {
-    refreshSwingWatchlists().catch((error) => logger.error(`Daily swing watchlist refresh failed: ${error.message}`));
   });
 
   logger.info(`Bot running. Dashboard at http://localhost:${config.bot.port}`);

@@ -142,8 +142,14 @@ function createDecisionProposals(deps) {
     if (portfolio.balanceDriftHalt) {
       blockers.push({ code: 'balance_drift_halt', reason: 'balance drift halt is active' });
     }
-    if (liveMode && String(process.env.SQL_ENABLED || '').toLowerCase() === 'true' && !sqlRuntimeState.selfTestOk) {
-      blockers.push({ code: 'sql_self_test_failed', reason: 'live execution blocked while SQL self-test is unhealthy' });
+    if (liveMode && String(process.env.SQL_ENABLED || '').toLowerCase() === 'true') {
+      const selfTestAgeMs = sqlRuntimeState.lastSelfTestAt ? (Date.now() - sqlRuntimeState.lastSelfTestAt) : Infinity;
+      const selfTestMaxAgeMs = Number(process.env.SQL_SELF_TEST_MAX_AGE_MS || 10 * 60 * 1000);
+      if (!sqlRuntimeState.selfTestOk) {
+        blockers.push({ code: 'sql_self_test_failed', reason: 'live execution blocked while SQL self-test is unhealthy' });
+      } else if (selfTestAgeMs > selfTestMaxAgeMs) {
+        blockers.push({ code: 'sql_self_test_stale', reason: `SQL self-test ok but stale (${(selfTestAgeMs / 60_000).toFixed(1)} min old, max ${(selfTestMaxAgeMs / 60_000).toFixed(0)} min)` });
+      }
     }
     if (liveMode && aiVerificationStatus.includes('pending')) {
       const freshCacheStatus = getAiDecisionCacheStatus(tokenData, strategyName);

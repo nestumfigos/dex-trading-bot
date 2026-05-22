@@ -21,7 +21,6 @@ function createDashboardState(deps) {
     getHealthStatus,
     getPortfolioSnapshot,
     getPrioritizedKucoinCatalystPairs,
-    supportsSwingOnChain,
     getScanStatus,
     getBrainState,
     getFilterStatsState,
@@ -78,10 +77,8 @@ function createDashboardState(deps) {
       });
     }
 
-    const latestCycles = [
-      ...((filterStatsState.recentCycles?.momentum || []).slice(0, 2)),
-      ...((filterStatsState.recentCycles?.swing || []).slice(0, 2)),
-    ];
+    const latestCycles = Object.values(filterStatsState.recentCycles || {})
+      .flatMap((cycles) => (Array.isArray(cycles) ? cycles.slice(0, 2) : []));
     latestCycles.forEach((cycle) => {
       const evaluated = Number(cycle?.evaluated || 0);
       const technicalBlocked = Number(cycle?.technicalBlocked || 0);
@@ -162,10 +159,10 @@ function createDashboardState(deps) {
       trackedTokens,
       catalystPairs: getPrioritizedKucoinCatalystPairs().slice(0, 20),
       recentSignals,
+      macroRegime: marketState.macroRegime || null,
       backtests: compact ? [] : marketState.backtests.slice(0, 5),
       simulations: compact ? [] : marketState.simulations.slice(0, 5),
       chainLabels: CHAIN_LABELS,
-      supportsSwingOnChain,
     });
   }
 

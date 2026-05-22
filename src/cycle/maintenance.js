@@ -168,8 +168,14 @@ async function runSqlAutoPrune(log) {
     ['dbo.ai_decisions',           720,       'decided_at'],    // 30d
     ['dbo.health_checks',          720,       'ts'],            // 30d
   ];
+  const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const isSafeIdent = (s) => typeof s === 'string' && s.split('.').every((p) => IDENT_RE.test(p));
   let totalDeleted = 0;
   for (const [table, hours, tsCol] of PRUNE) {
+    if (!isSafeIdent(table) || !isSafeIdent(tsCol)) {
+      log.error(`[SQL prune] refusing unsafe identifier: table=${table} col=${tsCol}`);
+      continue;
+    }
     try {
       let batch;
       let deleted = 0;

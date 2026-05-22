@@ -19,10 +19,28 @@ class RiskGuardian {
     // Cache with TTL: map of cacheKey => { result, timestamp }
     this.honeypotCache = {};
     this.honeypotCacheTtlMs = 30 * 60 * 1000; // 30 minutes
+    // In-flight order tracking: { chainKey => totalUsd }
+    this._inFlightUsd = {};
   }
 
   buildPositionKey(chainKey, address) {
     return `${String(chainKey || '').trim().toLowerCase()}:${String(address || '').trim().toLowerCase()}`;
+  }
+
+  registerInFlightOrder(chainKey, sizeUsd) {
+    const k = String(chainKey || '').toLowerCase();
+    this._inFlightUsd[k] = (this._inFlightUsd[k] || 0) + Math.max(0, Number(sizeUsd || 0));
+  }
+
+  releaseInFlightOrder(chainKey, sizeUsd) {
+    const k = String(chainKey || '').toLowerCase();
+    this._inFlightUsd[k] = Math.max(0, (this._inFlightUsd[k] || 0) - Math.max(0, Number(sizeUsd || 0)));
+  }
+
+  invalidateHoneypotCache(tokenAddress, chain) {
+    const normalizedChain = this.normalizeChain(chain);
+    const cacheKey = `${normalizedChain}:${String(tokenAddress || '').toLowerCase()}`;
+    delete this.honeypotCache[cacheKey];
   }
 
   getLocalDateStamp(date = new Date()) {
@@ -43,12 +61,13 @@ class RiskGuardian {
     const maxCorr = Number(config.risk.maxCorrelationPct ?? 75) / 100;
     const openKeys = Object.keys(this.portfolio.positions).filter((key) => key !== candidateKey);
 
-    if (!openKeys.length || !priceHistories[candidateKey]) {
-      logger.debug(
-        `Correlation guard skipped for ${candidateAddress.slice(0, 8)}: ` +
-        `${openKeys.length ? 'candidate has no price history yet' : 'no open positions'}`
-      );
+    if (!openKeys.length) {
+      logger.debug(`Correlation guard skipped for ${candidateAddress.slice(0, 8)}: no open positions`);
       return { blocked: false };
+    }
+    if (!priceHistories[candidateKey]) {
+      logger.debug(`Correlation guard: ${candidateAddress.slice(0, 8)} has no price history — applying conservative size cap`);
+      return { blocked: false, noHistoryCapMultiplier: 0.5 };
     }
 
     const subset = { [candidateKey]: priceHistories[candidateKey] };
@@ -67,7 +86,10 @@ class RiskGuardian {
 
       for (let j = 0; j < tokens.length; j++) {
         if (j === candIdx) continue;
-        const corr = matrix[candIdx][j];
+        const row = matrix[candIdx];
+        if (!Array.isArray(row) || j >= row.length) continue;
+        const corr = row[j];
+        if (!Number.isFinite(corr)) continue;
         if (strongestCorr === null || corr > strongestCorr) {
           strongestCorr = corr;
           strongestToken = tokens[j];
@@ -110,6 +132,136 @@ class RiskGuardian {
     return value;
   }
 
+  getLearningState() {
+    if (!this.portfolio.learning || typeof this.portfolio.learning !== 'object') {
+      this.portfolio.learning = {
+        badTokenMemory: {},
+        sleevePerformance: {},
+        brainProfiles: {},
+      };
+    }
+    if (!this.portfolio.learning.badTokenMemory || typeof this.portfolio.learning.badTokenMemory !== 'object') {
+      this.portfolio.learning.badTokenMemory = {};
+    }
+    if (!this.portfolio.learning.sleevePerformance || typeof this.portfolio.learning.sleevePerformance !== 'object') {
+      this.portfolio.learning.sleevePerformance = {};
+    }
+    if (!this.portfolio.learning.brainProfiles || typeof this.portfolio.learning.brainProfiles !== 'object') {
+      this.portfolio.learning.brainProfiles = {};
+    }
+    return this.portfolio.learning;
+  }
+
+  getBrainProfileKey(tokenData = {}, strategyName = 'momentum') {
+    const chainKey = this.normalizeChain(tokenData.chainKey || tokenData.chain);
+    const normalizedStrategy = String(strategyName || 'momentum').toLowerCase();
+    const lane = String(tokenData.discoveryLane || tokenData.entryLane || 'unknown').toLowerCase();
+    const trigger = String(tokenData.entryTriggerTimeframe || tokenData.triggerTimeframe || 'unknown').toLowerCase();
+    return `${chainKey}:${normalizedStrategy}:${lane}:${trigger}`;
+  }
+
+  evaluateBrainProfile(tokenData = {}, strategyName = 'momentum') {
+    if (config.risk?.learningEnabled === false || config.risk?.brainEnabled === false) {
+      return { allowed: true, multiplier: 1, profileKey: null, reason: null };
+    }
+
+    const learning = this.getLearningState();
+    const profileKey = this.getBrainProfileKey(tokenData, strategyName);
+    const profile = learning.brainProfiles?.[profileKey];
+    if (!profile || typeof profile !== 'object') {
+      const unseenMultiplier = Math.max(0.1, Number(config.risk?.brainUnseenMultiplier || 0.75));
+      return { allowed: true, multiplier: unseenMultiplier, profileKey, reason: null };
+    }
+
+    const minSamples = Math.max(3, Number(config.risk?.brainMinSamples || 8));
+    const lowWinRatePct = Math.max(0, Number(config.risk?.brainLowWinRatePct || 35));
+    const highWinRatePct = Math.max(lowWinRatePct, Number(config.risk?.brainHighWinRatePct || 60));
+    const blockWinRatePct = Math.max(0, Number(config.risk?.brainBlockWinRatePct || 22));
+    const exploreBypassPct = Math.max(0, Number(config.risk?.brainExploreBypassPct || 7));
+    const reduceMultiplier = Math.max(0.1, Number(config.risk?.brainReduceMultiplier || 0.7));
+    const boostMultiplier = Math.max(0.1, Number(config.risk?.brainBoostMultiplier || 1.1));
+    const minMultiplier = Math.max(0.1, Number(config.risk?.brainMinMultiplier || 0.5));
+    const maxMultiplier = Math.max(minMultiplier, Number(config.risk?.brainMaxMultiplier || 1.2));
+
+    const samples = Number(profile.samples || 0);
+    const recentWinRatePct = Number(
+      Number.isFinite(Number(profile.recentWinRatePct))
+        ? profile.recentWinRatePct
+        : (samples > 0 ? (Number(profile.wins || 0) / samples) * 100 : 50)
+    );
+
+    let multiplier = 1;
+    if (samples >= minSamples) {
+      if (recentWinRatePct < lowWinRatePct) multiplier = reduceMultiplier;
+      else if (recentWinRatePct >= highWinRatePct) multiplier = boostMultiplier;
+    }
+    multiplier = Math.max(minMultiplier, Math.min(maxMultiplier, multiplier));
+
+    const hardBlock = samples >= (minSamples * 2) && recentWinRatePct < blockWinRatePct;
+    if (hardBlock) {
+      const bypassRoll = Math.random() * 100;
+      const bypassed = bypassRoll < exploreBypassPct;
+      if (!bypassed) {
+        return {
+          allowed: false,
+          multiplier,
+          profileKey,
+          reason: `Brain blocked profile ${profileKey}: recent win rate ${recentWinRatePct.toFixed(1)}% over ${samples} samples`,
+        };
+      }
+      logger.info(
+        `${tokenData.symbol}: brain exploration bypass triggered for blocked profile ${profileKey} ` +
+        `(roll=${bypassRoll.toFixed(1)} < ${exploreBypassPct.toFixed(1)})`
+      );
+    }
+
+    return {
+      allowed: true,
+      multiplier,
+      profileKey,
+      reason: null,
+    };
+  }
+
+  getLearningTokenKey(tokenData = {}) {
+    const chainKey = this.normalizeChain(tokenData.chainKey || tokenData.chain);
+    const address = String(tokenData.address || '').trim().toLowerCase();
+    if (!chainKey || !address) return '';
+    return `${chainKey}:${address}`;
+  }
+
+  checkLearnedBadPattern(tokenData = {}) {
+    if (config.risk?.learningEnabled === false) {
+      return { allowed: true };
+    }
+
+    const learning = this.getLearningState();
+    const tokenKey = this.getLearningTokenKey(tokenData);
+    if (!tokenKey) return { allowed: true };
+
+    const record = learning.badTokenMemory[tokenKey];
+    if (!record || typeof record !== 'object') {
+      return { allowed: true };
+    }
+
+    const nowMs = Date.now();
+    const banUntilMs = Date.parse(record.banUntil || '');
+    const hardBan = Boolean(record.hardBan);
+    const activeBan = hardBan || (Number.isFinite(banUntilMs) && banUntilMs > nowMs);
+
+    if (!activeBan) {
+      delete learning.badTokenMemory[tokenKey];
+      return { allowed: true };
+    }
+
+    const banUntil = hardBan ? 'indefinite' : (record.banUntil || 'unknown');
+    return {
+      allowed: false,
+      reason: `Learned bad pattern for ${tokenData.symbol || tokenKey} (${tokenKey}); blocked until ${banUntil}`,
+      code: 'learned_bad_pattern',
+    };
+  }
+
   getPositionValueUsd(position = {}) {
     const currentPrice = Number(position.currentPrice || position.entryPrice || 0);
     const quantity = Number(position.quantity || 0);
@@ -117,6 +269,14 @@ class RiskGuardian {
       return quantity * currentPrice;
     }
     return Number(position.costBasisUsd || position.initialSizeUsd || 0);
+  }
+
+  // Cost-basis valuation — used for heat/exposure checks so that price appreciation
+  // on winners doesn't artificially inflate exposure and block new trades.
+  getPositionCostBasisUsd(position = {}) {
+    const costBasis = Number(position.costBasisUsd || 0);
+    if (Number.isFinite(costBasis) && costBasis > 0) return costBasis;
+    return Number(position.initialSizeUsd || 0);
   }
 
   getEquityBalanceUsd() {
@@ -133,16 +293,58 @@ class RiskGuardian {
     if (Number.isFinite(chainWalletBalance) && chainWalletBalance > 0) {
       return chainWalletBalance;
     }
+    // Paper trading fallback: no per-chain wallets exist, allocate from total portfolio balance.
+    // FIX (Day 4): subtract known-real chain balances FIRST so an outage on one chain doesn't
+    // cause double-counting on the others. Previously every null chain got total/4, which
+    // ignored real balances on the chains that had them.
+    if (config.paperTrading) {
+      const totalBalance = Number(this.portfolio?.balance || 0);
+      if (totalBalance > 0) {
+        const balances = this.portfolio?.walletBalancesUsd || {};
+        const allChains = ['solana', 'bsc', 'base', 'kucoin'];
+        let knownTotal = 0;
+        let nullChainCount = 0;
+        for (const c of allChains) {
+          const v = Number(balances[c]);
+          if (Number.isFinite(v) && v > 0) {
+            knownTotal += v;
+          } else {
+            nullChainCount += 1;
+          }
+        }
+        if (nullChainCount === 0) {
+          // All chains have real balances; the current chain's real value would have been returned above.
+          // Defensive zero — should never reach here.
+          return 0;
+        }
+        const remaining = Math.max(0, totalBalance - knownTotal);
+        return remaining / nullChainCount;
+      }
+    }
     return 0;
   }
 
   getChainExposureUsd(chainKey) {
     const normalized = this.normalizeChain(chainKey);
+    const exemptSymbols = new Set((config.risk?.heatExemptSymbols || []).map(s => String(s).toUpperCase()));
     return Object.values(this.portfolio.positions || {}).reduce((sum, position) => {
       const positionChain = this.normalizeChain(position?.chainKey || position?.chain);
       if (positionChain !== normalized) return sum;
-      return sum + this.getPositionValueUsd(position);
+      const sym = String(position?.symbol || position?.token || '').toUpperCase();
+      if (exemptSymbols.has(sym)) return sum;
+      // Use cost basis (capital deployed), not current value. Otherwise winners
+      // appear to consume more heat than they actually do, blocking new entries.
+      return sum + this.getPositionCostBasisUsd(position);
     }, 0);
+  }
+
+  getChainCapitalBaseUsd(chainKey) {
+    const normalized = this.normalizeChain(chainKey);
+    const freeCashUsd = Number(this.getChainWalletBalanceUsd(normalized) || 0);
+    const managedExposureUsd = Number(this.getChainExposureUsd(normalized) || 0);
+    const unmanagedExposureUsd = Number(this.portfolio?.untrackedWalletPositionValueUsdByChain?.[normalized] || 0);
+    const capitalBaseUsd = freeCashUsd + managedExposureUsd + unmanagedExposureUsd;
+    return Number.isFinite(capitalBaseUsd) && capitalBaseUsd > 0 ? capitalBaseUsd : freeCashUsd;
   }
 
   getTodayChainPnlUsd(chainKey) {
@@ -184,6 +386,7 @@ class RiskGuardian {
       return {
         allowed: false,
         reason: `${normalized} daily loss ${Math.abs(chainPnlUsd).toFixed(2)} exceeds chain limit ${limitUsd.toFixed(2)} (${rawLimit.toFixed(2)}% of baseline)`,
+        code: 'chain_daily_loss',
       };
     }
     return { allowed: true };
@@ -255,11 +458,15 @@ class RiskGuardian {
     return true;
   }
 
-  checkPerformanceGate(stats = {}) {
+  checkPerformanceGate(stats = {}, tokenData = null) {
     const baseline = Number(this.dailyStartBalance || 0);
     const equity = Number(this.getEquityBalanceUsd() || 0);
     const maxDailyLossPct = Number(config.risk.maxDailyLossPct || 2.5);
-    const maxConsecutiveLosses = Number(config.risk.maxConsecutiveLosses || 4);
+    const normalizedChain = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const chainSpecificLossLimit = Number(config.risk?.maxConsecutiveLossesByChain?.[normalizedChain]);
+    const maxConsecutiveLosses = Number.isFinite(chainSpecificLossLimit) && chainSpecificLossLimit > 0
+      ? chainSpecificLossLimit
+      : Number(config.risk.maxConsecutiveLosses || 4);
     const minTradesForKpiGate = Number(config.risk.minTradesForKpiGate || 40);
     const minProfitFactor = Number(config.risk.minProfitFactor || 1.15);
     const maxAverageSlippageBps = Number(config.risk.maxAverageSlippageBps || 180);
@@ -362,9 +569,10 @@ class RiskGuardian {
    */
   checkPortfolioHeat(tokenData = {}, strategyName = 'momentum') {
     const chainKey = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const chainCapitalBaseUsd = this.getChainCapitalBaseUsd(chainKey);
     const chainWalletBalanceUsd = this.getChainWalletBalanceUsd(chainKey);
-    if (!Number.isFinite(chainWalletBalanceUsd) || chainWalletBalanceUsd <= 0) {
-      return { heatPct: 0, totalSizeUsd: 0, chainWalletBalanceUsd, blocked: false };
+    if (!Number.isFinite(chainCapitalBaseUsd) || chainCapitalBaseUsd <= 0) {
+      return { heatPct: 0, totalSizeUsd: 0, chainWalletBalanceUsd, chainCapitalBaseUsd, blocked: false };
     }
 
     let maxChainHeatPct = Number(config.risk?.maxPortfolioHeatPct || 40);
@@ -375,17 +583,36 @@ class RiskGuardian {
     if (chainKey === 'kucoin' && Number(config.risk?.kucoinMaxPositionSizePct)) {
       maxChainHeatPct = Number(config.risk.kucoinMaxPositionSizePct);
     }
+    if (chainKeyLower === 'kucoin' && String(strategyName || '').toLowerCase() === 'momentum') {
+      const momentumAllowance = Number(config.risk?.kucoinMomentumHeatAllowancePct || 0);
+      if (Number.isFinite(momentumAllowance) && momentumAllowance > 0) {
+        maxChainHeatPct = Math.max(maxChainHeatPct, momentumAllowance);
+      }
+    }
+    if (chainKeyLower === 'kucoin' && String(strategyName || '').toLowerCase() === 'swing') {
+      const swingAllowance = Number(config.risk?.kucoinSwingHeatAllowancePct || 0);
+      if (Number.isFinite(swingAllowance) && swingAllowance > 0) {
+        maxChainHeatPct = Math.max(maxChainHeatPct, swingAllowance);
+      }
+    }
+    if (chainKeyLower === 'bsc' && String(strategyName || '').toLowerCase() === 'momentum') {
+      const bscAllowance = Number(config.risk?.bscMomentumHeatAllowancePct || 0);
+      if (Number.isFinite(bscAllowance) && bscAllowance > 0) {
+        maxChainHeatPct = Math.max(maxChainHeatPct, bscAllowance);
+      }
+    }
     const candidateSizeUsd = this.positionSize(tokenData, strategyName);
-    const totalSizeUsd = this.getChainExposureUsd(chainKey);
-    const currentHeatPct = (totalSizeUsd / chainWalletBalanceUsd) * 100;
+    const inFlightUsd = Number(this._inFlightUsd[String(chainKey).toLowerCase()] || 0);
+    const totalSizeUsd = this.getChainExposureUsd(chainKey) + inFlightUsd;
+    const currentHeatPct = (totalSizeUsd / chainCapitalBaseUsd) * 100;
     const projectedTotalSizeUsd = totalSizeUsd + Math.max(0, candidateSizeUsd);
-    const heatPct = (projectedTotalSizeUsd / chainWalletBalanceUsd) * 100;
+    const heatPct = (projectedTotalSizeUsd / chainCapitalBaseUsd) * 100;
     const blocked = heatPct > maxChainHeatPct;
 
     if (blocked) {
       logger.warn(
         `Chain heat check (${chainKey}): projected ${heatPct.toFixed(1)}% exposure ` +
-        `exceeds limit ${maxChainHeatPct}% ($${projectedTotalSizeUsd.toFixed(2)} / $${chainWalletBalanceUsd.toFixed(2)} chain wallet)`
+        `exceeds limit ${maxChainHeatPct}% ($${projectedTotalSizeUsd.toFixed(2)} / $${chainCapitalBaseUsd.toFixed(2)} chain capital base, free cash $${chainWalletBalanceUsd.toFixed(2)})`
       );
     }
 
@@ -394,6 +621,7 @@ class RiskGuardian {
       currentHeatPct,
       totalSizeUsd,
       chainWalletBalanceUsd,
+      chainCapitalBaseUsd,
       blocked,
       candidateSizeUsd,
       code: blocked ? 'portfolio_heat' : undefined,
@@ -404,6 +632,14 @@ class RiskGuardian {
   }
 
   async canTrade(tokenData, priceHistories = {}, strategyName = 'momentum') {
+    const normalizedChain = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    if (!config.paperTrading && normalizedChain === 'bsc' && config.risk?.liveBscEntriesEnabled !== true) {
+      return {
+        allowed: false,
+        reason: 'live bsc entries disabled',
+        code: 'live_bsc_disabled',
+      };
+    }
     if (this.portfolio?.safeMode) {
       return { allowed: false, reason: 'safe mode active — operator review required' };
     }
@@ -446,10 +682,26 @@ class RiskGuardian {
       return chainRisk;
     }
 
-    const performanceGate = this.checkPerformanceGate(this.portfolio.stats || {});
+    const performanceGate = this.checkPerformanceGate(this.portfolio.stats || {}, tokenData);
     if (!performanceGate.allowed) {
       return performanceGate;
     }
+
+    const learnedPatternGate = this.checkLearnedBadPattern(tokenData);
+    if (!learnedPatternGate.allowed) {
+      return learnedPatternGate;
+    }
+
+    const brainDecision = this.evaluateBrainProfile(tokenData, strategyName);
+    if (!brainDecision.allowed) {
+      return {
+        allowed: false,
+        reason: brainDecision.reason,
+        code: 'brain_profile_block',
+      };
+    }
+    tokenData._brainSizeMultiplier = Number(brainDecision.multiplier || 1);
+    tokenData._brainProfileKey = brainDecision.profileKey || undefined;
 
     const portfolioHeat = this.checkPortfolioHeat(tokenData, strategyName);
     if (portfolioHeat.blocked) {
@@ -460,6 +712,32 @@ class RiskGuardian {
       };
     }
 
+    if (strategyName === 'momentum') {
+      const minMove24hPctAll = Math.max(0, Number(config.strategies?.momentum?.minPriceChange24hPctAll || 0));
+      const maxMove24hPctAll = Math.max(0, Number(config.strategies?.momentum?.maxPriceChange24hPctAll || 0));
+      const minMove24hPct = normalizedChain === 'kucoin'
+        ? Math.max(minMove24hPctAll, Number(config.strategies?.momentum?.minPriceChange24hPctKucoin || 0))
+        : minMove24hPctAll;
+      const maxMove24hPct = normalizedChain === 'kucoin'
+        ? Math.max(0, Number(config.strategies?.momentum?.maxPriceChange24hPctKucoin || maxMove24hPctAll || 0))
+        : maxMove24hPctAll;
+      const move24hPct = Math.abs(Number(tokenData?.priceChange24h || 0));
+      if (Number.isFinite(minMove24hPct) && minMove24hPct > 0 && move24hPct < minMove24hPct) {
+        return {
+          allowed: false,
+          reason: `${normalizedChain || 'token'} momentum 24h move ${move24hPct.toFixed(2)}% below minimum ${minMove24hPct.toFixed(2)}%`,
+          code: 'momentum_min_momentum_24h',
+        };
+      }
+      if (Number.isFinite(maxMove24hPct) && maxMove24hPct > 0 && move24hPct > maxMove24hPct) {
+        return {
+          allowed: false,
+          reason: `${normalizedChain || 'token'} momentum 24h move ${move24hPct.toFixed(2)}% above max ${maxMove24hPct.toFixed(2)}% (late chase guard)`,
+          code: 'momentum_max_momentum_24h',
+        };
+      }
+    }
+
     const strategyLimit = Number(config.strategies?.[strategyName]?.maxConcurrentPositions || 3);
     const strategyOpenPositions = this.getStrategyPositionCount(strategyName);
     if (strategyOpenPositions >= strategyLimit) {
@@ -467,6 +745,32 @@ class RiskGuardian {
         allowed: false,
         reason: `${strategyName} max concurrent positions (${strategyLimit}) reached`,
         code: 'max_concurrent_positions',
+      };
+    }
+
+    // Per-chain position limit.
+    // Optional chain overrides via MAX_POSITIONS_PER_CHAIN_BY_CHAIN JSON, e.g. {"kucoin":4,"bsc":3}
+    const chainLimitMap = (() => {
+      try {
+        const parsed = JSON.parse(process.env.MAX_POSITIONS_PER_CHAIN_BY_CHAIN || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    })();
+    const chainKeyForLimit = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
+    const chainSpecificLimit = Number(chainLimitMap[String(chainKeyForLimit || '').toLowerCase()]);
+    const maxPerChain = Number.isFinite(chainSpecificLimit) && chainSpecificLimit > 0
+      ? chainSpecificLimit
+      : Number(process.env.MAX_POSITIONS_PER_CHAIN || 3);
+    const chainPositionCount = Object.values(this.portfolio.positions || {}).filter(
+      (p) => this.normalizeChain(p.chainKey || p.chain) === chainKeyForLimit
+    ).length;
+    if (chainPositionCount >= maxPerChain) {
+      return {
+        allowed: false,
+        reason: `${chainKeyForLimit} per-chain position limit (${maxPerChain}) reached`,
+        code: 'per_chain_position_limit',
       };
     }
 
@@ -511,12 +815,60 @@ class RiskGuardian {
     }
 
     // Enhanced honeypot check using GoPlus
-    const isHoneypot = await this.checkHoneypot(tokenData.address, tokenData.chain);
-    if (isHoneypot) {
+    const honeypotCheck = await this.checkHoneypot(tokenData.address, tokenData.chain);
+    if (honeypotCheck.blocked) {
       return { allowed: false, reason: 'Honeypot/scam detected by GoPlus — trade blocked', code: 'honeypot' };
     }
 
-    if (tokenData.topHoldersPct > 80) {
+    const chainKey = this.normalizeChain(tokenData.chainKey || tokenData.chain);
+    const DEX_CHAINS_GUARDIAN = ['bsc', 'solana', 'base'];
+    if (DEX_CHAINS_GUARDIAN.includes(chainKey) && !config.paperTrading && honeypotCheck.unavailable) {
+      const fallbackEnabled = config.risk?.goplusFallbackHeuristicEnabled !== false;
+      if (fallbackEnabled) {
+        const buyTax = Number(tokenData.buyTax || 0);
+        const sellTax = Number(tokenData.sellTax || 0);
+        const topHoldersPct = Number(tokenData.topHoldersPct || 0);
+        const listingAgeHours = Number(tokenData.listingAgeDays || 0) * 24;
+        const liquidityUsd = Number(tokenData.liquidityUsd || 0);
+
+        const taxRedFlag = buyTax > 8 || sellTax > 8;
+        const concentrationRedFlag = topHoldersPct > 70;
+        const tooNew = listingAgeHours > 0 && listingAgeHours < 1;
+        const tooThin = liquidityUsd > 0 && liquidityUsd < Math.max(20000, Number(config.risk?.goplusFallbackMinLiquidityUsd || 30000));
+
+        if (taxRedFlag || concentrationRedFlag || tooNew || tooThin) {
+          const reasons = [];
+          if (taxRedFlag) reasons.push(`tax buy=${buyTax}% sell=${sellTax}%`);
+          if (concentrationRedFlag) reasons.push(`top holders ${topHoldersPct}%`);
+          if (tooNew) reasons.push(`age ${listingAgeHours.toFixed(1)}h`);
+          if (tooThin) reasons.push(`liquidity $${liquidityUsd.toFixed(0)}`);
+          return {
+            allowed: false,
+            reason: `GoPlus unavailable — heuristic fallback blocked: ${reasons.join(', ')}`,
+            code: 'goplus_fallback_blocked',
+          };
+        }
+
+        logger.warn(`GoPlus unavailable for ${tokenData.symbol} on ${chainKey} — passed heuristic fallback`);
+        tokenData._goplusHeuristicFallback = true;
+      } else {
+        return {
+          allowed: false,
+          reason: `GoPlus security data unavailable for ${chainKey.toUpperCase()} token - trade blocked in live mode`,
+          code: 'goplus_unavailable',
+        };
+      }
+    }
+    const unknownTopHoldersPct = tokenData.topHoldersPct == null || !Number.isFinite(Number(tokenData.topHoldersPct));
+    if (chainKey === 'bsc' && !config.paperTrading && unknownTopHoldersPct) {
+      return {
+        allowed: false,
+        reason: 'BSC holder concentration data unavailable â€” trade blocked in live mode',
+        code: 'unknown_holder_concentration',
+      };
+    }
+
+    if (Number(tokenData.topHoldersPct) > 80) {
       return {
         allowed: false,
         reason: `Wallet concentration too high: top-10 hold ${tokenData.topHoldersPct}%`,
@@ -540,6 +892,9 @@ class RiskGuardian {
     const corrCheck = this.checkCorrelation(candidateKey, tokenData.address, priceHistories);
     if (corrCheck.blocked) {
       return { allowed: false, reason: corrCheck.reason };
+    }
+    if (corrCheck.noHistoryCapMultiplier) {
+      tokenData._corrNoHistoryMultiplier = corrCheck.noHistoryCapMultiplier;
     }
 
     return { allowed: true };
@@ -581,6 +936,66 @@ class RiskGuardian {
       );
     }
 
+    const brainMultiplier = Number(tokenData?._brainSizeMultiplier || 1);
+    if (Number.isFinite(brainMultiplier) && brainMultiplier > 0) {
+      pct *= brainMultiplier;
+      logger.info(
+        `${tokenData.symbol}: brain sizing multiplier ${brainMultiplier.toFixed(2)}` +
+        `${tokenData?._brainProfileKey ? ` (profile=${tokenData._brainProfileKey})` : ''}`
+      );
+    }
+
+    // Recovery mode — shrink position to preserve capital while in a losing hole
+    const recoveryMultiplier = Number(tokenData?._recoveryMultiplier || 1);
+    const recoverySeverity = String(tokenData?._recoverySeverity || 'none');
+    if (recoveryMultiplier < 1 && recoverySeverity !== 'none') {
+      pct *= recoveryMultiplier;
+      logger.warn(
+        `${tokenData.symbol}: RECOVERY(${recoverySeverity.toUpperCase()}) size multiplier ${recoveryMultiplier.toFixed(2)} ` +
+        `— bot is in a hole, preserving capital until ${recoverySeverity === 'deep' ? '3' : '2'} consecutive wins`
+      );
+    }
+
+    // Macro intelligence size multiplier — adjusts for market sentiment
+    const macroSizeMultiplier = Number(tokenData?._macroSizeMultiplier || 1);
+    if (macroSizeMultiplier !== 1 && Number.isFinite(macroSizeMultiplier) && macroSizeMultiplier > 0) {
+      pct *= macroSizeMultiplier;
+      logger.info(`${tokenData.symbol}: macro intelligence size multiplier ${macroSizeMultiplier.toFixed(2)}`);
+    }
+
+    const corrNoHistoryMultiplier = Number(tokenData?._corrNoHistoryMultiplier || 1);
+    if (corrNoHistoryMultiplier < 1) {
+      pct *= corrNoHistoryMultiplier;
+      logger.info(`${tokenData.symbol}: correlation no-history cap multiplier ${corrNoHistoryMultiplier.toFixed(2)}`);
+    }
+
+    const rolloutMultiplier = Number(tokenData?._promotionRolloutMultiplier || 1);
+    const rolloutStage = String(tokenData?._promotionRolloutStage || '');
+    if (rolloutMultiplier > 0 && rolloutMultiplier !== 1) {
+      pct *= rolloutMultiplier;
+      logger.warn(
+        `${tokenData.symbol}: promotion rollout multiplier ${rolloutMultiplier.toFixed(2)}` +
+        `${rolloutStage ? ` (stage=${rolloutStage})` : ''}`
+      );
+    }
+
+    if (config.risk?.adaptiveSizingEnabled !== false) {
+      const learning = this.getLearningState();
+      const sleeveKey = `${chainKey}:${String(strategyName || 'momentum').toLowerCase()}`;
+      const sleeve = learning.sleevePerformance?.[sleeveKey];
+      const adaptiveMultiplier = Number(sleeve?.sizeMultiplier || 1);
+      if (Number.isFinite(adaptiveMultiplier) && adaptiveMultiplier > 0) {
+        pct *= adaptiveMultiplier;
+        const winRateText = Number.isFinite(Number(sleeve?.recentWinRatePct))
+          ? Number(sleeve.recentWinRatePct).toFixed(1)
+          : 'n/a';
+        logger.info(
+          `${tokenData.symbol}: adaptive sleeve multiplier ${adaptiveMultiplier.toFixed(2)} ` +
+          `(sleeve=${sleeveKey}, recentWinRate=${winRateText}%)`
+        );
+      }
+    }
+
     // Volatility adjustment
     const volatility = Math.abs(tokenData.priceChange24h || 0);
     if (volatility > 20) {
@@ -615,6 +1030,18 @@ class RiskGuardian {
       logger.info(`${tokenData.symbol}: BSC relaxed continuation multiplier ${relaxedMultiplier.toFixed(2)}`);
     }
 
+    if (chainKey === 'kucoin' && tokenData?.isEarlyBreakout === true) {
+      const ebMultiplier = Number(config.risk?.kucoinEarlyBreakoutPositionSizeMultiplier || 0.70);
+      pct *= ebMultiplier;
+      logger.info(`${tokenData.symbol}: KuCoin early breakout position size multiplier ${ebMultiplier.toFixed(2)}`);
+    }
+
+    if (tokenData?._goplusHeuristicFallback === true) {
+      const fallbackMultiplier = Number(config.risk?.goplusFallbackSizeMultiplier || 0.5);
+      pct *= fallbackMultiplier;
+      logger.info(`${tokenData.symbol}: GoPlus fallback size multiplier ${fallbackMultiplier.toFixed(2)}`);
+    }
+
     let agePenaltyMultiplier = 1;
     if (tokenData.listingAgeDays < 1) {
       pct *= 0.5;
@@ -637,15 +1064,74 @@ class RiskGuardian {
       );
     }
 
-    let chainWalletBalanceUsd = this.getChainWalletBalanceUsd(chainKey);
+    let chainWalletBalanceUsd = this.getChainCapitalBaseUsd(chainKey);
     // Enforce KuCoin 80% allocation cap
     if (chainKey === 'kucoin') {
       chainWalletBalanceUsd = chainWalletBalanceUsd * 0.8;
     }
-    const targetSizeUsd = chainWalletBalanceUsd * pct;
+    let targetSizeUsd = chainWalletBalanceUsd * pct;
+
+    if (config.portfolioOptimization?.enabled !== false && config.portfolioOptimization?.sizeControlEnabled === true) {
+      const hrpTargetWeight = Number(tokenData?.hrpTargetWeight);
+      const minTargetWeight = Number(config.portfolioOptimization?.minTargetWeight || 0.02);
+      const maxSizeMultiplier = Number(config.portfolioOptimization?.maxSizeMultiplier || 1.25);
+      if (Number.isFinite(hrpTargetWeight) && hrpTargetWeight > 0) {
+        const effectiveWeight = Math.max(minTargetWeight, Math.min(1, hrpTargetWeight));
+        const hrpCapUsd = chainWalletBalanceUsd * effectiveWeight * Math.max(0.1, maxSizeMultiplier);
+        if (hrpCapUsd > 0 && targetSizeUsd > hrpCapUsd) {
+          logger.info(`${tokenData.symbol}: HRP allocation cap reduced size from $${targetSizeUsd.toFixed(2)} to $${hrpCapUsd.toFixed(2)} (targetWeight=${(effectiveWeight * 100).toFixed(1)}%)`);
+          targetSizeUsd = hrpCapUsd;
+        }
+      }
+    }
+
+    // Liquidity-depth aware sizing: scale position down for thin-book tokens to limit
+    // exit slippage. Without this, the bot can take a position that consumes 5%+ of
+    // available liquidity, and exit slippage eats the entire edge.
+    if (config.risk?.liquidityDepthSizingEnabled !== false) {
+      const liquidityUsd = Number(tokenData.liquidityUsd || 0);
+      if (liquidityUsd > 0 && targetSizeUsd > 0) {
+        const targetSharePct = Number(config.risk?.liquidityDepthMaxSharePct || 1.5); // % of book
+        const idealMaxSize = liquidityUsd * (targetSharePct / 100);
+        if (targetSizeUsd > idealMaxSize) {
+          targetSizeUsd = idealMaxSize;
+        }
+      }
+    }
+
+    // ATR / volatility-informed risk-per-trade cap.
+    // This behaves more like a classic quant risk budget: if the stop distance is wide,
+    // we cut size so a normal adverse move does not consume too much equity.
+    if (config.risk?.atrRiskSizingEnabled !== false) {
+      const equityBaseUsd = Math.max(0, Number(this.getEquityBalanceUsd() || chainWalletBalanceUsd || 0));
+      const riskBudgetUsd = equityBaseUsd * (Math.max(0.05, Number(config.risk?.riskPerTradePct || 0.6)) / 100);
+      const atrProxyPct = Math.max(
+        Number(tokenData?.atrProxyPct || 0),
+        Number(tokenData?.garchVolatilityPct || 0) * 0.65,
+        Number(tokenData?.realizedVolPct || 0) * 0.55,
+        Number(config.risk?.atrFallbackStopPct || 3.5)
+      );
+      const effectiveStopPct = Math.max(Number(config.risk?.stopLossPct || 8) * 0.5, atrProxyPct);
+      if (riskBudgetUsd > 0 && effectiveStopPct > 0) {
+        const atrCappedSizeUsd = riskBudgetUsd / (effectiveStopPct / 100);
+        if (atrCappedSizeUsd > 0 && targetSizeUsd > atrCappedSizeUsd) {
+          logger.info(
+            `${tokenData.symbol}: ATR risk cap reduced size from $${targetSizeUsd.toFixed(2)} to $${atrCappedSizeUsd.toFixed(2)} ` +
+            `(riskBudget=$${riskBudgetUsd.toFixed(2)}, stop~${effectiveStopPct.toFixed(2)}%)`
+          );
+          targetSizeUsd = atrCappedSizeUsd;
+        }
+      }
+    }
+
     const chainOpenExposureUsd = this.getChainExposureUsd(chainKey);
     const remainingChainCapacityUsd = Math.max(0, chainWalletBalanceUsd - chainOpenExposureUsd);
     const sizeUsd = Math.min(targetSizeUsd, remainingChainCapacityUsd);
+    // Floor: never reduce below absolute minimum (avoid dust trades that won't fill)
+    const minSizeUsd = Number(config.risk?.minPositionSizeUsd || 5);
+    if (sizeUsd > 0 && sizeUsd < minSizeUsd) {
+      return 0;
+    }
     return Number.isFinite(sizeUsd) && sizeUsd > 0 ? sizeUsd : 0;
   }
 
@@ -721,11 +1207,16 @@ class RiskGuardian {
   async checkHoneypot(tokenAddress, chain) {
     const normalizedChain = this.normalizeChain(chain);
     const cacheKey = `${normalizedChain}:${tokenAddress.toLowerCase()}`;
+    // Fail-closed for all live DEX chains (BSC, Solana, Base) — not CEX, not paper trading.
+    // Previously only BSC was fail-closed; Solana and Base would silently pass if GoPlus was down.
+    const DEX_CHAINS = ['bsc', 'solana', 'base'];
+    const failClosedForMissingData = DEX_CHAINS.includes(normalizedChain) && !config.paperTrading;
 
     if (normalizedChain === 'kucoin') {
       logger.debug(`Honeypot check skipped for KuCoin (CEX): ${tokenAddress}`);
-      this.honeypotCache[cacheKey] = { result: false, timestamp: Date.now() };
-      return false;
+      const result = { blocked: false, unavailable: false };
+      this.honeypotCache[cacheKey] = { result, timestamp: Date.now() };
+      return result;
     }
     
     // Check cache with TTL to prevent stale honeypot/safety status
@@ -750,7 +1241,7 @@ class RiskGuardian {
       const chainId = chainMap[normalizedChain];
       if (!chainId) {
         logger.warn(`Unknown chain for honeypot check: ${chain}`);
-        return false;
+        return { blocked: false, unavailable: true };
       }
 
       const url = `https://api.gopluslabs.io/api/v1/token_security/${chainId}?contract_addresses=${tokenAddress.toLowerCase()}`;
@@ -765,7 +1256,7 @@ class RiskGuardian {
 
       if (response.status !== 200) {
         logger.warn(`GoPlus API error for ${tokenAddress}: ${response.status}`);
-        return false;
+        return { blocked: false, unavailable: failClosedForMissingData };
       }
 
       const data = response.data;
@@ -773,7 +1264,7 @@ class RiskGuardian {
 
       if (!tokenData) {
         logger.warn(`No GoPlus data for ${tokenAddress}`);
-        return false;
+        return { blocked: false, unavailable: failClosedForMissingData };
       }
 
       // Check for honeypot, scam, or other red flags
@@ -781,18 +1272,18 @@ class RiskGuardian {
       const isScam = tokenData.is_scam === '1' || tokenData.is_blacklisted === '1';
       const hasHighRisk = tokenData.trading_cooldown === '1' || tokenData.transfer_pausable === '1';
 
-      const result = isHoneypot || isScam || hasHighRisk;
+      const result = { blocked: isHoneypot || isScam || hasHighRisk, unavailable: false };
       // Store result with timestamp for TTL expiration (30 minutes)
       this.honeypotCache[cacheKey] = { result, timestamp: Date.now() };
 
-      if (result) {
+      if (result.blocked) {
         logger.warn(`${tokenAddress} flagged by GoPlus: honeypot=${isHoneypot}, scam=${isScam}, high_risk=${hasHighRisk}`);
       }
 
       return result;
     } catch (error) {
       logger.error(`Honeypot check failed for ${tokenAddress}: ${error.message}`);
-      return false; // Default to safe if check fails
+      return { blocked: false, unavailable: failClosedForMissingData };
     }
   }
 }

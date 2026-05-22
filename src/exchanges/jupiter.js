@@ -25,6 +25,7 @@ const { getTokenMetrics } = require('../utils/coingecko');
 const { getNativeAssetPrice } = require('../utils/market-data');
 const { getTokenHolders, getTokenInfo } = require('../utils/onchain/solscan');
 const { getTokenTVL } = require('../utils/onchain/defillama');
+const dexscreenerClient = require('../utils/dexscreener-client');
 
 const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -72,46 +73,78 @@ class JupiterExchange {
     return true;
   }
 
-  getCachedNewTokens() {
+  getCachedNewTokens({ allowStale = false } = {}) {
     const ttlMs = Math.max(5_000, Number(config.birdeye?.cacheTtlMs || 60_000));
-    const fresh = Date.now() - Number(this._newTokensCache.fetchedAt || 0) <= ttlMs;
-    if (!fresh) return [];
+    const staleTtlMs = Math.max(ttlMs, Number(config.birdeye?.staleCacheTtlMs || 3_600_000));
+    const ageMs = Date.now() - Number(this._newTokensCache.fetchedAt || 0);
+    const fresh = ageMs <= ttlMs;
+    const usable = fresh || (allowStale && ageMs <= staleTtlMs);
+    if (!usable) return [];
     return Array.isArray(this._newTokensCache.tokens) ? this._newTokensCache.tokens : [];
   }
 
-  getCachedDexScreenerTokens() {
+  getCachedDexScreenerTokens({ allowStale = false } = {}) {
     const ttlMs = Math.max(5_000, Number(config.birdeye?.dexscreenerCacheTtlMs || 90_000));
-    const fresh = Date.now() - Number(this._dexscreenerTokensCache.fetchedAt || 0) <= ttlMs;
-    if (!fresh) return [];
+    const staleTtlMs = Math.max(ttlMs, Number(config.birdeye?.staleDexscreenerCacheTtlMs || 1_800_000));
+    const ageMs = Date.now() - Number(this._dexscreenerTokensCache.fetchedAt || 0);
+    const fresh = ageMs <= ttlMs;
+    const usable = fresh || (allowStale && ageMs <= staleTtlMs);
+    if (!usable) return [];
     return Array.isArray(this._dexscreenerTokensCache.tokens) ? this._dexscreenerTokensCache.tokens : [];
+  }
+
+  isBirdeyeInCooldown() {
+    return Date.now() < Number(this._birdeyeCooldownUntil || 0);
   }
 
   async fetchDexScreenerFallbackTokens() {
     const cached = this.getCachedDexScreenerTokens();
     if (cached.length > 0) return cached;
 
-    try {
-      const response = await axios.get('https://api.dexscreener.com/latest/dex/tokens/solana', { timeout: 10000 });
-      const rows = Array.isArray(response.data)
-        ? response.data
-        : (Array.isArray(response.data?.pairs) ? response.data.pairs : []);
-      const addresses = new Set();
-      rows.forEach((row) => {
-        const address = String(row?.tokenAddress || row?.address || row?.baseToken?.address || '').trim();
-        if (!address) return;
-        addresses.add(address);
-      });
+    // The chain-wide /latest/dex/tokens/<chain> endpoint returns {pairs:null} — broken.
+    // Use the token-boosts endpoints (returns real Solana tokens with chainId field).
+    // Combine "latest" (newly boosted) + "top" (most boosted ever) for coverage.
+    const endpoints = [
+      'https://api.dexscreener.com/token-boosts/latest/v1',
+      'https://api.dexscreener.com/token-boosts/top/v1',
+    ];
+    const addresses = new Set();
 
-      const tokens = Array.from(addresses);
-      this._dexscreenerTokensCache = {
-        tokens,
-        fetchedAt: Date.now(),
-      };
-      return tokens;
-    } catch (error) {
-      logger.debug(`Jupiter DexScreener fallback failed: ${error.message}`);
-      return [];
+    for (const url of endpoints) {
+      try {
+        const data = await dexscreenerClient.throttledFetch(url, { timeoutMs: 10000, cacheTtlMs: 60_000 });
+        const rows = Array.isArray(data) ? data : [];
+        rows.forEach((row) => {
+          if (String(row?.chainId || '').toLowerCase() !== 'solana') return;
+          const address = String(row?.tokenAddress || '').trim();
+          if (address && address.length >= 32) addresses.add(address);
+        });
+      } catch (error) {
+        logger.debug(`Jupiter DexScreener ${url} failed: ${error.message}`);
+      }
     }
+
+    try {
+      const data = await dexscreenerClient.throttledFetch('https://api.dexscreener.com/latest/dex/search?q=SOL', { timeoutMs: 10000, cacheTtlMs: 60_000 });
+      const pairs = Array.isArray(data?.pairs) ? data.pairs : [];
+      pairs.forEach((pair) => {
+        if (String(pair?.chainId || '').toLowerCase() !== 'solana') return;
+        const baseAddr = String(pair?.baseToken?.address || '').trim();
+        if (baseAddr && baseAddr.length >= 32) addresses.add(baseAddr);
+      });
+    } catch (error) {
+      logger.debug(`Jupiter DexScreener search failed: ${error.message}`);
+    }
+
+    const tokens = Array.from(addresses);
+    if (tokens.length > 0) {
+      logger.info(`Jupiter DexScreener fallback returned ${tokens.length} Solana token candidates`);
+    }
+    this._dexscreenerTokensCache = {
+      tokens,
+      fetchedAt: Date.now(),
+    };
+    return tokens;
   }
 
   async initialize() {
@@ -365,6 +398,60 @@ class JupiterExchange {
       throw new Error(`${sideLabel} simulation failed: ${JSON.stringify(sim.value.err)}`);
     }
 
+    // ── Jito bundle path (opt-in via JITO_BUNDLE_ENABLED=true) ───────────────
+    // Bundles the swap with a tip transaction so they land atomically in the same
+    // block — protects against sandwich attacks and partial fills.
+    const jitoEnabled = process.env.JITO_BUNDLE_ENABLED === 'true' && !config.paperTrading;
+    if (jitoEnabled) {
+      try {
+        const { submitSwapAsBundle, pollBundleStatus } = require('../utils/jito-bundle');
+        // Pass tipLamports=null/undefined → adaptive controller chooses (bounded by floor/cap)
+        // Set JITO_TIP_DYNAMIC=false to fall back to static JITO_TIP_LAMPORTS only.
+        const useStaticTip = process.env.JITO_TIP_DYNAMIC === 'false';
+        const tipOverride = useStaticTip ? Number(process.env.JITO_TIP_LAMPORTS || 250000) : undefined;
+        const bundleResult = await submitSwapAsBundle({
+          wallet: this.wallet,
+          signedSwapTx: tx,
+          tipLamports: tipOverride,
+          logger,
+        });
+        if (bundleResult.ok && bundleResult.swapSignature) {
+          const txid = bundleResult.swapSignature;
+          await this.connection.confirmTransaction(txid, 'confirmed');
+          const usedTip = bundleResult.tipLamports;
+          logger.info(
+            `${sideLabel} JITO BUNDLE confirmed: https://solscan.io/tx/${txid} ` +
+            `(slippage=${slippageBps}bps, priorityFee=${priorityFeeLamports}, tip=${usedTip} lamports, bundle=${bundleResult.bundleId})`
+          );
+          // Optional: poll bundle inclusion status for deeper telemetry (non-blocking)
+          if (process.env.JITO_POLL_INCLUSION !== 'false') {
+            pollBundleStatus({
+              bundleId: bundleResult.bundleId,
+              endpoint: bundleResult.endpoint,
+              timeoutMs: 30000,
+              logger,
+            }).then((s) => {
+              if (s.status === 'failed') logger.warn(`[Jito] Post-confirm bundle status: FAILED (${s.error})`);
+            }).catch(() => {});
+          }
+          const fill = await this.extractFillFromParsedTransaction(txid, quote).catch(() => ({}));
+          return {
+            txid,
+            slippageBps,
+            quotedPriceImpactPct: Number(quote?.priceImpactPct || 0) * 100,
+            jitoBundleId: bundleResult.bundleId,
+            jitoEndpoint: bundleResult.endpoint,
+            jitoTipLamports: usedTip,
+            ...fill,
+          };
+        }
+        logger.warn(`${sideLabel} Jito bundle rejected (${bundleResult.error}) — falling back to direct RPC send`);
+      } catch (err) {
+        logger.warn(`${sideLabel} Jito bundle path failed (${err.message}) — falling back to direct RPC send`);
+      }
+    }
+
+    // Default path: direct RPC send (no MEV bundle)
     const txid = await this.connection.sendRawTransaction(tx.serialize(), {
       skipPreflight: false,
       maxRetries: Number(config.execution.maxRetries || 3),
@@ -523,7 +610,11 @@ class JupiterExchange {
     }
 
     const addresses = new Set();
-    const MIN_LIQUIDITY = Number(config.risk.minLiquidityUsd || 10000);
+    // Use per-chain Solana liquidity floor if defined, else global default
+    const solanaMinLiqOverride = Number(config.risk.minLiquidityUsdByChain?.solana);
+    const MIN_LIQUIDITY = Number.isFinite(solanaMinLiqOverride) && solanaMinLiqOverride > 0
+      ? solanaMinLiqOverride
+      : Number(config.risk.minLiquidityUsd || 10000);
     const MIN_AGE_MS = 3 * 60 * 1000; // skip tokens younger than 3 minutes
 
     if (config.birdeye.apiKey) {
@@ -539,10 +630,17 @@ class JupiterExchange {
         'https://public-api.birdeye.so/defi/v2/tokens/new_listing?limit=50',
       ];
 
-      // Skip Birdeye entirely if we're still in CU rate-limit cooldown
+      // Skip Birdeye entirely if we're still in CU rate-limit cooldown.
+      // Accept stale cache (up to 1h) and fall through to DexScreener if cache empty.
       if (Date.now() < this._birdeyeCooldownUntil) {
-        logger.debug('Jupiter getNewTokens: Birdeye on cooldown, using cached results if available');
-        return cachedTokens;
+        const staleCached = this.getCachedNewTokens({ allowStale: true });
+        if (staleCached.length > 0) {
+          logger.debug(`Jupiter getNewTokens: Birdeye on cooldown, using ${staleCached.length} stale cached tokens`);
+          return staleCached;
+        }
+        logger.debug('Jupiter getNewTokens: Birdeye on cooldown + cache empty, falling through to DexScreener');
+        const fallbackTokens = await this.fetchDexScreenerFallbackTokens();
+        return fallbackTokens.length > 0 ? fallbackTokens : [];
       }
 
       this.refreshBirdeyeWindowIfNeeded();
@@ -596,18 +694,27 @@ class JupiterExchange {
             const body = err.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : '';
             const isRateLimit = body.includes('limit exceeded') || body.includes('Compute units');
             if (status === 400 && body.includes('Compute units usage limit exceeded')) {
-              logger.warn('Jupiter getNewTokens Birdeye compute unit limit reached', {
+              logger.warn('Jupiter getNewTokens Birdeye compute unit limit reached — falling back to DexScreener', {
                 reason: 'Compute units usage limit exceeded',
                 status,
               });
-              this._birdeyeCooldownUntil = Date.now() + 60_000;
-              return cachedTokens;
+              // Cool down Birdeye for longer (CU limit usually means daily cap)
+              this._birdeyeCooldownUntil = Date.now() + 30 * 60_000;
+              const staleCached = this.getCachedNewTokens({ allowStale: true });
+              if (staleCached.length > 0) return staleCached;
+              const fallbackTokens = await this.fetchDexScreenerFallbackTokens();
+              if (fallbackTokens.length > 0) return fallbackTokens;
+              return [];
             }
             logger.warn(`Jupiter getNewTokens Birdeye failed (${status || 'network'}): ${err.message}${body ? ' — ' + body : ''}`);
             if (isRateLimit) {
-              // CU rate-limit — cool down 60s and use cached results only.
-              this._birdeyeCooldownUntil = Date.now() + 60_000;
-              return cachedTokens;
+              // CU rate-limit — cool down and try DexScreener fallback.
+              this._birdeyeCooldownUntil = Date.now() + 30 * 60_000;
+              const staleCached = this.getCachedNewTokens({ allowStale: true });
+              if (staleCached.length > 0) return staleCached;
+              const fallbackTokens = await this.fetchDexScreenerFallbackTokens();
+              if (fallbackTokens.length > 0) return fallbackTokens;
+              return [];
             }
             if (status !== 400) break; // only retry next endpoint on param 400
           }

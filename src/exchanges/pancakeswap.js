@@ -65,11 +65,24 @@ const GECKO_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 const GECKO_DISCOVERY_REQUESTS = [
   { path: '/networks/bsc/new_pools', page: 1 },
   { path: '/networks/bsc/new_pools', page: 2 },
+  { path: '/networks/bsc/new_pools', page: 3 },
+  { path: '/networks/bsc/new_pools', page: 4 },
+  { path: '/networks/bsc/new_pools', page: 5 },
   { path: '/networks/bsc/trending_pools', page: 1 },
   { path: '/networks/bsc/trending_pools', page: 2 },
+  { path: '/networks/bsc/trending_pools', page: 3 },
+  { path: '/networks/bsc/trending_pools', page: 4 },
+  { path: '/networks/bsc/trending_pools', page: 5 },
   { path: '/networks/bsc/pools', page: 1 },
   { path: '/networks/bsc/pools', page: 2 },
   { path: '/networks/bsc/pools', page: 3 },
+  { path: '/networks/bsc/pools', page: 4 },
+  { path: '/networks/bsc/pools', page: 5 },
+  { path: '/networks/bsc/pools', page: 6 },
+  { path: '/networks/bsc/pools', page: 7 },
+  { path: '/networks/bsc/pools', page: 8 },
+  { path: '/networks/bsc/pools', page: 9 },
+  { path: '/networks/bsc/pools', page: 10 },
 ];
 const DISCOVERY_CACHE_MS = 5 * 60 * 1000;
 const MIN_ACCEPTED_DISCOVERY_CANDIDATES = Math.max(1, Number(process.env.BSC_DISCOVERY_MIN_ACCEPTED_CANDIDATES || 25));
@@ -135,6 +148,7 @@ class PancakeSwapExchange {
     this.discoveryCache = { tokens: [], fetchedAt: 0 };
     this.cache = cache;
     this._bnbPriceCache = { value: null, cachedAt: null };
+    this._balanceCache = { value: null, cachedAt: 0 };
     this._frictionCache = new Map();
     this._nonceManager = null;
   }
@@ -225,6 +239,22 @@ class PancakeSwapExchange {
       ]);
       const recentTx = getRecentTxWindowMetrics(pair);
 
+      const volH24 = parseFloat(pair.volume?.h24 || 0);
+      const volH6 = parseFloat(pair.volume?.h6 || 0);
+      const volH1 = parseFloat(pair.volume?.h1 || 0);
+      const volM5 = parseFloat(pair.volume?.m5 || 0);
+      // Volume spike: compare recent hourly rate vs 24h average rate
+      // h1_rate vs h24_avg_rate; use h6 as fallback for smoother signal
+      const volH24AvgPerHour = volH24 > 0 ? volH24 / 24 : 0;
+      const volSpikeH1 = volH24AvgPerHour > 0 ? volH1 / volH24AvgPerHour : 0;
+      const volH6AvgPerHour = volH24 > 0 ? volH6 / 6 : 0;
+      const volSpikeH6 = volH24AvgPerHour > 0 ? volH6AvgPerHour / volH24AvgPerHour : 0;
+      // Use the stronger of the two spike signals
+      const volumeSpike = Math.max(volSpikeH1, volSpikeH6);
+      // Estimate 10m net buy flow from 5m window scaled to 10m, weighted by buy ratio
+      const recentBuyRatio = recentTx.buyRatioRecentPct > 0 ? recentTx.buyRatioRecentPct / 100 : 0.5;
+      const netBuyFlowUsd10m = volM5 > 0 ? volM5 * 2 * recentBuyRatio : 0;
+
       const result = {
         address: tokenAddress,
         symbol: pair.baseToken?.symbol || 'UNKNOWN',
@@ -232,7 +262,9 @@ class PancakeSwapExchange {
         price: parseFloat(pair.priceUsd || 0),
         liquidityUsd: parseFloat(pair.liquidity?.usd || 0),
         liquidityChange24hPct: 0,
-        volume24h: parseFloat(pair.volume?.h24 || 0),
+        volume24h: volH24,
+        volumeSpike: Number.isFinite(volumeSpike) ? volumeSpike : 0,
+        netBuyFlowUsd10m: Number.isFinite(netBuyFlowUsd10m) ? netBuyFlowUsd10m : 0,
         priceChange24h: parseFloat(pair.priceChange?.h24 || 0),
         priceChange7d: parseFloat(pair.priceChange?.h7d || 0),
         buyTxRecent: recentTx.buyTxRecent,
@@ -255,7 +287,7 @@ class PancakeSwapExchange {
         taxDataAvailable: Boolean(honeypot?.simulationResult),
         buyTax: honeypot?.simulationResult?.buyTax ?? null,
         sellTax: honeypot?.simulationResult?.sellTax ?? null,
-        topHoldersPct: 0,
+        topHoldersPct: null,
         teamWalletUnlocked: false,
         listingAgeDays: pair.pairCreatedAt ? (Date.now() - pair.pairCreatedAt) / 86400000 : 30,
         listingDate: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : null,
@@ -348,20 +380,37 @@ class PancakeSwapExchange {
     return ethers.parseUnits(String(tokenAmount), Number(decimals));
   }
 
-  async executeBuy(tokenAddress, bnbAmount) {
+  async executeBuy(tokenAddress, bnbAmount, options = {}) {
+    const requestedMaxSlippageBps = Number(options.maxSlippageBps);
+    const maxSlippageBps = Number.isFinite(requestedMaxSlippageBps) && requestedMaxSlippageBps > 0
+      ? Math.min(300, requestedMaxSlippageBps)
+      : 3000;
+    const mevJitterRequested = options.useMevJitter === true;
     if (config.paperTrading) {
-      logger.info(`[PAPER] PancakeSwap BUY ${tokenAddress} with ${bnbAmount} BNB (MEV protection: ${this.mevProtectionMethod})`);
-      return { txid: `paper_tx_${Date.now()}`, simulated: true };
+      logger.info(`[PAPER] PancakeSwap BUY ${tokenAddress} with ${bnbAmount} BNB (MEV protection: ${mevJitterRequested ? 'merkle_jitter' : this.mevProtectionMethod})`);
+      return {
+        txid: `paper_tx_${Date.now()}`,
+        simulated: true,
+        slippageBps: Math.min(maxSlippageBps, 300),
+        privateRouteUsed: mevJitterRequested,
+        mevProtectionMethod: mevJitterRequested ? 'paper_merkle_jitter' : this.mevProtectionMethod,
+      };
     }
 
     if (!this.wallet) throw new Error('BSC wallet not configured');
 
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
-      const baseSlippageBps = Math.max(30, Number(config.execution.slippageBps || 100));
+      const configuredSlippageBps = Number(config.execution.bscSlippageBps || config.execution.slippageBps || 200);
+      const baseSlippageBps = Math.max(30, Math.min(maxSlippageBps, Number.isFinite(requestedMaxSlippageBps) ? requestedMaxSlippageBps : configuredSlippageBps));
       
       // Enforce MEV protection for BUY if enabled
-      if (config.execution?.mevGuardEnabled && config.execution?.requirePrivateTxForBsc !== false && !this.privateRouter) {
+      if (
+        config.execution?.mevGuardEnabled
+        && config.execution?.requirePrivateTxForBsc !== false
+        && !this.privateRouter
+        && !(mevJitterRequested && config.execution?.useMerkleBundleForBsc !== false)
+      ) {
         throw new Error(
           'MEV protection (mevGuardEnabled=true) requires a private transaction route. ' +
           'BSC buy order cannot proceed. ' +
@@ -378,7 +427,7 @@ class PancakeSwapExchange {
         try {
           const amountIn = ethers.parseEther(bnbAmount.toString());
           const amountOut = await this.getAmountOut(amountIn, tokenAddress);
-          const slippageBps = Math.min(3000, baseSlippageBps + (attempt - 1) * 25);
+          const slippageBps = Math.min(maxSlippageBps, baseSlippageBps + (attempt - 1) * 25);
           const amountOutMin = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
           const deadline = Math.floor(Date.now() / 1000) + 300;
 
@@ -394,6 +443,15 @@ class PancakeSwapExchange {
           const feeData = await activeProvider.getFeeData();
           const gasPrice = feeData?.gasPrice || await activeProvider.getGasPrice();
 
+          // Check BSC max gas price limit
+          const maxGasPriceGwei = Number(config.execution?.bscMaxGasPriceGwei || 10);
+          if (maxGasPriceGwei > 0) {
+            const gasPriceGwei = Number(ethers.formatUnits(gasPrice, 'gwei'));
+            if (gasPriceGwei > maxGasPriceGwei) {
+              throw new Error(`gas price ${gasPriceGwei.toFixed(2)} gwei exceeds BSC limit ${maxGasPriceGwei} gwei`);
+            }
+          }
+
           if (maxGasCostPctOfTrade > 0 && gasPrice && gasPrice > 0n && amountIn > 0n) {
             const estimatedGasCostWei = gasLimit * gasPrice;
             const estimatedGasCostPct = Number((estimatedGasCostWei * 10000n) / amountIn) / 100;
@@ -402,19 +460,66 @@ class PancakeSwapExchange {
             }
           }
 
-          const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
-          const tx = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
-            amountOutMin,
-            [config.bsc.wbnb, tokenAddress],
-            this.wallet.address,
-            deadline,
-            { value: amountIn, gasLimit, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
-          );
+          let txHash = null;
+          let receipt = null;
+          let merkleRelay = null;
+          let merkleAccepted = false;
+          if (mevJitterRequested && activeRouter === this.router && this.wallet && config.execution?.useMerkleBundleForBsc !== false) {
+            try {
+              const { sendPrivateRawTransaction } = require('../utils/merkle-bundle');
+              const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : await activeProvider.getTransactionCount(this.wallet.address, 'pending');
+              const network = await activeProvider.getNetwork();
+              const signedRawTx = await this.wallet.signTransaction({
+                to: txRequest.to,
+                data: txRequest.data,
+                value: amountIn,
+                gasLimit,
+                gasPrice,
+                nonce: txNonce,
+                chainId: Number(network.chainId),
+              });
+              const merkle = await sendPrivateRawTransaction({ signedRawTx, logger });
+              if (merkle.ok) {
+                merkleAccepted = true;
+                merkleRelay = merkle.relay;
+                txHash = merkle.txHash;
+                receipt = await this.provider.waitForTransaction(
+                  merkle.txHash,
+                  requiredConfirmations,
+                  Math.max(15_000, Number(config.execution.buyTimeoutMs || config.execution.execTimeoutMs || 30_000)),
+                );
+                if (!receipt) {
+                  throw new Error(`Merkle private tx accepted but no receipt before timeout (tx=${merkle.txHash})`);
+                }
+              } else {
+                if (this._nonceManager) this._nonceManager.reset();
+                if (config.execution?.requirePrivateTxForBsc) {
+                  throw new Error(`Merkle private route unavailable: ${merkle.error}`);
+                }
+                logger.warn(`[Merkle] BSC buy private route unavailable, falling back to configured router: ${merkle.error}`);
+              }
+            } catch (merkleError) {
+              if (this._nonceManager && !merkleAccepted) this._nonceManager.reset();
+              if (merkleAccepted || config.execution?.requirePrivateTxForBsc) throw merkleError;
+              logger.warn(`[Merkle] BSC buy private route failed, falling back to configured router: ${merkleError.message}`);
+            }
+          }
 
-          const receipt = await tx.wait(requiredConfirmations);
+          if (!receipt) {
+            const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
+            const tx = await activeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
+              amountOutMin,
+              [config.bsc.wbnb, tokenAddress],
+              this.wallet.address,
+              deadline,
+              { value: amountIn, gasLimit, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
+            );
+            txHash = tx.hash;
+            receipt = await tx.wait(requiredConfirmations);
+          }
           if (!receipt || receipt.status === 0) {
             if (this._nonceManager) this._nonceManager.reset();
-            throw new Error(`BUY transaction reverted (hash=${tx.hash})`);
+            throw new Error(`BUY transaction reverted (hash=${txHash || 'unknown'})`);
           }
 
           // Parse confirmed tokens received from Transfer events on the token contract.
@@ -446,8 +551,8 @@ class PancakeSwapExchange {
             hasExchangeFilledData: Boolean(filledBaseQty > 0 && filledQuoteUsd > 0),
             blockNumber: receipt.blockNumber,
             confirmations: requiredConfirmations,
-            privateRouteUsed: Boolean(activeRouter === this.privateRouter),
-            mevProtectionMethod: this.mevProtectionMethod,
+            privateRouteUsed: Boolean(activeRouter === this.privateRouter || merkleRelay),
+            mevProtectionMethod: merkleRelay ? `merkle:${merkleRelay}` : this.mevProtectionMethod,
           };
         } catch (error) {
           if (attempt >= retries) throw error;
@@ -493,7 +598,7 @@ class PancakeSwapExchange {
           const rawTokenAmount = await this.toRawTokenAmount(tokenAddress, tokenAmount);
           await this.ensureApproval(tokenAddress, rawTokenAmount);
           const amounts = await this.router.getAmountsOut(rawTokenAmount, [tokenAddress, config.bsc.wbnb]);
-          const slippageBps = Math.min(3000, baseSlippageBps + (attempt - 1) * 25);
+          const slippageBps = Math.min(maxSlippageBps, baseSlippageBps + (attempt - 1) * 25);
           const amountOutMin = (amounts[1] * BigInt(10000 - slippageBps)) / 10000n;
           const deadline = Math.floor(Date.now() / 1000) + 300;
 
@@ -505,6 +610,18 @@ class PancakeSwapExchange {
             deadline
           );
           const estimatedGas = await activeProvider.estimateGas({ ...txRequest, from: this.wallet.address });
+          const gasLimit = (estimatedGas * 120n) / 100n;
+          const feeData = await activeProvider.getFeeData();
+          const gasPrice = feeData?.gasPrice || await activeProvider.getGasPrice();
+
+          // Check BSC max gas price limit
+          const maxGasPriceGwei = Number(config.execution?.bscMaxGasPriceGwei || 10);
+          if (maxGasPriceGwei > 0) {
+            const gasPriceGwei = Number(ethers.formatUnits(gasPrice, 'gwei'));
+            if (gasPriceGwei > maxGasPriceGwei) {
+              throw new Error(`gas price ${gasPriceGwei.toFixed(2)} gwei exceeds BSC limit ${maxGasPriceGwei} gwei`);
+            }
+          }
 
           const txNonce = this._nonceManager ? await this._nonceManager.nextNonce() : undefined;
           const tx = await activeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
@@ -513,7 +630,7 @@ class PancakeSwapExchange {
             [tokenAddress, config.bsc.wbnb],
             this.wallet.address,
             deadline,
-            { gasLimit: (estimatedGas * 120n) / 100n, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
+            { gasLimit, gasPrice, ...(txNonce !== undefined ? { nonce: txNonce } : {}) }
           );
 
           const receipt = await tx.wait(requiredConfirmations);
@@ -729,10 +846,21 @@ class PancakeSwapExchange {
     try {
       const bnbBalance = await this.provider.getBalance(this.wallet.address);
       const bnbPrice = await this.getBnbPrice();
-      return (parseFloat(ethers.formatEther(bnbBalance))) * bnbPrice;
+      const balanceUsd = (parseFloat(ethers.formatEther(bnbBalance))) * bnbPrice;
+      if (Number.isFinite(balanceUsd) && balanceUsd >= 0) {
+        this._balanceCache = { value: balanceUsd, cachedAt: Date.now() };
+      }
+      return balanceUsd;
     } catch (err) {
       logger.error(`PancakeSwap getBalance failed: ${err.message}`);
-      return 0;
+      if (Number.isFinite(this._balanceCache.value) && this._balanceCache.value >= 0) {
+        logger.warn('PancakeSwap getBalance: using cached BSC wallet balance after fetch failure', {
+          cachedBalanceUsd: this._balanceCache.value,
+          cachedAt: this._balanceCache.cachedAt ? new Date(this._balanceCache.cachedAt).toISOString() : null,
+        });
+        return Number(this._balanceCache.value);
+      }
+      throw err;
     }
   }
 

@@ -1,43 +1,5 @@
 'use strict';
 
-function getVenueExecutionProfile(chainName = '') {
-  const normalized = String(chainName || '').toLowerCase();
-  if (normalized === 'kucoin') {
-    return {
-      venueKind: 'cex',
-      routeKind: 'quote_usd',
-      supportsOrderbook: true,
-      supportsSplitBuys: false,
-      requiresNativeQuote: false,
-    };
-  }
-  if (normalized === 'solana') {
-    return {
-      venueKind: 'dex',
-      routeKind: 'quote_usd',
-      supportsOrderbook: false,
-      supportsSplitBuys: true,
-      requiresNativeQuote: false,
-    };
-  }
-  if (normalized === 'bsc' || normalized === 'base') {
-    return {
-      venueKind: 'dex',
-      routeKind: 'native_amount',
-      supportsOrderbook: false,
-      supportsSplitBuys: false,
-      requiresNativeQuote: true,
-    };
-  }
-  return {
-    venueKind: 'unknown',
-    routeKind: 'quote_usd',
-    supportsOrderbook: false,
-    supportsSplitBuys: false,
-    requiresNativeQuote: false,
-  };
-}
-
 async function executeBuyViaVenue({
   chainName,
   exchange,
@@ -51,7 +13,6 @@ async function executeBuyViaVenue({
   sleep,
   getNativeQuote,
 }) {
-  const profile = getVenueExecutionProfile(chainName);
   if (chainName === 'solana') {
     if (shouldSplitSolanaTrade(sizeUsd, 2000)) {
       const schedule = generateSplitTradeSchedule(sizeUsd);
@@ -72,35 +33,41 @@ async function executeBuyViaVenue({
         splits: results,
         splitCount: results.length,
         hasExchangeFilledData: results.some((row) => row?.hasExchangeFilledData),
-        executionProfile: profile,
       };
     }
 
-    const result = await withTimeout(
+    return withTimeout(
       exchange.executeBuy(tokenData.address, sizeUsd, { strategyName }),
       execTimeoutMs,
       `Solana buy timed out for ${tokenData.symbol}`
     );
-    return { ...result, executionProfile: profile };
   }
 
   if (chainName === 'kucoin') {
-    const result = await withTimeout(
+    return withTimeout(
       exchange.executeBuy(tokenData.address, sizeUsd, { strategyName }),
       execTimeoutMs,
       `KuCoin buy timed out for ${tokenData.symbol}`
     );
-    return { ...result, executionProfile: profile };
   }
 
   const nativeQuote = await getNativeQuote(chainName, tokenData);
+  if (!Number.isFinite(nativeQuote) || nativeQuote <= 0) {
+    throw new Error(`Native quote unavailable for ${chainName}:${tokenData?.symbol || tokenData?.address} — cannot size order (got ${nativeQuote})`);
+  }
   const nativeAmount = sizeUsd / nativeQuote;
-  const result = await withTimeout(
-    exchange.executeBuy(tokenData.address, nativeAmount, { strategyName }),
+  const maxSlippageBps = Number.isFinite(Number(tokenData.maxSlippageBps))
+    ? Number(tokenData.maxSlippageBps)
+    : (Number.isFinite(Number(tokenData._strategyMaxSlippagePct)) ? Math.round(Number(tokenData._strategyMaxSlippagePct) * 100) : undefined);
+  return withTimeout(
+    exchange.executeBuy(tokenData.address, nativeAmount, {
+      strategyName,
+      maxSlippageBps,
+      useMevJitter: tokenData.useMevJitter === true,
+    }),
     execTimeoutMs,
     `${chainName} buy timed out for ${tokenData.symbol}`
   );
-  return { ...result, executionProfile: profile };
 }
 
 async function executeSellViaVenue({
@@ -110,16 +77,61 @@ async function executeSellViaVenue({
   execTimeoutMs,
   withTimeout,
 }) {
-  const result = await withTimeout(
+  return withTimeout(
     exchange.executeSell(tokenData.address, quantityToSell),
     execTimeoutMs,
     `Sell execution timed out for ${tokenData.symbol} after ${execTimeoutMs}ms`
   );
-  return { ...result, executionProfile: getVenueExecutionProfile(tokenData?.chainKey || tokenData?.chain) };
+}
+
+const VENUE_PROFILES = {
+  kucoin: {
+    venueKind: 'cex',
+    requiresNativeQuote: false,
+    supportsSplitBuys: false,
+    quoteAsset: 'USDT',
+  },
+  solana: {
+    venueKind: 'dex',
+    requiresNativeQuote: false,
+    supportsSplitBuys: true,
+    quoteAsset: 'USDC',
+  },
+  bsc: {
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'BNB',
+  },
+  ethereum: {
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'ETH',
+  },
+  polygon: {
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'MATIC',
+  },
+};
+
+function getVenueExecutionProfile(chainName) {
+  const key = String(chainName || '').toLowerCase();
+  const profile = VENUE_PROFILES[key];
+  if (profile) return { ...profile, chain: key };
+  return {
+    chain: key,
+    venueKind: 'dex',
+    requiresNativeQuote: true,
+    supportsSplitBuys: false,
+    quoteAsset: 'NATIVE',
+  };
 }
 
 module.exports = {
-  getVenueExecutionProfile,
   executeBuyViaVenue,
   executeSellViaVenue,
+  getVenueExecutionProfile,
 };

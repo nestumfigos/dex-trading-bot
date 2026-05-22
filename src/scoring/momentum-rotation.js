@@ -25,18 +25,27 @@ function createMomentumScoring(deps) {
     const volumeSpike = normalizeRotationVolumeSpike(metrics.volumeSpike || 0);
     const confidence = normalizeConfidencePercent(metrics.confidence || 0);
     const netBuyFlowUsd10m = Number(metrics.netBuyFlowUsd10m || 0);
+    const w = config.scoring?.momentumRotation || {};
+    const priceChange24hWeight         = Number(w.priceChange24hWeight         ?? 0.8);
+    const buyRatioOverFiftyWeight      = Number(w.buyRatioOverFiftyWeight      ?? 1.1);
+    const volumeSpikeWeight            = Number(w.volumeSpikeWeight            ?? 6);
+    const netBuyFlowLogWeight          = Number(w.netBuyFlowLogWeight          ?? 5);
+    const confidenceWeight             = Number(w.confidenceWeight             ?? 0.2);
+    const accelerationWeight           = Number(w.accelerationWeight           ?? 1.2);
+    const consecutiveStrongScansWeight = Number(w.consecutiveStrongScansWeight ?? 6);
+    const extendedMovePenalty          = Number(w.extendedMovePenalty          ?? -12);
     let score =
-      (priceChange24h * 0.8)
-      + (Math.max(0, buyRatioRecentPct - 50) * 1.1)
-      + (Math.max(0, volumeSpike) * 6)
-      + (Math.log10(Math.max(1, netBuyFlowUsd10m + 1)) * 5)
-      + (confidence * 0.2);
-    score += Math.max(0, Number(momentumState.accelerationScore || 0)) * 1.2;
-    score += Math.max(0, Number(momentumState.consecutiveStrongScans || 0) - 1) * 6;
+      (priceChange24h * priceChange24hWeight)
+      + (Math.max(0, buyRatioRecentPct - 50) * buyRatioOverFiftyWeight)
+      + (Math.max(0, volumeSpike) * volumeSpikeWeight)
+      + (Math.log10(Math.max(1, netBuyFlowUsd10m + 1)) * netBuyFlowLogWeight)
+      + (confidence * confidenceWeight);
+    score += Math.max(0, Number(momentumState.accelerationScore || 0)) * accelerationWeight;
+    score += Math.max(0, Number(momentumState.consecutiveStrongScans || 0) - 1) * consecutiveStrongScansWeight;
     if (priceChange24h >= Number(config.execution?.momentumRotationExtendedMovePct || 30)
       && Number(momentumState.deltaVolumeSpike || 0) <= 0
       && Number(momentumState.deltaBuyRatioRecentPct || 0) <= 0) {
-      score -= 12;
+      score += extendedMovePenalty;
     }
     return Number.isFinite(score) ? score : 0;
   }

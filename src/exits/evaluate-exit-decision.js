@@ -87,6 +87,112 @@ function decideExitAction({
     return noop({ reason: 'bull_flag_hold' });
   }
 
+  // 0b) BACKES HTF SWING — structure-first exits with partials at R/box levels.
+  if (position.setupType === 'backes_swing') {
+    const invalidation = Number(position.invalidationPrice || position.structuralStopPrice || position.stopLoss || 0);
+    if (invalidation > 0 && price <= invalidation) {
+      return sell({
+        reason: 'BACKES_INVALIDATION_STOP',
+        sellPct: 1,
+        meta: { stopLevel: invalidation, stopType: 'BACKES_INVALIDATION_STOP', currentProfit },
+      });
+    }
+
+    const trendFailureReason = getBackesTrendFailureReason({ position, tokenData, exitSignal });
+    if (trendFailureReason) {
+      return sell({ reason: trendFailureReason, sellPct: 1, meta: { currentProfit } });
+    }
+
+    // Refuse to evaluate stale-position age if openedAt is missing — `|| now` previously
+    // masked the missing-data case and let time-stop fire only after `maxHoldDays` from "now".
+    const openedAtMs = Date.parse(position.openedAt || position.createdAt || '');
+    const maxHoldDays = Number(strategyCfg.backesMaxHoldDays || strategyCfg.maxHoldDays || 45);
+    if (Number.isFinite(openedAtMs) && Number.isFinite(maxHoldDays) && maxHoldDays > 0 && now >= openedAtMs + maxHoldDays * 86_400_000) {
+      return sell({
+        reason: 'BACKES_TIME_STOP',
+        sellPct: 1,
+        meta: { daysInTrade: (now - openedAtMs) / 86_400_000, maxHoldDays },
+      });
+    }
+
+    const riskPerUnit = entryPrice - invalidation;
+    const oneRPrice = riskPerUnit > 0 ? entryPrice + riskPerUnit : 0;
+    if (oneRPrice > 0 && price >= oneRPrice && !position.backesPartial1Taken) {
+      return sell({
+        reason: 'BACKES_PARTIAL_1R',
+        sellPct: 0.5,
+        meta: { oneRPrice, currentProfit },
+        mutations: { backesPartial1Taken: true },
+      });
+    }
+
+    const targets = Array.isArray(position.targetPrices) ? position.targetPrices.map(Number).filter(Number.isFinite) : [];
+    const structureTarget = Number(position.boxMidpointPrice || position.priorDailyResistancePrice || targets[0] || position.measuredMoveTargetPrice || 0);
+    if (structureTarget > 0 && price >= structureTarget && !position.backesStructureTargetTaken) {
+      return sell({
+        reason: 'BACKES_STRUCTURE_TARGET',
+        sellPct: 0.5,
+        meta: { targetLevel: structureTarget, currentProfit },
+        mutations: { backesStructureTargetTaken: true },
+      });
+    }
+
+    const trendConfirmed = position.backesPartial1Taken || price >= oneRPrice;
+    const ma8d = Number(tokenData.ma8d || tokenData.backesMa8d || 0);
+    const ma56d = Number(tokenData.ma56d || tokenData.backesMa56d || 0);
+    if (trendConfirmed && ma8d > 0 && price < ma8d) {
+      return sell({ reason: 'BACKES_TRAIL_8D_MA', sellPct: 1, meta: { ma8d, currentProfit } });
+    }
+    if (ma56d > 0 && price < ma56d) {
+      return sell({ reason: 'BACKES_DAILY_CLOSE_BELOW_56D', sellPct: 1, meta: { ma56d, currentProfit } });
+    }
+
+    if (!staleData && exitSignal?.shouldExit) {
+      return sell({ reason: exitSignal.reason || 'BACKES_STRATEGY_EXIT', sellPct: 1 });
+    }
+
+    return noop({ reason: 'backes_hold', meta: { currentProfit } });
+  }
+
+  // 0c) BSC FLOW BREAKOUT — fast setups get hard structural exits. The setup
+  // does not use generic tier ladders because stale BSC flow needs to be cut.
+  if (position.setupType === 'bsc_flow_breakout') {
+    const structuralStop = Number(position.structuralStopPrice || position.invalidationPrice || position.stopLoss || 0);
+    if (structuralStop > 0 && price <= structuralStop) {
+      return sell({
+        reason: 'BSC_FLOW_STRUCTURAL_STOP',
+        sellPct: 1,
+        meta: { stopLevel: structuralStop, stopType: 'BSC_FLOW_STRUCTURAL_STOP', currentProfit },
+      });
+    }
+
+    const measuredMoveTarget = Number(position.measuredMoveTargetPrice || position.targetPrice || 0);
+    if (measuredMoveTarget > 0 && price >= measuredMoveTarget) {
+      return sell({
+        reason: 'BSC_FLOW_QUICK_TP',
+        sellPct: 1,
+        meta: { targetLevel: measuredMoveTarget, currentProfit },
+      });
+    }
+
+    const openedAtMs = Date.parse(position.openedAt || position.createdAt || '') || now;
+    const staleMinutes = Number(position.staleExitMinutes || strategyCfg.bscFlowStaleExitMinutes || strategyCfg.staleExitMinutes || 30);
+    const staleProfitThreshold = Number(strategyCfg.bscFlowStaleProfitThresholdPct || strategyCfg.staleProfitThresholdPct || 1) / 100;
+    if (Number.isFinite(staleMinutes) && staleMinutes > 0 && now >= openedAtMs + staleMinutes * 60_000 && currentProfit < staleProfitThreshold) {
+      return sell({
+        reason: 'BSC_FLOW_STALE_EXIT',
+        sellPct: 1,
+        meta: { minutesInTrade: (now - openedAtMs) / 60000, staleMinutes, currentProfit },
+      });
+    }
+
+    if (!staleData && exitSignal?.shouldExit) {
+      return sell({ reason: exitSignal.reason || 'BSC_FLOW_STRATEGY_EXIT', sellPct: 1 });
+    }
+
+    return noop({ reason: 'bsc_flow_hold', meta: { currentProfit } });
+  }
+
   // 1) STRATEGY EXIT — skipped when staleData=true
   if (!staleData && exitSignal?.shouldExit) {
     return sell({ reason: exitSignal.reason || 'STRATEGY_EXIT', sellPct: 1 });
@@ -306,8 +412,8 @@ function decideExitAction({
 
 // --- helpers ---
 
-function sell({ reason, sellPct = 1, meta = {} }) {
-  return { action: 'sell', reason, sellPct, tierIndex: null, meta, mutations: {} };
+function sell({ reason, sellPct = 1, meta = {}, mutations = {} }) {
+  return { action: 'sell', reason, sellPct, tierIndex: null, meta, mutations };
 }
 
 function noop({ reason = 'noop', meta = {} } = {}) {
@@ -334,6 +440,24 @@ function omitKey(obj, key) {
   const out = { ...(obj || {}) };
   delete out[key];
   return out;
+}
+
+function getBackesTrendFailureReason({ tokenData, exitSignal }) {
+  if (tokenData.dailyCloseBelow56d === true || tokenData.backesDailyCloseBelow56d === true) {
+    return 'BACKES_DAILY_CLOSE_BELOW_56D';
+  }
+  if (tokenData.weeklyCloseBelow8w === true || tokenData.backesWeeklyCloseBelow8w === true) {
+    return 'BACKES_WEEKLY_CLOSE_BELOW_8W';
+  }
+  if (tokenData.failedReclaim === true || tokenData.backesFailedReclaim === true) {
+    return 'BACKES_FAILED_RECLAIM';
+  }
+  const rsi = Number(tokenData.rsi ?? exitSignal?.details?.rsiValue);
+  const sellVol = Number(tokenData.sellVolumeRatio ?? tokenData.sellRatio10mPct ?? exitSignal?.details?.sellRatio10mPct ?? 0);
+  if (Number.isFinite(rsi) && rsi >= 78 && sellVol >= 60) {
+    return 'BACKES_RSI_EXHAUSTION_SELL_VOLUME';
+  }
+  return null;
 }
 
 module.exports = { decideExitAction };

@@ -136,7 +136,22 @@ function runBacktest(priceHistory, volumeHistory, strategySettings, options = {}
     const qtyToSell = position.quantity * fraction;
     const costPerUnit = position.quantity > 0 ? position.remainingCost / position.quantity : 0;
     const costBasis = costPerUnit * qtyToSell;
-    const slippedPrice = price * (1 - exitSlippagePct / 100);
+    // Day 4 fix: liquidity-impact term.
+    // Pure exitSlippagePct underestimates fill cost on thin-book exits because it ignores
+    // size-vs-book. Add a square-root price-impact adder scaled by notional/liquidity.
+    // Without this, paper backtest win-rates overstate real fills by 10-50bps on thin tokens.
+    const grossExitNotional = qtyToSell * price;
+    const liquidityUsd = Number(options.liquidityUsd || 0);
+    let impactBps = 0;
+    if (liquidityUsd > 0 && grossExitNotional > 0) {
+      const participation = grossExitNotional / liquidityUsd;
+      // sqrt model: impact_bps = k * sqrt(participation) * 10000, k≈0.5 for retail-thin pools
+      const k = Number(options.liquidityImpactCoefficient || 0.5);
+      impactBps = k * Math.sqrt(Math.max(0, participation)) * 10000;
+      impactBps = Math.min(impactBps, 200); // hard cap at 2% so a single trade can't break the curve
+    }
+    const totalExitDragPct = exitSlippagePct + (impactBps / 100);
+    const slippedPrice = price * (1 - totalExitDragPct / 100);
     const grossProceeds = qtyToSell * slippedPrice;
     const proceeds = grossProceeds * (1 - exitFeePct / 100);
     const pnl = proceeds - costBasis;

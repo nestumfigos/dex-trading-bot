@@ -19,6 +19,18 @@
  */
 
 const { defaultStatsShape } = require('../stats/metrics-compute');
+const { getImplementedStrategyNames } = require('../strategies/deployment');
+
+function makeStrategyBuckets() {
+  return Object.fromEntries(getImplementedStrategyNames().map((strategyName) => [
+    strategyName,
+    {
+      positions: {},
+      trades: [],
+      stats: defaultStatsShape(),
+    },
+  ]));
+}
 
 function createPortfolio(config = {}) {
   const startingBalance = config.paperTrading ? Number(config.paperBalance || 0) : 0;
@@ -33,6 +45,9 @@ function createPortfolio(config = {}) {
       base: null,
       kucoin: null,
     },
+    // Day 4 fix: surface partial-null wallet state. Set true when at least one chain has a real
+    // balance and at least one is null — paper risk sizing should warn rather than silently /N fallback.
+    walletBalancesPartialNull: false,
     statePersistenceError: false,
     safeMode: false,
     saveFailureCount: 0,
@@ -43,27 +58,11 @@ function createPortfolio(config = {}) {
     balanceDrift: { amountUsd: 0, pct: 0 },
     balanceDriftHalt: false,
     executionJournal: {},
-    positions: {}, // All positions (swing + momentum) tracked by tokenKey
-    trades: [],    // All trades (swing + momentum)
+    positions: {}, // All open positions tracked by tokenKey
+    trades: [],    // All trades
 
     // Separate tracking per strategy
-    strategies: {
-      swing: {
-        positions: {},
-        trades: [],
-        stats: defaultStatsShape(),
-      },
-      momentum: {
-        positions: {},
-        trades: [],
-        stats: defaultStatsShape(),
-      },
-      spot_day_bull_flag: {
-        positions: {},
-        trades: [],
-        stats: defaultStatsShape(),
-      },
-    },
+    strategies: makeStrategyBuckets(),
 
     // Aggregate stats (both strategies combined)
     stats: defaultStatsShape(),

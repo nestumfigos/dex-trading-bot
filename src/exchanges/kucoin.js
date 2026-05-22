@@ -13,6 +13,86 @@ function normalizeTimestampMs(value) {
   return ts < 1e12 ? Math.round(ts * 1000) : Math.round(ts);
 }
 
+function mapKlineInterval(interval = '15m') {
+  const raw = String(interval || '15m').trim().toLowerCase();
+  const aliases = {
+    '1m': '1min',
+    '1min': '1min',
+    '3m': '3min',
+    '3min': '3min',
+    '5m': '5min',
+    '5min': '5min',
+    '15m': '15min',
+    '15min': '15min',
+    '30m': '30min',
+    '30min': '30min',
+    '1h': '1hour',
+    '1hour': '1hour',
+    '2h': '2hour',
+    '2hour': '2hour',
+    '4h': '4hour',
+    '4hour': '4hour',
+    '6h': '6hour',
+    '6hour': '6hour',
+    '8h': '8hour',
+    '8hour': '8hour',
+    '12h': '12hour',
+    '12hour': '12hour',
+    '1d': '1day',
+    '1day': '1day',
+    '1w': '1week',
+    '1week': '1week',
+  };
+  return aliases[raw] || '15min';
+}
+
+function klineIntervalSeconds(type) {
+  const match = String(type || '').match(/^(\d+)(min|hour|day|week)$/);
+  if (!match) return 15 * 60;
+  const value = Number(match[1]);
+  const unit = match[2];
+  if (unit === 'week') return value * 7 * 24 * 60 * 60;
+  if (unit === 'day') return value * 24 * 60 * 60;
+  if (unit === 'hour') return value * 60 * 60;
+  return value * 60;
+}
+
+function klineIntervalToCcxt(type) {
+  return String(type || '15min')
+    .replace('min', 'm')
+    .replace('hour', 'h')
+    .replace('day', 'd')
+    .replace('week', 'w');
+}
+
+function parseKucoinRestCandle(row) {
+  if (!Array.isArray(row) || row.length < 6) return null;
+  const timestampMs = normalizeTimestampMs(row[0]);
+  if (!timestampMs) return null;
+
+  if (row.length >= 7) {
+    const [, open, close, high, low, volume] = row;
+    return {
+      timestamp: Math.floor(timestampMs / 1000),
+      open: Number(open || 0),
+      high: Number(high || 0),
+      low: Number(low || 0),
+      close: Number(close || 0),
+      volume: Number(volume || 0),
+    };
+  }
+
+  const [, open, high, low, close, volume] = row;
+  return {
+    timestamp: Math.floor(timestampMs / 1000),
+    open: Number(open || 0),
+    high: Number(high || 0),
+    low: Number(low || 0),
+    close: Number(close || 0),
+    volume: Number(volume || 0),
+  };
+}
+
 function aggregateTradeFills(trades = [], side = 'sell') {
   const normalizedSide = String(side || '').toLowerCase();
   const grouped = new Map();
@@ -84,6 +164,28 @@ class KuCoinExchange {
     this.obDepthCache = new Map(); // symbol -> { liquidityUsd, fetchedAt }
     this.lastDepthWarmAt = 0;
     this._knownSymbols = new Set();
+    // Structural error resilience
+    this._structuralErrors = 0;
+    this._reinitAfter = 0;        // epoch ms: backoff until this time before retrying init
+    this._lastMarketsRefresh = 0; // epoch ms: for daily auto-refresh of market structure
+    this._rateLimitedUntil = 0;
+    this._rateLimit429Count = 0;
+  }
+
+  isRateLimited() {
+    return Date.now() < Number(this._rateLimitedUntil || 0);
+  }
+
+  _handleRateLimit(err, context) {
+    const status = Number(err?.response?.status || 0);
+    const msg = String(err?.message || '');
+    const isRateLimit = status === 429 || /rate.?limit|too many requests|RateLimitExceeded/i.test(msg);
+    if (!isRateLimit) return false;
+    this._rateLimit429Count += 1;
+    const backoffMs = Math.min(Math.pow(2, this._rateLimit429Count - 1) * 5000, 5 * 60_000);
+    this._rateLimitedUntil = Date.now() + backoffMs;
+    logger.warn(`KuCoin 429 rate-limit #${this._rateLimit429Count} in ${context}: pausing ${Math.round(backoffMs / 1000)}s`);
+    return true;
   }
 
   async initialize() {
@@ -94,9 +196,24 @@ class KuCoinExchange {
         password: config.kucoin.apiPassphrase,
         sandbox: config.kucoin.sandbox,
         enableRateLimit: true,
+        options: {
+          adjustForTimeDifference: true,
+        },
       });
-      await this.exchange.loadMarkets();
+      await this.exchange.loadTimeDifference();
+      try {
+        await this.exchange.loadMarkets();
+      } catch (err) {
+        if (!/Invalid KC-API-TIMESTAMP|400002/i.test(String(err?.message || ''))) {
+          throw err;
+        }
+        logger.warn('KuCoin timestamp rejected during market load; refreshing exchange time difference and retrying once');
+        await this.exchange.loadTimeDifference();
+        await this.exchange.loadMarkets(true);
+      }
       this.symbols = Object.keys(this.exchange.markets).filter((s) => s.endsWith('/USDT'));
+      logger.info(`KuCoin markets loaded: ${Object.keys(this.exchange.markets).length}`);
+      logger.info(`KuCoin USDT pairs filtered: ${this.symbols.length}`);
       if (this._knownSymbols.size === 0) {
         this.symbols.forEach((s) => this._knownSymbols.add(s));
       }
@@ -109,9 +226,28 @@ class KuCoinExchange {
   }
 
   async refreshTickers() {
+    // Auto-reinit if degraded and backoff has elapsed
+    await this._maybeReinit();
     if (!this.exchange) {
       logger.warn('KuCoin exchange not initialized, skipping ticker refresh');
       return;
+    }
+    // Respect 429 backoff — do not hammer KuCoin while rate-limited.
+    if (this.isRateLimited()) {
+      logger.debug(`KuCoin refreshTickers skipped: rate-limited until ${new Date(this._rateLimitedUntil).toISOString()}`);
+      return;
+    }
+
+    // Daily market structure refresh — picks up new listings / API schema changes
+    if (Date.now() - this._lastMarketsRefresh > 24 * 60 * 60 * 1000) {
+      try {
+        await this.exchange.loadMarkets(true); // force=true reloads from API
+        this.symbols = Object.keys(this.exchange.markets).filter((s) => s.endsWith('/USDT'));
+        this._lastMarketsRefresh = Date.now();
+        logger.info(`KuCoin markets refreshed: ${this.symbols.length} USDT pairs`);
+      } catch (err) {
+        logger.warn(`KuCoin daily market refresh failed: ${err.message}`);
+      }
     }
 
     try {
@@ -121,14 +257,17 @@ class KuCoinExchange {
       try {
         tickers = await this.exchange.fetchTickers(symbols);
       } catch (err) {
+        if (this._handleRateLimit(err, 'refreshTickers')) return;
         const msg = String(err?.message || '');
         const missingMatch = msg.match(/market symbol\s+([A-Z0-9_-]+\/USDT)/i);
         if (missingMatch && missingMatch[1]) {
           const missing = String(missingMatch[1]).toUpperCase();
-          const before = this.symbols.length;
-          this.symbols = this.symbols.filter((s) => String(s).toUpperCase() !== missing);
-          this._knownSymbols.delete(missing);
-          if (this.symbols.length !== before) {
+          // Snapshot-before-filter to avoid mutation-during-iteration on concurrent reads.
+          const snapshot = Array.from(this.symbols);
+          const filtered = snapshot.filter((s) => String(s).toUpperCase() !== missing);
+          if (filtered.length !== snapshot.length) {
+            this.symbols = filtered;
+            this._knownSymbols.delete(missing);
             logger.warn(`KuCoin removed stale symbol from scan universe: ${missing}`);
           }
         }
@@ -141,14 +280,69 @@ class KuCoinExchange {
       logger.debug(`KuCoin tickers refreshed: ${Object.keys(this.tickerCache).length}`);
     } catch (err) {
       logger.warn(`KuCoin refreshTickers failed: ${err.message}`);
+      this._handleRateLimit(err, 'refreshTickers');
+      this._handleExchangeError(err, 'refreshTickers');
     }
   }
 
+  /**
+   * Detect structural API failures (not transient network blips) and schedule a
+   * reinitialization after an exponential backoff so the bot self-heals if KuCoin
+   * changes their API surface.
+   */
+  _handleExchangeError(err, context) {
+    const msg = String(err?.message || '');
+    const isStructural = (
+      /ECONNREFUSED|ENOTFOUND|getaddrinfo|503|502|InvalidApiKey|InvalidSignature|Bad Request|market not found|symbol.*not.*found|deprecated|removed|migrated|version/i.test(msg)
+      || err?.response?.status >= 400 && err?.response?.status < 500 && err?.response?.status !== 429
+    );
+    if (!isStructural) return;
+
+    this._structuralErrors += 1;
+    // Exponential backoff: 1m, 2m, 4m, 8m, cap 30m
+    const backoffMs = Math.min(Math.pow(2, this._structuralErrors - 1) * 60_000, 30 * 60_000);
+    this._reinitAfter = Date.now() + backoffMs;
+    logger.warn(
+      `KuCoin structural error #${this._structuralErrors} in ${context}: "${msg.slice(0, 120)}". ` +
+      `Will reinitialize after ${Math.round(backoffMs / 1000)}s backoff.`
+    );
+  }
+
+  async _maybeReinit() {
+    if (this._reinitAfter === 0) return; // no pending reinit
+    if (Date.now() < this._reinitAfter) return; // still in backoff
+    logger.warn('KuCoin attempting auto-reinitialization after structural error...');
+    try {
+      await this.initialize();
+      this._structuralErrors = 0;
+      this._reinitAfter = 0;
+      logger.info('KuCoin auto-reinitialization succeeded');
+    } catch (err) {
+      // Extend backoff on reinit failure
+      const backoffMs = Math.min(Math.pow(2, this._structuralErrors) * 60_000, 30 * 60_000);
+      this._reinitAfter = Date.now() + backoffMs;
+      logger.warn(`KuCoin auto-reinitialization failed: ${err.message}. Next retry in ${Math.round(backoffMs / 1000)}s`);
+    }
+  }
+
+  normalizeSymbol(symbol) {
+    const raw = String(symbol || '').trim();
+    if (!raw) return raw;
+    const upper = raw.toUpperCase();
+    if (this.exchange?.markets?.[upper]) return upper;
+    const known = (this.symbols || []).find((s) => String(s).toUpperCase() === upper);
+    if (known) return known;
+    const cached = Object.keys(this.tickerCache || {}).find((s) => String(s).toUpperCase() === upper);
+    if (cached) return cached;
+    return upper;
+  }
+
   async getTicker(symbol) {
-    if (!this.tickerCache[symbol] || Date.now() - this.lastTickerRefresh > 60_000) {
+    const normalized = this.normalizeSymbol(symbol);
+    if (!this.tickerCache[normalized] || Date.now() - this.lastTickerRefresh > 60_000) {
       await this.refreshTickers();
     }
-    return this.tickerCache[symbol];
+    return this.tickerCache[normalized];
   }
 
   async getTokenData(symbol) {
@@ -157,17 +351,18 @@ class KuCoinExchange {
       return null;
     }
 
-    const cacheKey = `token:${symbol}`;
+    const normalized = this.normalizeSymbol(symbol);
+    const cacheKey = `token:${normalized}`;
     const cached = await this.cache?.get(cacheKey);
     if (cached) return cached;
 
     try {
-      const ticker = await this.getTicker(symbol);
+      const ticker = await this.getTicker(normalized);
       if (!ticker || !ticker.last) {
         return null;
       }
 
-      const tokenSymbol = symbol.replace('/USDT', '');
+      const tokenSymbol = normalized.replace('/USDT', '');
       let metrics = {};
       try {
         const metricsPromise = getTokenMetrics(tokenSymbol, 'kucoin', tokenSymbol);
@@ -180,11 +375,11 @@ class KuCoinExchange {
       }
 
       const volume24hUsd = Number(ticker.quoteVolume || 0);
-      const liquidityUsd = volume24hUsd * 0.05;
-      const listingMeta = this.getListingMeta(symbol);
+      const liquidityUsd = volume24hUsd;
+      const listingMeta = this.getListingMeta(normalized);
 
       const result = {
-        address: symbol,
+        address: normalized,
         symbol: tokenSymbol,
         name: tokenSymbol,
         price: ticker.last,
@@ -209,7 +404,7 @@ class KuCoinExchange {
         listingAgeDays: listingMeta.listingAgeDays,
         listingDate: listingMeta.listingDate,
         chain: 'KuCoin',
-        pairAddress: symbol,
+        pairAddress: normalized,
         sentimentUpPct: metrics?.sentimentUpPct || null,
         sentimentDownPct: metrics?.sentimentDownPct || null,
         communityScore: metrics?.communityScore || null,
@@ -223,13 +418,60 @@ class KuCoinExchange {
       await this.cache?.set(cacheKey, result, 60);
       return result;
     } catch (err) {
-      logger.error(`KuCoin getTokenData failed for ${symbol}: ${err.message}`);
+      logger.error(`KuCoin getTokenData failed for ${normalized}: ${err.message}`);
       return null;
     }
   }
 
+  async getKlines(symbol, interval = '15m', limit = 120) {
+    if (!this.exchange) {
+      throw new Error('KuCoin exchange not initialized');
+    }
+
+    const normalized = this.normalizeSymbol(symbol);
+    const type = mapKlineInterval(interval);
+    const intervalSec = klineIntervalSeconds(type);
+    const bars = Math.max(1, Math.min(300, Number(limit || 120)));
+    const endAt = Math.floor(Date.now() / 1000);
+    const startAt = endAt - intervalSec * (bars + 2);
+    let rows = [];
+
+    if (typeof this.exchange.publicGetMarketCandles === 'function') {
+      const response = await this.exchange.publicGetMarketCandles({
+        symbol: normalized.replace('/', '-'),
+        type,
+        startAt,
+        endAt,
+      });
+      rows = response?.data || response || [];
+    } else if (typeof this.exchange.fetchOHLCV === 'function') {
+      rows = await this.exchange.fetchOHLCV(
+        normalized,
+        klineIntervalToCcxt(type),
+        startAt * 1000,
+        bars
+      );
+    } else {
+      throw new Error('KuCoin OHLCV method unavailable');
+    }
+
+    const nowMs = Date.now();
+    return (Array.isArray(rows) ? rows : [])
+      .map(parseKucoinRestCandle)
+      .filter((row) => row
+        && Number.isFinite(row.open)
+        && Number.isFinite(row.high)
+        && Number.isFinite(row.low)
+        && Number.isFinite(row.close)
+        && row.close > 0
+        && ((Number(row.timestamp || 0) * 1000) + (intervalSec * 1000)) <= nowMs)
+      .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
+      .slice(-bars);
+  }
+
   getListingMeta(symbol) {
-    const market = this.exchange?.markets?.[symbol];
+    const normalized = this.normalizeSymbol(symbol);
+    const market = this.exchange?.markets?.[normalized];
     const tradingStartMs = normalizeTimestampMs(market?.info?.tradingStartTime);
     const createdMs = normalizeTimestampMs(market?.created);
     const listingTs = tradingStartMs || createdMs;
@@ -251,19 +493,38 @@ class KuCoinExchange {
   }
 
   async getAmountOut(amountInUsdt, symbol) {
-    const ticker = await this.getTicker(symbol);
+    const normalized = this.normalizeSymbol(symbol);
+    const ticker = await this.getTicker(normalized);
     const price = ticker?.last || 0;
     return price > 0 ? amountInUsdt / price : 0;
   }
 
   async getTopOfBook(symbol) {
-    const orderBook = await this.exchange.fetchOrderBook(symbol, 20); // KuCoin only accepts 20 or 100
+    const normalized = this.normalizeSymbol(symbol);
+    const orderBook = await this.exchange.fetchOrderBook(normalized, 20); // KuCoin only accepts 20 or 100
     const bestAsk = Number(orderBook?.asks?.[0]?.[0] || 0);
     const bestBid = Number(orderBook?.bids?.[0]?.[0] || 0);
     if (!bestAsk || !bestBid) {
-      throw new Error(`Order book unavailable for ${symbol}`);
+      throw new Error(`Order book unavailable for ${normalized}`);
     }
     return { bestAsk, bestBid };
+  }
+
+  getMarketTradeLimits(symbol) {
+    const normalized = this.normalizeSymbol(symbol);
+    const market = this.exchange?.market?.(normalized) || this.exchange?.markets?.[normalized] || null;
+    return {
+      minBaseSize: Number(market?.limits?.amount?.min || 0),
+      minFunds: Number(market?.limits?.cost?.min || 0),
+      amountPrecision: market?.precision?.amount ?? null,
+      pricePrecision: market?.precision?.price ?? null,
+    };
+  }
+
+  async getFreeQuoteBalance(asset = 'USDT') {
+    if (!this.exchange) return 0;
+    const balance = await this.exchange.fetchBalance();
+    return Number(balance?.[asset]?.free || 0);
   }
 
   async findRecentTradeFill(symbol, side = 'sell', expectedAmount = 0, options = {}) {
@@ -275,12 +536,15 @@ class KuCoinExchange {
     const targetTimestampMs = normalizeTimestampMs(options.targetTimestampMs || Date.now()) || Date.now();
     const sinceMs = Math.max(0, normalizeTimestampMs(options.sinceMs || (targetTimestampMs - lookbackMs)) || (targetTimestampMs - lookbackMs));
     const expectedBaseQty = Number(expectedAmount || 0);
+    const orderId = options.orderId ? String(options.orderId) : null;
 
     try {
-      const trades = await this.exchange.fetchMyTrades(symbol, sinceMs, 50);
+      const normalized = this.normalizeSymbol(symbol);
+      const trades = await this.exchange.fetchMyTrades(normalized, sinceMs, 50);
       const candidates = aggregateTradeFills(trades, side)
         .filter((entry) => {
           if (!Number.isFinite(Number(entry.filledBaseQty)) || Number(entry.filledBaseQty) <= 0) return false;
+          if (orderId && entry.txid !== orderId) return false;
           if (!Number.isFinite(Number(entry.timestampMs)) || Number(entry.timestampMs) <= 0) return true;
           return Number(entry.timestampMs) >= sinceMs - 5_000;
         })
@@ -305,18 +569,60 @@ class KuCoinExchange {
         timestamp: match.timestampMs ? new Date(match.timestampMs).toISOString() : null,
       };
     } catch (error) {
-      logger.warn(`KuCoin recent trade lookup failed for ${symbol}: ${error.message}`);
+      logger.warn(`KuCoin recent trade lookup failed for ${this.normalizeSymbol(symbol)}: ${error.message}`);
       return null;
     }
   }
 
   async executeBuy(symbol, usdtAmount, options = {}) {
+    symbol = this.normalizeSymbol(symbol);
     if (config.paperTrading) {
       logger.info(`[PAPER] KuCoin BUY ${symbol} with ${usdtAmount} USDT`);
       return { txid: `paper_tx_${Date.now()}`, simulated: true };
     }
 
     try {
+      const requestedQuoteFunds = Number(usdtAmount || 0);
+      if (!Number.isFinite(requestedQuoteFunds) || requestedQuoteFunds <= 0) {
+        throw new Error(`Invalid KuCoin buy funds for ${symbol}: ${usdtAmount}`);
+      }
+
+      const quoteBalanceReserveUsd = Math.max(0.05, Number(config.execution?.kucoinQuoteReserveUsd || 0.15));
+      const quoteBalanceHeadroomPct = Math.min(0.999, Math.max(0.90, Number(config.execution?.kucoinBalanceHeadroomPct || 0.992)));
+      const { minBaseSize, minFunds } = this.getMarketTradeLimits(symbol);
+      const { bestAsk } = await this.getTopOfBook(symbol);
+      const safeBestAsk = Number(bestAsk || 0);
+      if (!Number.isFinite(safeBestAsk) || safeBestAsk <= 0) {
+        throw new Error(`Order book unavailable for ${symbol}`);
+      }
+
+      const freeUsdt = await this.getFreeQuoteBalance('USDT');
+      const spendableUsdt = Math.max(0, (freeUsdt * quoteBalanceHeadroomPct) - quoteBalanceReserveUsd);
+      const cappedQuoteFunds = Math.min(requestedQuoteFunds, spendableUsdt);
+
+      if (!Number.isFinite(freeUsdt) || freeUsdt <= 0 || cappedQuoteFunds <= 0) {
+        throw new Error(`KuCoin BUY ${symbol} rejected: insufficient free USDT balance (free=${freeUsdt.toFixed(4)}, requested=${requestedQuoteFunds.toFixed(4)})`);
+      }
+
+      // Pre-flight: reject if estimated quantity or notional is below exchange minimums.
+      try {
+        if (minBaseSize > 0) {
+          if (safeBestAsk > 0) {
+            const estQty = cappedQuoteFunds / safeBestAsk;
+            if (estQty < minBaseSize) {
+              throw new Error(`KuCoin BUY ${symbol} rejected: estimated qty ${estQty.toFixed(8)} < baseMinSize ${minBaseSize}. Increase position size or skip this token.`);
+            }
+          }
+        }
+        if (minFunds > 0 && cappedQuoteFunds < minFunds) {
+          throw new Error(`KuCoin BUY ${symbol} rejected: funds ${cappedQuoteFunds.toFixed(4)} < minFunds ${minFunds}. Increase position size or skip this token.`);
+        }
+      } catch (preflightErr) {
+        // If the error is our own rejection, re-throw it; otherwise ignore (best-effort check)
+        if (preflightErr.message.startsWith('KuCoin BUY') && (preflightErr.message.includes('baseMinSize') || preflightErr.message.includes('minFunds'))) throw preflightErr;
+        logger.warn(`KuCoin buy preflight check failed (non-fatal): ${preflightErr.message}`);
+      }
+
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const maxSlippagePct = Math.max(0.1, Number(config.execution.kucoinMaxSlippagePct || 1.2));
       const strategyName = String(options?.strategyName || 'momentum').toLowerCase();
@@ -326,7 +632,13 @@ class KuCoinExchange {
         try {
           if (useMarketBuy && !marketAttemptUsed) {
             marketAttemptUsed = true;
-            const funds = Number(this.exchange.costToPrecision(symbol, Number(usdtAmount)));
+            const funds = Number(this.exchange.costToPrecision(symbol, cappedQuoteFunds));
+            if (!Number.isFinite(funds) || funds <= 0) {
+              throw new Error(`Invalid KuCoin market buy funds for ${symbol}`);
+            }
+            if (minFunds > 0 && funds < minFunds) {
+              throw new Error(`KuCoin BUY ${symbol} rejected: rounded funds ${funds.toFixed(4)} < minFunds ${minFunds}`);
+            }
             const order = await this.exchange.createOrder(symbol, 'market', 'buy', null, null, {
               funds,
             });
@@ -364,15 +676,24 @@ class KuCoinExchange {
             };
           }
 
-          const { bestAsk } = await this.getTopOfBook(symbol);
           const slippagePct = maxSlippagePct + (attempt - 1) * 0.25;
-          const limitPriceRaw = bestAsk * (1 + slippagePct / 100);
+          const limitPriceRaw = safeBestAsk * (1 + slippagePct / 100);
           const limitPrice = Number(this.exchange.priceToPrecision(symbol, limitPriceRaw));
-          const baseAmountRaw = Number(usdtAmount) / limitPrice;
+          const baseAmountRaw = cappedQuoteFunds / limitPrice;
           const baseAmount = Number(this.exchange.amountToPrecision(symbol, baseAmountRaw));
 
           if (!baseAmount || !limitPrice) {
             throw new Error(`Invalid order sizing for ${symbol}`);
+          }
+          const roundedQuoteFunds = baseAmount * limitPrice;
+          if (minBaseSize > 0 && baseAmount < minBaseSize) {
+            throw new Error(`KuCoin BUY ${symbol} rejected: rounded qty ${baseAmount.toFixed(8)} < baseMinSize ${minBaseSize}`);
+          }
+          if (minFunds > 0 && roundedQuoteFunds < minFunds) {
+            throw new Error(`KuCoin BUY ${symbol} rejected: rounded funds ${roundedQuoteFunds.toFixed(4)} < minFunds ${minFunds}`);
+          }
+          if (roundedQuoteFunds > spendableUsdt) {
+            throw new Error(`KuCoin BUY ${symbol} rejected: rounded funds ${roundedQuoteFunds.toFixed(4)} exceed spendable USDT ${spendableUsdt.toFixed(4)}`);
           }
 
           const order = await this.exchange.createOrder(symbol, 'limit', 'buy', baseAmount, limitPrice, {
@@ -398,6 +719,25 @@ class KuCoinExchange {
             hasExchangeFilledData: Boolean(filled > 0 && cost > 0),
           };
         } catch (error) {
+          const errorText = String(error?.message || '');
+          if (/balance insufficient|\b200004\b/i.test(errorText)) {
+            try {
+              const refreshedFreeUsdt = await this.getFreeQuoteBalance('USDT');
+              const refreshedSpendableUsdt = Math.max(0, (refreshedFreeUsdt * quoteBalanceHeadroomPct) - quoteBalanceReserveUsd);
+              throw new Error(
+                `KuCoin BUY ${symbol} rejected after balance refresh: insufficient free USDT ` +
+                `(free=${refreshedFreeUsdt.toFixed(4)}, spendable=${refreshedSpendableUsdt.toFixed(4)}, requested=${requestedQuoteFunds.toFixed(4)})`
+              );
+            } catch (refreshError) {
+              throw refreshError;
+            }
+          }
+          if (/Order size below the minimum requirement|\b400100\b/i.test(errorText)) {
+            throw new Error(
+              `KuCoin BUY ${symbol} rejected by exchange minimums after rounding ` +
+              `(minBaseSize=${minBaseSize || 0}, minFunds=${minFunds || 0}, requested=${requestedQuoteFunds.toFixed(4)})`
+            );
+          }
           if (useMarketBuy && marketAttemptUsed && attempt === 1) {
             logger.warn(`KuCoin BUY market mode failed, falling back to IOC limit: ${error.message}`);
           }
@@ -415,6 +755,7 @@ class KuCoinExchange {
   }
 
   async executeSell(symbol, amount) {
+    symbol = this.normalizeSymbol(symbol);
     if (config.paperTrading) {
       logger.info(`[PAPER] KuCoin SELL ${symbol} amount ${amount}`);
       return { txid: `paper_tx_${Date.now()}`, simulated: true };
@@ -423,6 +764,58 @@ class KuCoinExchange {
     try {
       const retries = Math.max(1, Number(config.execution.maxRetries || 3));
       const maxSlippagePct = Math.max(0.1, Number(config.execution.kucoinMaxSlippagePct || 1.2));
+      let preflightMinBaseSize = 0;
+
+      // Pre-flight: detect sub-minimum quantity and attempt a funds-based market sell instead
+      try {
+        const market = this.exchange.market(symbol);
+        const minBaseSize = Number(market?.limits?.amount?.min || 0);
+        const minFunds = Number(market?.limits?.cost?.min || 0);
+        preflightMinBaseSize = minBaseSize;
+        if (minBaseSize > 0 && Number(amount) < minBaseSize) {
+          logger.warn(`[KuCoin] SELL ${symbol}: qty ${amount} < baseMinSize ${minBaseSize} — attempting funds-based market sell`);
+          const { bestBid } = await this.getTopOfBook(symbol);
+          const estimatedFunds = Number(amount) * bestBid;
+          if (estimatedFunds < Math.max(minFunds, 0.1)) {
+            throw new Error(`KuCoin SELL ${symbol}: estimated value $${estimatedFunds.toFixed(4)} below quoteMinSize — position too small to exit via API`);
+          }
+          // Use funds-based market sell: KuCoin accepts `funds` param to sell by quote value
+          const fundsValue = Number(this.exchange.costToPrecision(symbol, estimatedFunds * 0.999)); // tiny discount to avoid rounding above actual balance
+          const order = await this.exchange.createOrder(symbol, 'market', 'sell', null, null, { funds: fundsValue });
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          let filledOrder = order;
+          if (order?.id) {
+            try { filledOrder = await this.exchange.fetchOrder(order.id, symbol); } catch (_) {}
+          }
+          const filled = Number(filledOrder?.filled || filledOrder?.amount || amount);
+          const avgPrice = Number(filledOrder?.average || filledOrder?.avgPrice || bestBid);
+          const cost = Number(filledOrder?.cost || (filled * avgPrice) || fundsValue);
+          logger.info(`KuCoin funds-based SELL filled: ${order?.id} (qty=${filled}, price=${avgPrice}, value=$${cost.toFixed(4)})`);
+          return {
+            txid: order?.id || `funds_sell_${Date.now()}`,
+            simulated: false,
+            executedPriceUsd: avgPrice,
+            filledBaseQty: filled,
+            filledQuoteUsd: cost,
+            hasExchangeFilledData: Boolean(filled > 0),
+          };
+        }
+      } catch (preflightErr) {
+        if (
+          preflightErr.message.includes('quoteMinSize')
+          || preflightErr.message.includes('baseMinSize')
+          || preflightErr.message.includes('position too small')
+        ) {
+          throw preflightErr;
+        }
+        // If sub-minimum funds-based sell fails, a normal IOC with the same sub-minimum
+        // quantity is not actionable. Fail cleanly so state repair/reconciliation can run.
+        if (preflightMinBaseSize > 0 && Number(amount) < preflightMinBaseSize) {
+          throw new Error(`KuCoin SELL ${symbol}: sub-minimum funds-based exit failed: ${preflightErr.message}`);
+        }
+        logger.warn(`KuCoin sell preflight failed (${preflightErr.message}), falling back to limit sell`);
+      }
+
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         const attemptStartedAtMs = Date.now();
         try {
@@ -459,6 +852,7 @@ class KuCoinExchange {
               sinceMs: attemptStartedAtMs - 10_000,
               lookbackMs: 2 * 60 * 1000,
               targetTimestampMs: attemptStartedAtMs,
+              orderId: order?.id,
             });
             if (recoveredFill) {
               logger.info(`KuCoin recent trades confirmed sell fill for ${symbol}: ${recoveredFill.txid}`);
@@ -485,6 +879,7 @@ class KuCoinExchange {
             sinceMs: attemptStartedAtMs - 15_000,
             lookbackMs: 3 * 60 * 1000,
             targetTimestampMs: attemptStartedAtMs,
+            orderId: typeof order !== 'undefined' ? order?.id : undefined,
           });
           if (recoveredFill) {
             logger.warn(`KuCoin recovered SELL fill from trade history after error for ${symbol}: ${error.message}`);
@@ -549,6 +944,28 @@ class KuCoinExchange {
     }
   }
 
+  // Order book imbalance: bid_depth / ask_depth ratio.
+  // > 1.2 = buy pressure (more demand), < 0.8 = sell pressure (more supply).
+  // Used as the 4th signal in the cascade alongside Technical / AI / Sentiment.
+  async getOrderBookImbalance(symbol, depth = 10) {
+    if (!this.exchange) return null;
+    try {
+      const ob = await this.exchange.fetchOrderBook(symbol, depth);
+      const bidUsd = (ob?.bids || []).slice(0, depth).reduce((s, [p, q]) => s + Number(p) * Number(q), 0);
+      const askUsd = (ob?.asks || []).slice(0, depth).reduce((s, [p, q]) => s + Number(p) * Number(q), 0);
+      if (askUsd <= 0 || bidUsd <= 0) return null;
+      return {
+        bidUsd,
+        askUsd,
+        ratio: bidUsd / askUsd,
+        skewPct: ((bidUsd - askUsd) / (bidUsd + askUsd)) * 100,
+        ts: Date.now(),
+      };
+    } catch (err) {
+      return null;
+    }
+  }
+
   async getWalletPositions(dustThresholdUsd = 0) {
     if (!this.exchange) return [];
 
@@ -562,30 +979,47 @@ class KuCoinExchange {
         await this.refreshTickers();
       }
 
+      const candidates = [];
       Object.entries(totals).forEach(([asset, totalRaw]) => {
         const total = Number(totalRaw || 0);
         if (!Number.isFinite(total) || total <= 0) return;
-
         const upper = String(asset || '').toUpperCase();
         if (!upper || upper === 'USDT') return;
-
         const symbol = `${upper}/USDT`;
         if (!this.exchange?.markets?.[symbol]) return;
+        candidates.push({ asset: upper, symbol, total });
+      });
 
-        const ticker = this.tickerCache?.[symbol] || null;
-        const last = Number(ticker?.last || 0);
-        if (!Number.isFinite(last) || last <= 0) return;
-
+      // Resolve prices: prefer cached ticker, else fetch directly. Without this fallback,
+      // any wallet asset that happens not to be in the ticker cache (e.g. low-volume names
+      // that fetchTickers omitted) gets silently dropped — making the wallet look empty.
+      for (const { asset, symbol, total } of candidates) {
+        let last = Number(this.tickerCache?.[symbol]?.last || 0);
+        if (!Number.isFinite(last) || last <= 0) {
+          try {
+            const t = await this.exchange.fetchTicker(symbol);
+            last = Number(t?.last || t?.close || t?.bid || 0);
+            if (Number.isFinite(last) && last > 0) {
+              this.tickerCache[symbol] = t;
+            }
+          } catch (err) {
+            logger.debug(`KuCoin direct ticker fetch failed for ${symbol}: ${err.message}`);
+          }
+        }
+        if (!Number.isFinite(last) || last <= 0) {
+          logger.warn(`KuCoin getWalletPositions: no price for ${symbol} (qty=${total}) — excluded from wallet view`);
+          continue;
+        }
         const valueUsd = total * last;
-        if (valueUsd < minUsd) return;
-
+        if (valueUsd < minUsd) continue;
         positions.push({
           address: symbol,
-          symbol: upper,
+          symbol: asset,
           quantity: total,
           valueUsd,
+          lastPrice: last,
         });
-      });
+      }
 
       return positions;
     } catch (error) {
@@ -681,7 +1115,7 @@ class KuCoinExchange {
           isFreshListing,
           liquidityUsd: hasFreshDepth
             ? Number(cachedDepth.liquidityUsd || 0)
-            : Number(ticker.quoteVolume || 0) * Number(ticker.last || 0),
+            : Number(ticker.quoteVolume || 0),
         };
       })
       .filter((item) => {

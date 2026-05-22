@@ -461,6 +461,7 @@ async function loadSharedAgentMemory(pool) {
 
     if (kind === 'trade_ledger') {
       const t = payload || {};
+      const setupType = t.setupType || t.setup_type || t.details?.setupType || null;
       const req = pool.request();
       req.input('trade_id', sql.UniqueIdentifier, t.trade_id || uuid());
       req.input('bot_profile', sql.NVarChar(20), this.botProfile);
@@ -479,13 +480,14 @@ async function loadSharedAgentMemory(pool) {
       req.input('signal_source', sql.NVarChar(80), t.signalSource ? String(t.signalSource).slice(0, 80) : null);
       req.input('reason', sql.NVarChar(200), t.reason ? String(t.reason).slice(0, 200) : null);
       req.input('exit_category', sql.NVarChar(60), t.exitCategory ? String(t.exitCategory).slice(0, 60) : null);
+      req.input('setup_type', sql.NVarChar(40), setupType ? String(setupType).slice(0, 40) : null);
       req.input('raw_trade_json', sql.NVarChar(sql.MAX), safeJson(t, 20000));
       await req.query(`
  INSERT INTO dbo.bot_trade_ledger(
-   trade_id, bot_profile, ts, trade_type, symbol, chain, chain_key, strategy, address, price, quantity, value_usd, pnl_usd, txid, signal_source, reason, exit_category, raw_trade_json
+   trade_id, bot_profile, ts, trade_type, symbol, chain, chain_key, strategy, address, price, quantity, value_usd, pnl_usd, txid, signal_source, reason, exit_category, setup_type, raw_trade_json
  )
  VALUES (
-   @trade_id, @bot_profile, @ts, @trade_type, @symbol, @chain, @chain_key, @strategy, @address, @price, @quantity, @value_usd, @pnl_usd, @txid, @signal_source, @reason, @exit_category, @raw_trade_json
+   @trade_id, @bot_profile, @ts, @trade_type, @symbol, @chain, @chain_key, @strategy, @address, @price, @quantity, @value_usd, @pnl_usd, @txid, @signal_source, @reason, @exit_category, @setup_type, @raw_trade_json
  )
  `);
       return;
@@ -1063,7 +1065,7 @@ ORDER BY ts DESC
       await tx.commit();
       return { ok: true };
     } catch (error) {
-      await tx.rollback().catch(() => {});
+      await tx.rollback().catch((rollbackErr) => this.logger.warn(`[SQL] syncQueryableState rollback failed: ${rollbackErr?.message || rollbackErr}`));
       this.logger.warn(`[SQL] syncQueryableState failed: ${error.message}`);
       return { ok: false, reason: error.message };
     }
