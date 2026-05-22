@@ -3,3 +3,30 @@ node_modules/
 logs/
 *.log
 .DS_Store
+
+# ML model binaries — exceed GitHub 100MB limit. Distribute via separate channel.
+artifacts/sentiment/finbert_sentiment-v1/model.safetensors
+artifacts/sentiment/finbert_sentiment-v1/*.bin
+*.safetensors
+
+# Runtime artifacts — bot state, agent memory, evolution backups containing secrets.
+# Self-evolution backs up .env (which holds API keys) when applying mutations.
+data/self-evolution-backups/
+data/self-evolution-proposals/
+data/agent-memory.json
+data/marketState*.json
+data/state*.json
+data/*.lock
+data/learning-backup.json
+data/evolution-candidates/
+data/self-evolution-history.jsonl
+
+# Editor/tool/agent caches
+.claude-flow/
+.serena/
+.vscode/
+.agents/
+graphify-out/
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
