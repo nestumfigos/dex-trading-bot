@@ -76,6 +76,10 @@ class BaseSwapExchange {
     };
     this._frictionCache = new Map();
     this._nonceManager = null;
+    // 2026-05-23: cache + cooldown so public Base RPC 504/timeouts don't flood logs.
+    this._balanceCache = { value: 0, expiresAt: 0 };
+    this._balanceErrorCooldownUntil = 0;
+    this._balanceErrorLoggedAt = 0;
   }
 
   async initialize() {
@@ -614,13 +618,32 @@ class BaseSwapExchange {
 
   async getBalance() {
     if (!this.wallet) return 0;
+    const now = Date.now();
+    if (now < this._balanceErrorCooldownUntil) {
+      return Number(this._balanceCache.value || 0);
+    }
+    if (Number.isFinite(this._balanceCache.value) && now < Number(this._balanceCache.expiresAt || 0)) {
+      return Number(this._balanceCache.value);
+    }
     try {
       const ethBalance = await this.provider.getBalance(this.wallet.address);
       const ethPrice = await this.getEthPrice();
-      return Number(ethers.formatEther(ethBalance)) * ethPrice;
+      const usd = Number(ethers.formatEther(ethBalance)) * ethPrice;
+      this._balanceCache = { value: usd, expiresAt: now + 60_000 };
+      return usd;
     } catch (error) {
-      logger.error(`BaseSwap getBalance failed: ${error.message}`);
-      return 0;
+      const msg = String(error?.message || '');
+      const transient = /429|Too Many Requests|fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|503|504|Gateway Timeout|SERVER_ERROR/i.test(msg);
+      if (transient) {
+        this._balanceErrorCooldownUntil = now + 5 * 60_000;
+        if (now - this._balanceErrorLoggedAt > 5 * 60_000) {
+          logger.warn(`BaseSwap getBalance transient failure, cooling down 5m: ${msg.slice(0, 200)}`);
+          this._balanceErrorLoggedAt = now;
+        }
+      } else {
+        logger.error(`BaseSwap getBalance failed: ${msg}`);
+      }
+      return Number(this._balanceCache.value || 0);
     }
   }
 

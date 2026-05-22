@@ -53,6 +53,11 @@ class JupiterExchange {
       value: null,
       expiresAt: 0,
     };
+    // 2026-05-23: cache + cooldown so public Solana RPC 429/network errors don't
+    // flood logs every minute. Returns last-good balance during cooldown.
+    this._balanceCache = { value: 0, expiresAt: 0 };
+    this._balanceErrorCooldownUntil = 0;
+    this._balanceErrorLoggedAt = 0;
   }
 
   refreshBirdeyeWindowIfNeeded() {
@@ -742,13 +747,32 @@ class JupiterExchange {
 
   async getBalance() {
     if (!this.wallet) return 0;
+    const now = Date.now();
+    if (now < this._balanceErrorCooldownUntil) {
+      return Number(this._balanceCache.value || 0);
+    }
+    if (Number.isFinite(this._balanceCache.value) && now < Number(this._balanceCache.expiresAt || 0)) {
+      return Number(this._balanceCache.value);
+    }
     try {
       const solBalance = await this.connection.getBalance(this.wallet.publicKey);
       const solPrice = await this.getSolPrice();
-      return (solBalance / 1e9) * solPrice;
+      const usd = (solBalance / 1e9) * solPrice;
+      this._balanceCache = { value: usd, expiresAt: now + 60_000 };
+      return usd;
     } catch (err) {
-      logger.error(`Jupiter getBalance failed: ${err.message}`);
-      return 0;
+      const msg = String(err?.message || '');
+      const transient = /429|Too Many Requests|fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|503|504/i.test(msg);
+      if (transient) {
+        this._balanceErrorCooldownUntil = now + 5 * 60_000;
+        if (now - this._balanceErrorLoggedAt > 5 * 60_000) {
+          logger.warn(`Jupiter getBalance transient failure, cooling down 5m: ${msg.slice(0, 200)}`);
+          this._balanceErrorLoggedAt = now;
+        }
+      } else {
+        logger.error(`Jupiter getBalance failed: ${msg}`);
+      }
+      return Number(this._balanceCache.value || 0);
     }
   }
 
