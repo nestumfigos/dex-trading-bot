@@ -730,7 +730,13 @@ class KuCoinExchange {
           const { bestBid } = await this.getTopOfBook(symbol);
           const estimatedFunds = Number(amount) * bestBid;
           if (estimatedFunds < Math.max(minFunds, 0.1)) {
-            throw new Error(`KuCoin SELL ${symbol}: estimated value $${estimatedFunds.toFixed(4)} below quoteMinSize — position too small to exit via API`);
+            // Dust position — cannot be exited via API. Tag the error so the caller
+            // can mark the position as written-off and stop retrying on every exit cycle.
+            const dustErr = new Error(`KuCoin SELL ${symbol}: estimated value $${estimatedFunds.toFixed(4)} below quoteMinSize — position too small to exit via API`);
+            dustErr.code = 'POSITION_DUST';
+            dustErr.dustEstimatedFunds = estimatedFunds;
+            dustErr.dustMinFunds = Math.max(minFunds, 0.1);
+            throw dustErr;
           }
           // Use funds-based market sell: KuCoin accepts `funds` param to sell by quote value
           const fundsValue = Number(this.exchange.costToPrecision(symbol, estimatedFunds * 0.999)); // tiny discount to avoid rounding above actual balance

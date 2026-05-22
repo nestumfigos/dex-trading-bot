@@ -196,7 +196,27 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
   if (unknown.length && strictUnknown) {
     errors.push(`Unknown env vars: ${unknown.join(', ')}`);
   } else if (unknown.length) {
-    warnings.push(`${unknown.length} env vars not in schema (use STRICT_MODE=true to enforce)`);
+    // Day 7 hotfix 2026-05-22: write the unknown list to disk for one-time review
+    // instead of repeating the noisy "N env vars not in schema" warning on every
+    // boot. User can prune .env or add knobs to KNOBS; report file is overwritten
+    // each boot so it always reflects current state.
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const dataDir = process.env.BOT_DATA_DIR || 'data';
+      const reportPath = path.resolve(process.cwd(), dataDir, 'config-unknown-env-vars.txt');
+      try { fs.mkdirSync(path.dirname(reportPath), { recursive: true }); } catch (_) { /* best-effort */ }
+      const header = [
+        `# Unknown env vars (not in src/config/schema.js KNOBS)`,
+        `# Generated: ${new Date().toISOString()} — overwritten each boot`,
+        `# Action: either add a KNOBS entry or remove from .env / ecosystem.config.js`,
+        `# Count: ${unknown.length}`,
+        '',
+      ].join('\n');
+      fs.writeFileSync(reportPath, header + unknown.sort().join('\n') + '\n', 'utf8');
+    } catch (_) { /* best-effort */ }
+    // Single-line summary instead of dumping the list to logs every cycle.
+    warnings.push(`${unknown.length} env vars not in schema — see data/config-unknown-env-vars.txt (set CONFIG_STRICT_UNKNOWN=true to enforce)`);
   }
 
   return { errors, warnings, unknown };
