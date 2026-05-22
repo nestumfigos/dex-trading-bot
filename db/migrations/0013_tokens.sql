@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M014: tokens
 -- Metadata cache for tokens we've seen. Reduces DexScreener / CoinGecko / KuCoin
 -- API hits by serving stale (with refresh in background) when (symbol, chain)
@@ -29,25 +32,63 @@ BEGIN
     created_at      DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- One row per (symbol, chain) — composite uniqueness.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='UX_tokens_symbol_chain' AND object_id=OBJECT_ID('dbo.tokens'))
 BEGIN
   CREATE UNIQUE INDEX UX_tokens_symbol_chain ON dbo.tokens (symbol, chain);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Address lookup (used when chain has unique address).
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_tokens_address' AND object_id=OBJECT_ID('dbo.tokens'))
 BEGIN
   CREATE INDEX IX_tokens_address ON dbo.tokens (address) WHERE address IS NOT NULL;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Stale-detector index: query rows refreshed > 5min ago.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_tokens_refreshed_at' AND object_id=OBJECT_ID('dbo.tokens'))
 BEGIN
   CREATE INDEX IX_tokens_refreshed_at ON dbo.tokens (refreshed_at ASC) INCLUDE (symbol, chain);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M010: ai_decisions
 -- Per-call AI inference record. Tracks provider, model, latency, cost, signal.
 -- 7d full retention; older rows aggregated into ai_decisions_rollup (M010b).
@@ -31,7 +34,17 @@ BEGIN
     bot_version     NVARCHAR(64)  NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Hot scan: dashboard latest.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ai_decisions_decided_at' AND object_id = OBJECT_ID('dbo.ai_decisions'))
@@ -40,7 +53,17 @@ BEGIN
     ON dbo.ai_decisions (decided_at DESC)
     INCLUDE (scope, provider, success, latency_ms, cost_usd, purpose);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Per-symbol drill-down.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ai_decisions_symbol' AND object_id = OBJECT_ID('dbo.ai_decisions'))
@@ -49,7 +72,17 @@ BEGIN
     ON dbo.ai_decisions (symbol, chain, decided_at DESC)
     INCLUDE (provider, signal, confidence, success);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Provider cost breakdown.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ai_decisions_provider' AND object_id = OBJECT_ID('dbo.ai_decisions'))
@@ -58,7 +91,17 @@ BEGIN
     ON dbo.ai_decisions (provider, decided_at DESC)
     INCLUDE (cost_usd, latency_ms, success, model);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- ─── Rollup table (daily aggregate for ≥7d data) ────────────────────────────
 
@@ -83,11 +126,29 @@ BEGIN
     rolled_at         DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ai_decisions_rollup_day' AND object_id = OBJECT_ID('dbo.ai_decisions_rollup'))
 BEGIN
   CREATE UNIQUE INDEX UX_ai_decisions_rollup_day
     ON dbo.ai_decisions_rollup (day, scope, provider, model, purpose);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

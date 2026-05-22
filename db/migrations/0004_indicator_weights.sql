@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M005: indicator_weights
 -- Per-indicator per-bucket win-rate + adaptive weight, populated by memory/stats.js
 -- recordIndicatorOutcome. Replaces in-memory indicatorPatterns map. Hot-read by
@@ -22,7 +25,17 @@ BEGIN
     created_at      DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Unique (indicator, bucket, scope, strategy) — strategy NULL handled via filtered index.
 IF NOT EXISTS (
@@ -34,7 +47,17 @@ BEGIN
   CREATE UNIQUE INDEX UX_indicator_weights_indicator_bucket_scope_strategy
     ON dbo.indicator_weights (indicator, bucket, scope, strategy);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Hot-read scoring lookup.
 IF NOT EXISTS (
@@ -47,4 +70,12 @@ BEGIN
     ON dbo.indicator_weights (indicator, scope)
     INCLUDE (bucket, weight, win_rate, samples);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

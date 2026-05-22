@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M006: evolution_history
 -- Replaces append-only data/self-evolution-history.jsonl. Each row = one self-
 -- evolution decision with pre/post win-rate for causal feedback. Bot dual-writes
@@ -30,7 +33,17 @@ BEGIN
     strategy_version_id NVARCHAR(128) NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Time-ordered scan (dashboard latest, prune by age).
 IF NOT EXISTS (
@@ -43,7 +56,17 @@ BEGIN
     ON dbo.evolution_history (decided_at DESC)
     INCLUDE (scope, strategy, decision, patch_id);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Patch lookup (re-evaluate same patch later).
 IF NOT EXISTS (
@@ -55,7 +78,17 @@ BEGIN
   CREATE INDEX IX_evolution_history_patch_id
     ON dbo.evolution_history (patch_id, decided_at DESC);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Decision filter (find all rollbacks, all promoted, etc).
 IF NOT EXISTS (
@@ -67,4 +100,12 @@ BEGIN
   CREATE INDEX IX_evolution_history_decision_scope
     ON dbo.evolution_history (decision, scope, decided_at DESC);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

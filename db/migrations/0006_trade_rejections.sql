@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M007: trade_rejections
 -- Audit every blocked trade attempt (pre-trade contract failures, filter rejects,
 -- AI vetoes). 30d retention. Queryable by dashboard + analytics.
@@ -23,7 +26,17 @@ BEGIN
     bot_version     NVARCHAR(64)  NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Hot scan: dashboard latest, retention prune.
 IF NOT EXISTS (
@@ -36,7 +49,17 @@ BEGIN
     ON dbo.trade_rejections (rejected_at DESC)
     INCLUDE (scope, strategy, side, symbol, gate);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Symbol drill-down (how often is X blocked?).
 IF NOT EXISTS (
@@ -49,7 +72,17 @@ BEGIN
     ON dbo.trade_rejections (symbol, chain, rejected_at DESC)
     INCLUDE (gate, severity);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Gate breakdown (which rule fires most?).
 IF NOT EXISTS (
@@ -62,4 +95,12 @@ BEGIN
     ON dbo.trade_rejections (gate, rejected_at DESC)
     INCLUDE (scope, severity);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

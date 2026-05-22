@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M004: symbol_overrides
 -- Replaces scattered tokenBlacklist / tokenPreferences storage in agent-memory.json.
 -- One row = one symbol+chain override with action enum + optional expiration.
@@ -21,7 +24,17 @@ BEGIN
     created_by      NVARCHAR(128) NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Unique active override per (scope, symbol, chain, action).
 IF NOT EXISTS (
@@ -34,7 +47,17 @@ BEGIN
     ON dbo.symbol_overrides (scope, symbol, chain, action)
     WHERE active = 1;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Lookup index for hot-path read (filter by symbol+chain+active).
 IF NOT EXISTS (
@@ -47,7 +70,17 @@ BEGIN
     ON dbo.symbol_overrides (symbol, chain, active)
     INCLUDE (action, value, expires_at);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Expiration sweep helper index.
 IF NOT EXISTS (
@@ -60,4 +93,12 @@ BEGIN
     ON dbo.symbol_overrides (expires_at)
     WHERE active = 1 AND expires_at IS NOT NULL;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

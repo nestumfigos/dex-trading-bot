@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M016: backtest_runs
 -- Every backtest invocation stored with config snapshot + outcome. Self-evolution
 -- reads from this table for validation evidence ("did this patch have a
@@ -34,7 +37,17 @@ BEGIN
     patch_id            NVARCHAR(128) NULL                        -- if backtest was triggered by self-evolution
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Time-ordered scan.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_backtest_runs_started_at' AND object_id=OBJECT_ID('dbo.backtest_runs'))
@@ -43,14 +56,34 @@ BEGIN
     ON dbo.backtest_runs (started_at DESC)
     INCLUDE (scope, strategy, status, win_rate, total_pnl_usd, sharpe_ratio);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Run lookup by id.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='UX_backtest_runs_run_id' AND object_id=OBJECT_ID('dbo.backtest_runs'))
 BEGIN
   CREATE UNIQUE INDEX UX_backtest_runs_run_id ON dbo.backtest_runs (run_id);
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Patch lookup (self-evolution: "show me all backtests for patch X").
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_backtest_runs_patch_id' AND object_id=OBJECT_ID('dbo.backtest_runs'))
@@ -59,4 +92,12 @@ BEGIN
     ON dbo.backtest_runs (patch_id, started_at DESC)
     WHERE patch_id IS NOT NULL;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

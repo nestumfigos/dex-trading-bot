@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M008: sell_tiers
 -- Replaces MOMENTUM_SELL_TIERS JSON-in-env. Hot-reloadable. min_notional_usd
 -- precomputed per (chain, scope) so pre-trade contract checkTierFeasibility
@@ -22,7 +25,17 @@ BEGIN
     updated_by        NVARCHAR(128) NULL
   );
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- One active row per (scope, strategy, tier_index, chain) — hot lookup.
 IF NOT EXISTS (
@@ -35,7 +48,17 @@ BEGIN
     ON dbo.sell_tiers (scope, strategy, tier_index, chain)
     WHERE active = 1;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+BEGIN TRANSACTION;
+BEGIN TRY
+
 
 -- Hot read by exit checker: get all tiers for strategy ordered.
 IF NOT EXISTS (
@@ -49,4 +72,12 @@ BEGIN
     INCLUDE (profit_multiplier, sell_pct, min_notional_usd, chain)
     WHERE active = 1;
 END
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
 GO
+

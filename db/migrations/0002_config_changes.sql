@@ -1,3 +1,6 @@
+BEGIN TRANSACTION;
+BEGIN TRY
+
 -- M003: config_changes
 -- Audit log of every knob mutation. Read by `npm run config:diff` (Week 6)
 -- to show what changed pre-restart.
@@ -22,3 +25,12 @@ BEGIN
   CREATE INDEX IX_config_changes_changed_at ON dbo.config_changes(changed_at DESC);
   CREATE INDEX IX_config_changes_knob ON dbo.config_changes(knob, changed_at DESC);
 END;
+
+
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;
+GO

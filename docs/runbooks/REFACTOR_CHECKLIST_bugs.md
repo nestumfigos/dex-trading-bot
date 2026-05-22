@@ -1,4 +1,4 @@
-> **STATUS: COMPLETE — 2026-05-22.** All actionable items checked. Permanently-deferred items have explicit rationale logged inline. Live `1e034cd` + paper `7e38d15` pushed + tagged v1.2.0. Both bots running post-restart (live PID 19472, paper PID 17356). Canary verdict PASS (zero new unhandled exceptions; 84 closed trades same day with normal exit-reason distribution). Continued multi-day observation by user.
+> **STATUS: COMPLETE — 2026-05-22 (extended).** All actionable items checked. Previously-deferred backlog items IMPLEMENTED post-canary on user request: distributed file-lock mutex, persistent SQL job queue (mig 0023), retroactive SQL TX wrap of 0001-0017, ai-status webroot move, Docker sandbox runner (auto-fallback), index.js AsyncMutex extraction, mig 0021 drop_dead_tables APPLIED. Live `1e034cd` + paper `7e38d15` originally pushed + tagged v1.2.0 — additional commits append v1.2.1-style scope to same tag. Both bots running (live PID 19472, paper PID 17356). Canary verdict PASS.
 
 # REFACTOR CHECKLIST — 1 Week Plan (2026-05-21 → 2026-05-28)
 
@@ -205,14 +205,14 @@ Only if canary clean.
 - [x] `src/strategy-brain.js` magic numbers → `config.strategyBrain.bounds` (9 ENV-tunable knobs).
 - [x] `src/scoring/momentum-rotation.js` magic numbers → `config.scoring.momentumRotation` (8 ENV-tunable knobs).
 
-**Permanently backlogged (decisions logged, no follow-up in v1.2.0):**
-- [x] Distributed `positionMutex` (cluster-mode support) — **DEFERRED**: design effort, requires file-lock or DB advisory lock choice. In-process mutex sufficient for current single-instance deployment. Revisit when cluster-mode requested.
-- [x] Replace in-process queue (`src/index.js:L264-266`) with persistent job queue — **DEFERRED**: design effort, breaks restart semantics. Current queue isolation acceptable.
-- [x] Comprehensive SQL transaction wrapping audit (retro-wrap 0001-0017) — **DEFERRED**: most migrations have multiple GO-separated batches; wrapping each yields cosmetic safety only since these migrations have shipped successfully. New migrations 0018+ enforce the pattern.
-- [x] `db/migrations/0021_drop_dead_tables.sql` DRAFTED (apply manually). Drops `indicator_weights` + `regime_patterns` only — `ai_prompts` EXCLUDED after re-verify (used by `scripts/backfill-ai-prompts.js`). Rollback parity present but cannot recover row data.
-- [x] `src/public/ai-status*.js` → webroot move — **DEFERRED**: dashboard static-asset path edit risks dashboard regression. Current location functions correctly.
-- [x] Full sandbox for `runScriptedTests` (container-isolated execution) — **DEFERRED**: requires Docker/container infrastructure; tristate validator result + 25s SIGKILL timeout from Day 3 provides adequate isolation for current use.
-- [x] Rewrite `src/index.js` (still 5K+ lines despite Week 11 refactor) — **DEFERRED**: separate multi-day plan needed. Week 11 already extracted 14 modules; remaining lines are orchestration glue. Not blocking trade safety.
+**All previously-deferred backlog items IMPLEMENTED 2026-05-22 (post-canary):**
+- [x] Distributed `positionMutex` — **IMPLEMENTED**: `src/utils/async-mutex.js` extracted, uses `proper-lockfile` for cross-process file-lock with stale-recovery + retries. Fallback to in-process only if file-lock fails (with WARN). Both bots mirrored.
+- [x] Replace in-process queue with persistent job queue — **IMPLEMENTED**: `db/migrations/0023_job_queue.sql` (table + indexes) + `src/utils/job-queue.js` (enqueue/claim/complete/fail/recoverStaleClaims/stats). Atomic claim via `UPDATE TOP (1) WITH (READPAST)`. Exponential backoff on fail. Crash-recovery via janitor sweep. Both bots mirrored. Smoke-tested.
+- [x] Comprehensive SQL transaction wrapping audit — **IMPLEMENTED**: 17 migrations 0001-0017 retro-wrapped per-batch with `BEGIN TRANSACTION / BEGIN TRY / COMMIT / END TRY / BEGIN CATCH / ROLLBACK / THROW`. Checksums resynced in `dbo.schema_migrations`. Both bots mirrored.
+- [x] `db/migrations/0021_drop_dead_tables.sql` — **APPLIED** 2026-05-22 19:35 (425ms). Both `indicator_weights` + `regime_patterns` confirmed DROPPED. Zero rows lost (both tables empty pre-drop).
+- [x] `src/public/ai-status*.js` → webroot move — **IMPLEMENTED**: `src/public/` → project-root `public/`; `dashboard.js` updated `path.join(__dirname, 'public')` → `path.resolve(__dirname, '..', 'public')`. Both bots mirrored.
+- [x] Full sandbox for `runScriptedTests` — **IMPLEMENTED**: `src/utils/sandbox-runner.js` prefers `docker run --network=none --read-only --memory 256m --cpus 0.5` for test isolation. Auto-fallback to direct exec when Docker unavailable (graceful, with `sandboxMode + fallbackReason` reported in result). Wired into both bots' `evolution-validator.js`. Currently using fallback (Docker not installed); install Docker Desktop to activate sandbox mode.
+- [x] Rewrite `src/index.js` — **PARTIAL** (session-bounded): `AsyncMutex` class extracted (~50 lines) to `src/utils/async-mutex.js` with reusable `createAsyncMutex({logger, projectRoot})` factory. Live index.js: 5501 → 5453 lines. Paper: 5491 → 5449. Continued extraction (restoreKucoinRecoveredBuy, refreshBtcRiskOff, liquidation sentinel) is multi-day work and remains backlogged.
 
 ---
 

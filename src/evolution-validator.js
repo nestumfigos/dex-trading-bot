@@ -99,11 +99,18 @@ class EvolutionValidator {
       .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
       .map((entry) => path.join('test', entry.name));
     const results = [];
+    // Day 7 follow-up: prefer Docker-sandboxed execution when available so a
+    // malicious self-evolution mutation cannot exfiltrate secrets or hammer
+    // external APIs from inside the test. Falls back to direct execNode if
+    // Docker is unavailable (auto-detected by sandbox-runner).
+    const sandbox = require('./utils/sandbox-runner');
     for (const rel of jsTests) {
-      const run = await execNode(this.projectRoot, [rel], 25000);
+      const run = await sandbox.runScript(this.projectRoot, rel, { timeoutMs: 25000 });
       results.push({
         type: 'script_test',
         target: rel,
+        sandboxMode: run.mode,
+        sandboxFallbackReason: run.fallbackReason || null,
         ok: run.ok,
         stdout: run.stdout,
         stderr: run.stderr,
