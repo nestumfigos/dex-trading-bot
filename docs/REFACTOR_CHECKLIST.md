@@ -6,7 +6,7 @@
 - **Runtime soak/observation gates** (~50 items): See [docs/runbooks/SOAK_OBSERVATION_GATES.md](runbooks/SOAK_OBSERVATION_GATES.md) for per-gate criteria, how to verify, current snapshot. Require live bot runtime — cannot be closed by editing code.
 - **Walk-forward backtests** (~5 items): Runner script SHIPPED 2026-05-23(2) at `scripts/run-walkforward-backes.js` (dry-run validated). End-to-end execution still requires historical data fetch with depth + compute time; default 12 months × top-10 KuCoin universe across 6 windows. Operator runs: `node scripts/run-walkforward-backes.js --top10`.
 - **WEEK 15 PERPS** (~30 items): See [docs/runbooks/PERPS_BOOTSTRAP.md](runbooks/PERPS_BOOTSTRAP.md). Explicit "SEPARATE REPO" per checklist header — `dex-trading-bot-perps/` not yet created. ~9 weeks total to live (11 days code + 4wk paper soak + 1mo live canary).
-- **16.2 memory `core.js`** (1 item): final assembly that eliminates AgentMemory class. 7/8 sub-modules already extracted; class elimination requires 50+ call-site migrations for no behavior benefit. Class kept as facade.
+- ~~**16.2 memory `core.js`**~~: SHIPPED 2026-05-23(3). Facade module with `create()` factory + helper re-exports. Migrated 1 prod call site (audit found only 4 importers total, not 50+ as estimated).
 - ~~**3-sigma badges on canary sparkline**~~: SHIPPED 2026-05-23(2). `/api/health-canary/sparklines` now returns `{series, stats, sigmaBadge}` per check; dashboard renders ⚠3σ badge next to status when latest value is >3 stdev from mean.
 
 **Code work fully complete (2026-05-23):** 16.1 scanChain split · 16.2 memory split (7/8) · 16.4 dashboard panels + bull-flag PnL chart + canary sparklines + risk-rules CRUD · 16.5 ai_prompts loader + tokens cache + regime_patterns loader · 16.6 release tag · all bug guards · log-noise throttle · balanceDriftHalt auto-rebase · state-write mutex · env-vars prune.
@@ -1615,7 +1615,7 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [X] `src/agent/memory/lessons.js` — 2026-05-23, recordLessonInto + checkLessonsFor as pure helpers; class wraps with _dirty + stats hook
 - [X] `src/agent/memory/knowledge.js` — 2026-05-23, addKnowledgeInto + getKnowledgeFrom + recordEvolutionOutcomeInto + getEvolutionSummary + shouldPauseEvolution as pure helpers
 - [X] `src/agent/memory/insights.js` — 2026-05-23, getRegimeContext + getChainContext + getSymbolContext + getTokenAgeContext as pure read-only helpers (no `this.data` mutation)
-- [ ] `src/agent/memory/core.js` — DEFERRED. Would assemble all 7 modules into single export and eliminate AgentMemory class. Requires 50+ call-site migrations (50+ files import `agentMemory.js`); no behavior benefit, pure file-shape change. Keep class as facade.
+- [X] `src/agent/memory/core.js` — 2026-05-23(3), facade module with `create({logger, config})` factory + re-exports of all pure helpers. **Migrated index.js (1 prod call site)** + tests still work via `AgentMemory` re-export. Audit found only 4 importers total (1 prod + 3 tests), not 50+ as previously estimated. Class kept internally; facade lets future cleanup swap to pure composition without touching call sites.
 - [X] Tests: 24 new tests (lessons 7, knowledge 10, insights 7) all pass. Pre-existing memory suite 51/51 also passes (no regression). Total 75/75 memory tests.
 - [ ] Paper canary + live promote — pending operator runtime gate (behavior identical, but standard process)
 

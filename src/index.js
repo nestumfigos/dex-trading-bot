@@ -58,7 +58,10 @@ const EvolutionGovernor = require('./evolution-governor');
 const EvolutionValidator = require('./evolution-validator');
 const StrategyLab = require('./strategy-lab');
 const MarketIntelligenceAgent = require('./agent/marketIntelligence');
-const AgentMemory = require('./agent/agentMemory');
+// W16.2 closeout: import via memory facade (core.js). AgentMemory class
+// remains the underlying impl; this indirection lets future cleanup migrate
+// to pure-composition without touching call sites again.
+const _memoryFacade = require('./agent/memory/core');
 const SqlCoordination = require('./utils/sqlCoordination');
 const { SqlTelemetry, uuid: telemetryUuid } = require('./utils/sqlTelemetry');
 const { getSqlStatus, runSelfTest: runSqlSelfTest, hasExplicitDatabase } = require('./utils/sqlServer');
@@ -1904,7 +1907,7 @@ const strategyLab = new StrategyLab({
   projectRoot: PROJECT_ROOT,
   dataDir: BOT_DATA_DIR,
 });
-const agentMemory = new AgentMemory({ logger, config });
+const agentMemory = _memoryFacade.create({ logger, config });
 selfEvolution.bindDependencies({ agentMemory, portfolio });
 const modelRegistry = new ModelRegistry({ logger, botProfile: BOT_PROFILE });
 const intelligenceAgent = new MarketIntelligenceAgent({ portfolio, config, agentMemory, marketState });
