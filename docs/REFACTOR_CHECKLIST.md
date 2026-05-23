@@ -6,7 +6,7 @@
 - **Runtime soak/observation gates** (~50 items): See [docs/runbooks/SOAK_OBSERVATION_GATES.md](runbooks/SOAK_OBSERVATION_GATES.md). Require live bot runtime.
 - **Walk-forward backtests** (~5 items): Runner SHIPPED at `scripts/run-walkforward-backes.js` (dry-run validated). Operator runs to execute.
 - **WEEK 15 PERPS** (~30 items): See [docs/runbooks/PERPS_BOOTSTRAP.md](runbooks/PERPS_BOOTSTRAP.md). Explicit "SEPARATE REPO" — bootstrap not started.
-- **16.2 memory `core.js`** (1 item): class elimination — 50+ call-site migrations for no behavior benefit. Class kept as facade.
+- ~~**16.2 memory `core.js`**~~: SHIPPED 2026-05-23(3). Facade + factory + helper re-exports. 1 prod call site migrated.
 - ~~**3-sigma badges on canary sparkline**~~: SHIPPED 2026-05-23(2). Sparklines endpoint returns stats + sigmaBadge; dashboard renders ⚠3σ next to status.
 
 **Code work fully complete (2026-05-23):** 16.1 scanChain split · 16.2 memory split (7/8) · 16.4 dashboard panels + bull-flag chart + canary sparklines + risk-rules CRUD · 16.5 ai_prompts loader + tokens cache + regime_patterns loader · 16.6 release tag · log-noise throttle · balanceDriftHalt auto-rebase · state-write mutex · env-vars prune.
@@ -1615,7 +1615,7 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [X] `src/agent/memory/lessons.js` — 2026-05-23, recordLessonInto + checkLessonsFor as pure helpers
 - [X] `src/agent/memory/knowledge.js` — 2026-05-23, addKnowledgeInto + getKnowledgeFrom + recordEvolutionOutcomeInto + summary + pause helpers
 - [X] `src/agent/memory/insights.js` — 2026-05-23, getRegimeContext + getChainContext + getSymbolContext + getTokenAgeContext (read-only)
-- [ ] `src/agent/memory/core.js` — DEFERRED. Would eliminate AgentMemory class; requires 50+ call-site migrations for no behavior benefit
+- [X] `src/agent/memory/core.js` — 2026-05-23(3), facade module + `create()` factory + helper re-exports. Migrated index.js (1 prod site).
 - [X] Tests: 24 new tests; total 75/75 memory tests pass on paper
 - [ ] Paper canary + live promote — pending operator runtime gate
 
