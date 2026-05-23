@@ -1,5 +1,16 @@
 # REFACTOR_CHECKLIST.md
 
+## Strategy implementation audit vs `C:\Users\User_\Desktop\Plan\` (2026-05-23(4))
+
+All 5 spot/DEX strategies + vanilla momentum: FULLY IMPLEMENTED in both bots. Per-strategy module map in live repo. Perps explicitly out-of-scope per `plan.txt`.
+
+**Live runtime:** ONLY `momentum` + `bull_flag` enabled on KuCoin (per user 2026-05-23(4)).
+**Paper runtime:** ALL 6 strategies enabled per `plan.txt` chain-fit recommendations.
+
+**Signal-drought fix (2026-05-23(4)):** loosened filter knobs (RSI band, volume spike, buy-flow gate, AI confidence floor).
+
+---
+
 **Status (2026-05-23 audit)**: Code-side refactor + bug-guard work is COMPLETE. Remaining `[ ]` items are NOT code work — they are runtime gates (paper canary observation, walk-forward backtests, "Live promote" decisions) that require operator action while bots run, OR they belong to the explicitly-scoped-out PERPS separate repo (WEEK 15).
 
 **Remaining `[ ]` categories**:
