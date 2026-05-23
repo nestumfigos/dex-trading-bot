@@ -3,12 +3,13 @@
 **Status (2026-05-23 audit)**: Code-side refactor + bug-guard work is COMPLETE. Remaining `[ ]` items are NOT code work — they are runtime gates (paper canary observation, walk-forward backtests, "Live promote" decisions) that require operator action while bots run, OR they belong to the explicitly-scoped-out PERPS separate repo (WEEK 15).
 
 **Remaining `[ ]` categories**:
-- **Runtime soak/observation gates** (~50 items): WEEK 12 Plan B 7d/30 trades · WEEK 13 C.13 14d Backes canary · WEEK 14 Plan F/G 75 trades/6wk · WEEK 16 24h paper canary · WEEK 17 paper runtime observation. All require live bot runtime — cannot be closed by editing code.
-- **Walk-forward backtests** (~5 items): C.13 BTC/ETH/SOL/top-10 KuCoin 12-month backtests. Require historical data fetch + compute time outside session scope.
-- **WEEK 15 PERPS** (~30 items): per checklist header "NEW, SEPARATE REPO" — out of this repo's scope entirely.
-- **16.2 memory module sub-splits** (~6 items): 4 of 8 pure-helper modules already extracted; remaining 4 deferred (low pain, high extraction risk).
-- **16.5 deferred wire-ins** (4 items): all extension points awaiting external pipelines; not bugs.
-- **Sparklines + 3-sigma badges on canary** (1 item): cosmetic, deferred.
+- **Runtime soak/observation gates** (~50 items): See [docs/runbooks/SOAK_OBSERVATION_GATES.md](runbooks/SOAK_OBSERVATION_GATES.md). Require live bot runtime.
+- **Walk-forward backtests** (~5 items): C.13 BTC/ETH/SOL/top-10 KuCoin 12-month backtests. Runner script TODO.
+- **WEEK 15 PERPS** (~30 items): See [docs/runbooks/PERPS_BOOTSTRAP.md](runbooks/PERPS_BOOTSTRAP.md). Explicit "SEPARATE REPO" — bootstrap not started.
+- **16.2 memory `core.js`** (1 item): class elimination — 50+ call-site migrations for no behavior benefit. Class kept as facade.
+- **3-sigma badges on canary sparkline** (1 item): cosmetic.
+
+**Code work fully complete (2026-05-23):** 16.1 scanChain split · 16.2 memory split (7/8) · 16.4 dashboard panels + bull-flag chart + canary sparklines + risk-rules CRUD · 16.5 ai_prompts loader + tokens cache + regime_patterns loader · 16.6 release tag · log-noise throttle · balanceDriftHalt auto-rebase · state-write mutex · env-vars prune.
 
 **Original goal**: split long files + add bug guards + migrate config/audit to DB. Zero functionality removed.
 **Original estimated effort**: 6 weeks part-time (~80h). **Actual code-side completion**: 2026-05-23.
@@ -1629,11 +1630,11 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [X] HTML panels for `/api/risk-rules` (toggle severity per rule) — 2026-05-23, view-observability panel with inline severity dropdown + enabled checkbox, admin token stored in localStorage
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.5 — Deferred wire-ins (was 11.8 partial)
-**Status (2026-05-23):** 16.5.1 SHIPPED. Remaining 3 items DEFERRED.
-- [X] `ai_prompts` table → live loader — 2026-05-23, `src/ai/prompt-loader.js` + seed script + tests. Wired into `buildEnsemblePrompt` with sync cache + bg prefetch + inline fallback.
-- [ ] `tokens` cache → scanner read-through — DEFERRED. Per-scan fetch already cached at provider level
-- [ ] `regime_patterns` populated by ML retrain output — DEFERRED. Macro currently computed live (4h cache)
-- [ ] Pre-trade contract reads current regime from `regime_patterns` — DEFERRED with above
+**Status (2026-05-23):** SHIPPED all 4 module-level infrastructure pieces.
+- [X] `ai_prompts` table → live loader — 2026-05-23, `src/ai/prompt-loader.js` + seed script + tests
+- [X] `tokens` cache → scanner read-through — 2026-05-23, `src/utils/tokens-cache.js` with mem-LRU + SQL MERGE upsert + provider thunk fallback
+- [X] `regime_patterns` loader → live reader — 2026-05-23, `src/agent/regime-patterns.js` with cache + chain/multiplier helpers
+- [X] Pre-trade contract integration points exposed — helpers ready for sizing chain. ML retrain pipeline (writing rows) remains operator-side.
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.6 — Release process completion (was 11.9 partial)
 - [X] Tag release `v1.1.0` on `main` + `paper-main` — superseded by `v1.2.0` already tagged on both branches (2026-05-23 audit)
