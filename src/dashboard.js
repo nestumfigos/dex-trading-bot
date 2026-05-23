@@ -974,6 +974,15 @@ function startDashboard(portfolio, ctx) {
       acc[r] = (acc[r] || 0) + 1;
       return acc;
     }, {});
+    // 2026-05-23 W16.4: cumulative PnL series for dashboard chart
+    const sortedSells = [...sells]
+      .filter((t) => t?.timestamp || t?.closedAt)
+      .sort((a, b) => new Date(a.timestamp || a.closedAt) - new Date(b.timestamp || b.closedAt));
+    let cum = 0;
+    const pnlSeries = sortedSells.map((t) => {
+      cum += Number(t?.pnl || 0);
+      return { t: t.timestamp || t.closedAt, cumPnl: cum, pnl: Number(t?.pnl || 0) };
+    });
     res.json({
       timestamp: state.timestamp,
       totalTrades: bullFlagTrades.length,
@@ -987,6 +996,7 @@ function startDashboard(portfolio, ctx) {
       avgLossUsd: losses.length > 0 ? grossLosses / losses.length : 0,
       profitFactor: grossLosses > 0 ? grossWins / grossLosses : (grossWins > 0 ? Infinity : 0),
       exitReasonBreakdown: reasonBreakdown,
+      pnlSeries,
       enabled: Boolean(state?.config?.strategies?.spot_day_bull_flag?.enabled),
     });
   });

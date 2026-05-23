@@ -63,11 +63,13 @@ test('validate: strictUnknown rejects unknown vars', () => {
   assert.ok(res.errors.some((e) => e.includes('Unknown env vars')));
 });
 
-test('validate: STRATEGY_MOMENTUM_MAX_POSITIONS regression (typo example from 2026-05-16)', () => {
-  // The fictitious env var that was set but never read. Should be flagged as unknown.
-  const env = { STRATEGY_MOMENTUM_MAX_POSITIONS: '5' };
+test('validate: unknown var with no matching prefix is flagged', () => {
+  // 2026-05-23: STRATEGY_* is now an ignored prefix (long-tail strategy knobs
+  // parsed in config/index.js but not individually typed). Use a name that
+  // doesn't match any known prefix to verify the unknown-detection still works.
+  const env = { ZZZ_HYPOTHETICAL_FAKE_KNOB: '5' };
   const res = validate(env);
-  assert.ok(res.unknown.includes('STRATEGY_MOMENTUM_MAX_POSITIONS'));
+  assert.ok(res.unknown.includes('ZZZ_HYPOTHETICAL_FAKE_KNOB'));
 });
 
 test('listKnobs returns array with name', () => {
