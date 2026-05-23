@@ -383,6 +383,39 @@ function renderBullFlagStats(stats) {
       ? reasons.map(([reason, count]) => `<tr><td>${esc(reason)}</td><td>${esc(count)}</td></tr>`).join('')
       : '<tr><td colspan="2" class="muted small">No bull-flag exits yet.</td></tr>';
   }
+  renderPnlSvg('bf-pnl-chart', data.pnlSeries || []);
+}
+
+// W16.4 — inline SVG line chart (no charting library).
+function renderPnlSvg(svgId, series) {
+  const svg = el(svgId);
+  if (!svg) return;
+  const W = 600;
+  const H = 120;
+  const PAD = 6;
+  if (!Array.isArray(series) || series.length === 0) {
+    svg.innerHTML = `<text x="300" y="60" fill="#6b7785" font-size="11" text-anchor="middle">No closed trades yet.</text>`;
+    return;
+  }
+  const ys = series.map((d) => Number(d.cumPnl || 0));
+  const minY = Math.min(0, ...ys);
+  const maxY = Math.max(0, ...ys);
+  const rangeY = (maxY - minY) || 1;
+  const stepX = series.length > 1 ? (W - 2 * PAD) / (series.length - 1) : 0;
+  const yFor = (v) => PAD + ((maxY - v) / rangeY) * (H - 2 * PAD);
+  const zeroY = yFor(0);
+  const points = series.map((d, i) => `${PAD + i * stepX},${yFor(Number(d.cumPnl || 0))}`).join(' ');
+  const finalY = yFor(Number(series[series.length - 1].cumPnl || 0));
+  const stroke = ys[ys.length - 1] >= 0 ? '#39d98a' : '#ff5d5d';
+  const fillColor = ys[ys.length - 1] >= 0 ? 'rgba(57,217,138,0.12)' : 'rgba(255,93,93,0.12)';
+  const areaPath = `M ${PAD},${zeroY} L ${points.split(' ').join(' L ')} L ${PAD + (series.length - 1) * stepX},${zeroY} Z`;
+  svg.innerHTML = `
+    <line x1="${PAD}" y1="${zeroY}" x2="${W - PAD}" y2="${zeroY}" stroke="#3a4250" stroke-dasharray="2 3" stroke-width="0.5"/>
+    <path d="${areaPath}" fill="${fillColor}" stroke="none"/>
+    <polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+    <circle cx="${PAD + (series.length - 1) * stepX}" cy="${finalY}" r="2.5" fill="${stroke}"/>
+    <text x="${W - PAD}" y="12" fill="#9aa3b2" font-size="10" text-anchor="end">${ys[ys.length - 1] >= 0 ? '+' : ''}${ys[ys.length - 1].toFixed(2)} USD · ${series.length} trades</text>
+  `;
 }
 
 // ─── Chart (TradingView lightweight-charts) ───────────────────────────────

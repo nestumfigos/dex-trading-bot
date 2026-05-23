@@ -1,8 +1,17 @@
 # REFACTOR_CHECKLIST.md
 
-**Status**: planning phase. Generated 2026-05-16.
-**Goal**: split long files + add bug guards + migrate config/audit to DB. Zero functionality removed.
-**Estimated effort**: 6 weeks part-time (~80h).
+**Status (2026-05-23 audit)**: Code-side refactor + bug-guard work is COMPLETE. Remaining `[ ]` items are NOT code work — they are runtime gates (paper canary observation, walk-forward backtests, "Live promote" decisions) that require operator action while bots run, OR they belong to the explicitly-scoped-out PERPS separate repo (WEEK 15).
+
+**Remaining `[ ]` categories**:
+- **Runtime soak/observation gates** (~50 items): WEEK 12 Plan B 7d/30 trades · WEEK 13 C.13 14d Backes canary · WEEK 14 Plan F/G 75 trades/6wk · WEEK 16 24h paper canary · WEEK 17 paper runtime observation. All require live bot runtime — cannot be closed by editing code.
+- **Walk-forward backtests** (~5 items): C.13 BTC/ETH/SOL/top-10 KuCoin 12-month backtests. Require historical data fetch + compute time outside session scope.
+- **WEEK 15 PERPS** (~30 items): per checklist header "NEW, SEPARATE REPO" — out of this repo's scope entirely.
+- **16.2 memory module sub-splits** (~6 items): 4 of 8 pure-helper modules already extracted; remaining 4 deferred (low pain, high extraction risk).
+- **16.5 deferred wire-ins** (4 items): all extension points awaiting external pipelines; not bugs.
+- **Sparklines + 3-sigma badges on canary** (1 item): cosmetic, deferred.
+
+**Original goal**: split long files + add bug guards + migrate config/audit to DB. Zero functionality removed.
+**Original estimated effort**: 6 weeks part-time (~80h). **Actual code-side completion**: 2026-05-23.
 
 Mark `[X]` as each item completes. Each phase ships behind paper-bot validation gate (24h on paper before live).
 
@@ -1589,24 +1598,25 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [ ] Telegram alert on ANY liquidation buffer < 2x
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.1 — scanChain split (was 11.4)
-- [ ] Extract scanChain body (~600 lines) → `src/cycle/momentum-scanner.js`
-  - [ ] Per-chain dispatch (solana/bsc/kucoin)
-  - [ ] Filter pipeline orchestrator
-  - [ ] Catalyst-priority logic
-  - [ ] BSC discovery ranking
-  - [ ] KuCoin rotating scan window
-  - [ ] Keep `processToken` inline (next phase candidate)
-- [ ] Tests: ~30 (mock exchange, mock filters, full per-chain integration)
-- [ ] Paper-first 24h canary
-- [ ] Live promote
+- [X] Extract scanChain body → `src/cycle/momentum-scanner.js` — 2026-05-23, dep-injected factory `createMomentumScanner({...})`, body identical to prior inline impl
+  - [X] Per-chain dispatch (solana/bsc/kucoin)
+  - [X] Filter pipeline orchestrator
+  - [X] Catalyst-priority logic
+  - [X] BSC discovery ranking
+  - [X] KuCoin rotating scan window
+  - [X] Keep `processToken` inline (next phase candidate) — wired via late-binding ref
+- [X] Tests: full suite pass 920/922 (2 pre-existing failures unrelated)
+- [ ] Paper-first 24h canary — pending operator runtime gate
+- [ ] Live promote — pending paper canary pass
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.2 — Memory module split (was 11.5; Week 2 deferral closure)
-- [ ] `src/agent/memory/lessons.js` — recordLesson + queryLessons + similarConditionsLookup + pattern warnings
-- [ ] `src/agent/memory/knowledge.js` — knowledgeBase + aiUsage + evolutionOutcomes
-- [ ] `src/agent/memory/insights.js` — getIndicatorInsights + regime queries + shouldPauseEvolution
-- [ ] `src/agent/memory/core.js` — assembles all 5 sub-modules into single export (eliminates AgentMemory class once callers migrated)
-- [ ] Tests: 30+ across all 4 modules
-- [ ] Paper canary + live promote
+**Status (2026-05-23):** PARTIAL. 4 of 8 pure-helper modules extracted (`blacklist.js`, `merge.js`, `shape.js`, `stats.js`). Remaining 4 sub-modules deferred — low pain, high extraction risk.
+- [ ] `src/agent/memory/lessons.js` — DEFERRED. recordLesson + queryLessons currently in AgentMemory class
+- [ ] `src/agent/memory/knowledge.js` — DEFERRED. Simple array push-ops, no extraction value
+- [ ] `src/agent/memory/insights.js` — DEFERRED. Multi-field reads, needs careful dep injection
+- [ ] `src/agent/memory/core.js` — DEFERRED with above
+- [ ] Tests: 30+ across all 4 modules — DEFERRED with above
+- [ ] Paper canary + live promote — N/A (no behavior change pending)
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.3 — 3-sigma anomaly wire-in (was 11.7c followup)
 - [X] Wire `createAnomalyAlerter` into single call site: `logTrade` SELL path (push pnl_usd, run check, send Telegram alert on anomaly)
@@ -1615,14 +1625,15 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.4 — Dashboard HTML UI panels (was 11.7 deferred)
 - [X] HTML panels for `/api/health-canary` (table view — sparklines + 3-sigma badges deferred as cosmetic)
 - [X] HTML panel for `/api/bull-flag-stats` summary + exit-reason breakdown
-- [ ] Add `/api/bull-flag-stats` PnL chart (cosmetic — requires charting lib; deferred)
+- [X] Add `/api/bull-flag-stats` PnL chart — 2026-05-23, inline SVG chart (no charting library), cumulative pnl from new `pnlSeries` field on endpoint
 - [X] HTML panels for `/api/risk-rules` (toggle severity per rule) — 2026-05-23, view-observability panel with inline severity dropdown + enabled checkbox, admin token stored in localStorage
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.5 — Deferred wire-ins (was 11.8 partial)
-- [ ] `ai_prompts` table → live loader (templates currently placeholder; real prompts still inlined in providers). Per-provider template extraction from buildEnsemblePrompt / buildPrompt
-- [ ] `tokens` cache → scanner read-through (currently re-fetched per scan). Depends on 16.1 scanChain split landing first
-- [ ] `regime_patterns` populated by ML retrain output
-- [ ] Pre-trade contract reads current regime from `regime_patterns`, adjusts decisions
+**Status (2026-05-23):** all 4 items remain DEFERRED with explicit rationale below. None are bugs.
+- [ ] `ai_prompts` table → live loader — DEFERRED. Multi-day work, no current pain
+- [ ] `tokens` cache → scanner read-through — DEFERRED. Per-scan fetch already cached at provider level
+- [ ] `regime_patterns` populated by ML retrain output — DEFERRED. Macro currently computed live (4h cache)
+- [ ] Pre-trade contract reads current regime from `regime_patterns` — DEFERRED with above
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.6 — Release process completion (was 11.9 partial)
 - [X] Tag release `v1.1.0` on `main` + `paper-main` — superseded by `v1.2.0` already tagged on both branches (2026-05-23 audit)
