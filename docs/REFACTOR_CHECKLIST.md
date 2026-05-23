@@ -4,10 +4,10 @@
 
 **Remaining `[ ]` categories**:
 - **Runtime soak/observation gates** (~50 items): See [docs/runbooks/SOAK_OBSERVATION_GATES.md](runbooks/SOAK_OBSERVATION_GATES.md) for per-gate criteria, how to verify, current snapshot. Require live bot runtime — cannot be closed by editing code.
-- **Walk-forward backtests** (~5 items): C.13 BTC/ETH/SOL/top-10 KuCoin 12-month backtests. Need historical data fetch + compute outside session scope; runner script TODO.
+- **Walk-forward backtests** (~5 items): Runner script SHIPPED 2026-05-23(2) at `scripts/run-walkforward-backes.js` (dry-run validated). End-to-end execution still requires historical data fetch with depth + compute time; default 12 months × top-10 KuCoin universe across 6 windows. Operator runs: `node scripts/run-walkforward-backes.js --top10`.
 - **WEEK 15 PERPS** (~30 items): See [docs/runbooks/PERPS_BOOTSTRAP.md](runbooks/PERPS_BOOTSTRAP.md). Explicit "SEPARATE REPO" per checklist header — `dex-trading-bot-perps/` not yet created. ~9 weeks total to live (11 days code + 4wk paper soak + 1mo live canary).
 - **16.2 memory `core.js`** (1 item): final assembly that eliminates AgentMemory class. 7/8 sub-modules already extracted; class elimination requires 50+ call-site migrations for no behavior benefit. Class kept as facade.
-- **3-sigma badges on canary sparkline** (1 item): cosmetic enhancement.
+- ~~**3-sigma badges on canary sparkline**~~: SHIPPED 2026-05-23(2). `/api/health-canary/sparklines` now returns `{series, stats, sigmaBadge}` per check; dashboard renders ⚠3σ badge next to status when latest value is >3 stdev from mean.
 
 **Code work fully complete (2026-05-23):** 16.1 scanChain split · 16.2 memory split (7/8) · 16.4 dashboard panels + bull-flag PnL chart + canary sparklines + risk-rules CRUD · 16.5 ai_prompts loader + tokens cache + regime_patterns loader · 16.6 release tag · all bug guards · log-noise throttle · balanceDriftHalt auto-rebase · state-write mutex · env-vars prune.
 
@@ -1632,11 +1632,11 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.5 — Deferred wire-ins (was 11.8 partial)
 **Status (2026-05-23):** SHIPPED all 4 module-level infrastructure pieces. ML retrain pipeline (writing rows to `regime_patterns`) remains operator-side.
 - [X] `ai_prompts` table → live loader — 2026-05-23, `src/ai/prompt-loader.js` + seed script + tests. Wired into `buildEnsemblePrompt`. Seeded for live (scope=global + scope=live) — bot picks it up via 5-min cache.
-- [X] `tokens` cache → scanner read-through — 2026-05-23, `src/utils/tokens-cache.js` with mem-LRU + SQL `dbo.tokens` (M0013) MERGE upsert + provider thunk fallback. Opt-in API `getTokenWithCache(symbol, chain, fetchFresh)`. 7 tests pass. Scanner migration is incremental (callers opt-in per-call site to keep blast radius small).
-- [X] `regime_patterns` loader → live reader — 2026-05-23, `src/agent/regime-patterns.js` with mem cache + dbo.regime_patterns (M0015) reader. Exposes `regimePatternSizeMultiplier(row)` and `chainAllowedByRegimePattern(row, chain)` helpers for pre-trade contract integration. 8 tests pass.
-- [X] Pre-trade contract integration points exposed — `regime-patterns` helpers ready for `intelligenceAgent.getMacroSizeMultiplier()` to multiply in. Wire site noted at `src/index.js:1679`. Operator follow-up: invoke `getRegimePattern({ regime, strategy })` and apply multiplier when adopting ML retrain output.
+- [X] `tokens` cache → scanner read-through — 2026-05-23 + 2026-05-23(2), `src/utils/tokens-cache.js` with mem-LRU + SQL `dbo.tokens` (M0013) MERGE upsert + provider thunk fallback. Added `getTokenByAddressWithCache(chain, address, fetchFresh)` for hot scanner path (mem-only, no per-cycle SQL hit). **WIRED into `processToken` in `src/index.js`** — every per-token fetch now consults mem-LRU first; provider hit on miss writes through to SQL. Tests pass (7 + isolated SQL_ENABLED=false).
+- [X] `regime_patterns` loader → live reader — 2026-05-23, `src/agent/regime-patterns.js` with mem cache + dbo.regime_patterns (M0015) reader.
+- [X] Pre-trade contract reads current regime from `regime_patterns` — **2026-05-23(2) WIRED at `src/index.js:1679`**. `intelligenceAgent.getMacroSizeMultiplier()` result is multiplied by `regimePatternSizeMultiplier(row)` when an active row matches current `marketState.macroRegime.regime` + strategy. `chainAllowedByRegimePattern(row, chain)` gates BUY → HOLD when chain is blocked. Sync cache peek + bg prefetch keeps hot path synchronous. Degrades to neutral (1.0, all chains) when table empty.
 
-**Note:** ML retrain pipeline that populates `regime_patterns` rows is the only remaining gap — entirely operator-side (Python ML job → SQL INSERT). Loader degrades to neutral (multiplier=1.0, all chains allowed) when table empty, so wiring is safe to ship before ML pipeline lands.
+**Note:** ML retrain pipeline that populates `regime_patterns` rows is the only remaining gap — entirely operator-side (Python ML job → SQL INSERT). Loader degrades to neutral when table empty, so the wire is already shipped and harmless until rows land.
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.6 — Release process completion (was 11.9 partial)
 - [X] Tag release `v1.1.0` on `main` + `paper-main` — superseded by `v1.2.0` already tagged on both branches (2026-05-23 audit)
