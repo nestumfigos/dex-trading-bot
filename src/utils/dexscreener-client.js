@@ -17,6 +17,9 @@ let inFlight = Promise.resolve();
 const cache = new Map();
 let consecutiveFailures = 0;
 let circuitOpenUntil = 0;
+// 2026-05-23: dedupe circuit-open warn so a flapping circuit doesn't write
+// hundreds of identical lines (was 656/day on paper bot).
+let circuitWarnedForWindowUntil = 0;
 
 function isCircuitOpen() {
   return Date.now() < circuitOpenUntil;
@@ -76,7 +79,10 @@ async function throttledFetch(url, options = {}) {
       const status = Number(err.response?.status || 0);
       if (status === 429 || consecutiveFailures >= DEFAULT_FAIL_THRESHOLD) {
         circuitOpenUntil = Date.now() + DEFAULT_CIRCUIT_OPEN_MS;
-        logger.warn(`[DexScreener] circuit open for ${(DEFAULT_CIRCUIT_OPEN_MS / 1000).toFixed(0)}s — status=${status} failures=${consecutiveFailures}`);
+        if (Date.now() >= circuitWarnedForWindowUntil) {
+          logger.warn(`[DexScreener] circuit open for ${(DEFAULT_CIRCUIT_OPEN_MS / 1000).toFixed(0)}s — status=${status} failures=${consecutiveFailures}`);
+          circuitWarnedForWindowUntil = circuitOpenUntil;
+        }
       }
       if (allowStaleOnFailure) {
         const stale = cache.get(url);

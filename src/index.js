@@ -2377,7 +2377,12 @@ async function probeExchangeHealth(chainName, exchange) {
     state.lastLatencyMs = Date.now() - startedAt;
     state.lastCheckedAt = new Date().toISOString();
     state.lastError = error.message;
-    logger.warn(`${chainName} dependency health check failed: ${error.message}`);
+    // 2026-05-23: throttle warn to once per 5min per chain.
+    const nowMs = Date.now();
+    if (!state._lastWarnAt || nowMs - state._lastWarnAt > 5 * 60_000) {
+      logger.warn(`${chainName} dependency health check failed: ${error.message}`);
+      state._lastWarnAt = nowMs;
+    }
   }
 }
 

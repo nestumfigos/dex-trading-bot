@@ -807,9 +807,13 @@ class JupiterExchange {
       if (Number.isFinite(this._solPriceCache.value) && this._solPriceCache.value > 0) {
         this._solPriceCache.expiresAt = now + 60_000;
         this._solPriceCache.cachedAt = now;
-        logger.warn('Jupiter getSolPrice provider chain failed, extending cached price', {
-          reason: err.message,
-        });
+        // 2026-05-23: throttle warn to once per 5min.
+        if (now - (this._priceWarnAt || 0) > 5 * 60_000) {
+          logger.warn('Jupiter getSolPrice provider chain failed, extending cached price', {
+            reason: err.message,
+          });
+          this._priceWarnAt = now;
+        }
         return Number(this._solPriceCache.value);
       }
 

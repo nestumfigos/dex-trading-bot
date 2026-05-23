@@ -151,6 +151,8 @@ class PancakeSwapExchange {
     this._balanceCache = { value: null, cachedAt: 0 };
     this._frictionCache = new Map();
     this._nonceManager = null;
+    // 2026-05-23: throttle "provider chain failed" warn to once per 5min.
+    this._priceWarnAt = 0;
   }
 
   async initialize() {
@@ -809,11 +811,15 @@ class PancakeSwapExchange {
       throw new Error('invalid binancecoin price payload');
     } catch (error) {
       if (Number.isFinite(this._bnbPriceCache.value) && this._bnbPriceCache.value > 0) {
-        this._bnbPriceCache.cachedAt = Date.now();
-        logger.warn('PancakeSwap getBnbPrice provider chain failed, extending cached BNB price', {
-          reason: error.message,
-          cachedPrice: this._bnbPriceCache.value,
-        });
+        const nowMs = Date.now();
+        this._bnbPriceCache.cachedAt = nowMs;
+        if (nowMs - this._priceWarnAt > 5 * 60_000) {
+          logger.warn('PancakeSwap getBnbPrice provider chain failed, extending cached BNB price', {
+            reason: error.message,
+            cachedPrice: this._bnbPriceCache.value,
+          });
+          this._priceWarnAt = nowMs;
+        }
         return Number(this._bnbPriceCache.value);
       }
       try {
