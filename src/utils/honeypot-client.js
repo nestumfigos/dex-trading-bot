@@ -11,6 +11,8 @@ const cache = new Map();
 let consecutiveFailures = 0;
 let circuitOpenUntil = 0;
 let lastCallAt = 0;
+// 2026-05-23: dedupe circuit-open warn so flapping circuit doesn't spam logs.
+let circuitWarnedForWindowUntil = 0;
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.HONEYPOT_TIMEOUT_MS || 12_000);
 const DEFAULT_CACHE_TTL_MS = Number(process.env.HONEYPOT_CACHE_TTL_MS || 24 * 60 * 60 * 1000);
@@ -69,7 +71,10 @@ async function checkHoneypot(tokenAddress, chainId = 56) {
     consecutiveFailures += 1;
     if (consecutiveFailures >= FAIL_THRESHOLD) {
       circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
-      logger.warn(`[honeypot.is] circuit open for ${(CIRCUIT_OPEN_MS / 1000).toFixed(0)}s after ${consecutiveFailures} failures`);
+      if (Date.now() >= circuitWarnedForWindowUntil) {
+        logger.warn(`[honeypot.is] circuit open for ${(CIRCUIT_OPEN_MS / 1000).toFixed(0)}s after ${consecutiveFailures} failures`);
+        circuitWarnedForWindowUntil = circuitOpenUntil;
+      }
     }
     return null;
   }

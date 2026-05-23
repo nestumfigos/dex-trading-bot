@@ -564,9 +564,13 @@ class BaseSwapExchange {
       if (Number.isFinite(this._ethPriceCache.value) && this._ethPriceCache.value > 0) {
         this._ethPriceCache.expiresAt = now + 60_000;
         this._ethPriceCache.cachedAt = now;
-        logger.warn('BaseSwap getEthPrice provider chain failed, extending cached price', {
-          reason: error.message,
-        });
+        // 2026-05-23: throttle warn to once per 5min (was 10x/day).
+        if (now - (this._priceWarnAt || 0) > 5 * 60_000) {
+          logger.warn('BaseSwap getEthPrice provider chain failed, extending cached price', {
+            reason: error.message,
+          });
+          this._priceWarnAt = now;
+        }
         return Number(this._ethPriceCache.value);
       }
 
