@@ -628,7 +628,12 @@ async function refreshObservability() {
     api('/api/risk-rules'),
     api('/api/health-canary/sparklines?perCheck=20'),
   ]);
-  const sparkByCheck = (sparks && sparks.data) || {};
+  const rawSparks = (sparks && sparks.data) || {};
+  const sparkByCheck = {};
+  for (const [k, v] of Object.entries(rawSparks)) {
+    if (Array.isArray(v)) sparkByCheck[k] = { series: v, sigmaBadge: false, stats: null };
+    else sparkByCheck[k] = v || { series: [], sigmaBadge: false, stats: null };
+  }
   if (aiHealth && aiHealth.providers) {
     const cir = aiHealth.circuit || {};
     const meta = cir.open
@@ -654,16 +659,22 @@ async function refreshObservability() {
   }
   if (canary?.data) {
     el('w6-kpi-canary').innerHTML = `<span class="st-${canary.data[0]?.overall_status || 'SKIPPED'}">${esc(canary.data[0]?.overall_status || '—')}</span>`;
-    el('w6-canary-body').innerHTML = canary.data.slice(0, 30).map((r) => `
+    el('w6-canary-body').innerHTML = canary.data.slice(0, 30).map((r) => {
+      const sp = sparkByCheck[r.check_name] || { series: [], sigmaBadge: false, stats: null };
+      const badge = sp.sigmaBadge
+        ? `<span title="value > mean + 3σ (μ=${sp.stats?.mean ?? '—'} σ=${sp.stats?.stdev ?? '—'} n=${sp.stats?.count ?? 0})" style="color:#f0b429; font-weight:600; margin-left:4px;">⚠3σ</span>`
+        : '';
+      return `
       <tr>
         <td>${esc(fmtDateTime(r.checked_at))}</td>
         <td>${esc(r.check_name)}</td>
-        <td><span class="st-${r.status}">${esc(r.status)}</span></td>
-        <td>${renderCanarySparkline(sparkByCheck[r.check_name] || [])}</td>
+        <td><span class="st-${r.status}">${esc(r.status)}</span>${badge}</td>
+        <td>${renderCanarySparkline(sp.series)}</td>
         <td>${esc(r.value_observed || '—')}</td>
         <td>${esc(r.threshold || '—')}</td>
         <td>${esc((r.message || '') + (r.recovery_hint ? ' — ' + r.recovery_hint : ''))}</td>
-      </tr>`).join('') || '<tr><td colspan="7" class="muted small">No canary runs yet.</td></tr>';
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="muted small">No canary runs yet.</td></tr>';
   } else { el('w6-canary-body').innerHTML = '<tr><td colspan="7" class="muted small">SQL disabled or endpoint unavailable.</td></tr>'; }
   if (ai?.data) {
     const totalCost = ai.data.reduce((s, r) => s + Number(r.total_cost_usd || 0), 0);

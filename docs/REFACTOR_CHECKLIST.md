@@ -4,10 +4,10 @@
 
 **Remaining `[ ]` categories**:
 - **Runtime soak/observation gates** (~50 items): See [docs/runbooks/SOAK_OBSERVATION_GATES.md](runbooks/SOAK_OBSERVATION_GATES.md). Require live bot runtime.
-- **Walk-forward backtests** (~5 items): C.13 BTC/ETH/SOL/top-10 KuCoin 12-month backtests. Runner script TODO.
+- **Walk-forward backtests** (~5 items): Runner SHIPPED at `scripts/run-walkforward-backes.js` (dry-run validated). Operator runs to execute.
 - **WEEK 15 PERPS** (~30 items): See [docs/runbooks/PERPS_BOOTSTRAP.md](runbooks/PERPS_BOOTSTRAP.md). Explicit "SEPARATE REPO" — bootstrap not started.
 - **16.2 memory `core.js`** (1 item): class elimination — 50+ call-site migrations for no behavior benefit. Class kept as facade.
-- **3-sigma badges on canary sparkline** (1 item): cosmetic.
+- ~~**3-sigma badges on canary sparkline**~~: SHIPPED 2026-05-23(2). Sparklines endpoint returns stats + sigmaBadge; dashboard renders ⚠3σ next to status.
 
 **Code work fully complete (2026-05-23):** 16.1 scanChain split · 16.2 memory split (7/8) · 16.4 dashboard panels + bull-flag chart + canary sparklines + risk-rules CRUD · 16.5 ai_prompts loader + tokens cache + regime_patterns loader · 16.6 release tag · log-noise throttle · balanceDriftHalt auto-rebase · state-write mutex · env-vars prune.
 
@@ -1632,9 +1632,9 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.5 — Deferred wire-ins (was 11.8 partial)
 **Status (2026-05-23):** SHIPPED all 4 module-level infrastructure pieces.
 - [X] `ai_prompts` table → live loader — 2026-05-23, `src/ai/prompt-loader.js` + seed script + tests
-- [X] `tokens` cache → scanner read-through — 2026-05-23, `src/utils/tokens-cache.js` with mem-LRU + SQL MERGE upsert + provider thunk fallback
-- [X] `regime_patterns` loader → live reader — 2026-05-23, `src/agent/regime-patterns.js` with cache + chain/multiplier helpers
-- [X] Pre-trade contract integration points exposed — helpers ready for sizing chain. ML retrain pipeline (writing rows) remains operator-side.
+- [X] `tokens` cache → scanner read-through — 2026-05-23 + 2026-05-23(2), `src/utils/tokens-cache.js`. **WIRED into `processToken`** via `getTokenByAddressWithCache`.
+- [X] `regime_patterns` loader → live reader — 2026-05-23.
+- [X] Pre-trade contract reads current regime from `regime_patterns` — **2026-05-23(2) WIRED at `src/index.js:1679`** sizing chain. Helpers multiply size + gate chain BUYs. Degrades to neutral when table empty.
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.6 — Release process completion (was 11.9 partial)
 - [X] Tag release `v1.1.0` on `main` + `paper-main` — superseded by `v1.2.0` already tagged on both branches (2026-05-23 audit)

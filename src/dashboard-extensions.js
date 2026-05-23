@@ -21,6 +21,22 @@
  * All write endpoints require Bearer token matching DASHBOARD_ADMIN_TOKEN.
  */
 
+// W16.4: parse the leading number from a free-form value_observed string.
+function parseFirstNumber(s) {
+  if (s === null || s === undefined) return NaN;
+  const m = String(s).match(/-?\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : NaN;
+}
+
+function sigmaStats(values) {
+  const vs = (Array.isArray(values) ? values : []).filter(Number.isFinite);
+  if (vs.length < 5) return null;
+  const mean = vs.reduce((a, b) => a + b, 0) / vs.length;
+  const variance = vs.reduce((a, b) => a + (b - mean) ** 2, 0) / vs.length;
+  const stdev = Math.sqrt(variance);
+  return { count: vs.length, mean: Number(mean.toFixed(4)), stdev: Number(stdev.toFixed(4)) };
+}
+
 function requireAdmin(req, res, next) {
   const expected = process.env.DASHBOARD_ADMIN_TOKEN;
   if (!expected) {
@@ -226,11 +242,11 @@ function mountWeek6Routes(app, { getPool, logger }) {
       const perCheck = Math.max(5, Math.min(60, Number(req.query.perCheck) || 20));
       const result = await pool.request().input('perCheck', perCheck).query(`
         WITH ranked AS (
-          SELECT check_name, status, checked_at,
+          SELECT check_name, status, checked_at, value_observed,
                  ROW_NUMBER() OVER (PARTITION BY check_name ORDER BY checked_at DESC) AS rn
             FROM dbo.health_checks
         )
-        SELECT check_name, status, checked_at
+        SELECT check_name, status, checked_at, value_observed
           FROM ranked
          WHERE rn <= @perCheck
          ORDER BY check_name, checked_at ASC
@@ -238,10 +254,20 @@ function mountWeek6Routes(app, { getPool, logger }) {
       const byCheck = {};
       for (const row of result.recordset) {
         const key = String(row.check_name);
-        if (!byCheck[key]) byCheck[key] = [];
-        byCheck[key].push({ t: row.checked_at, s: row.status });
+        if (!byCheck[key]) byCheck[key] = { series: [], values: [] };
+        const numericValue = parseFirstNumber(row.value_observed);
+        byCheck[key].series.push({ t: row.checked_at, s: row.status, v: numericValue });
+        if (Number.isFinite(numericValue)) byCheck[key].values.push(numericValue);
       }
-      res.json({ ok: true, perCheck, data: byCheck });
+      const out = {};
+      for (const [check, agg] of Object.entries(byCheck)) {
+        const stats = sigmaStats(agg.values);
+        const latest = agg.series[agg.series.length - 1];
+        const sigmaBadge = stats && Number.isFinite(latest?.v) && stats.stdev > 0
+          && Math.abs(latest.v - stats.mean) > 3 * stats.stdev;
+        out[check] = { series: agg.series, stats, sigmaBadge };
+      }
+      res.json({ ok: true, perCheck, data: out });
     }, res);
   });
 

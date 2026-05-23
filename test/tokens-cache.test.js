@@ -1,5 +1,8 @@
 'use strict';
 
+// Isolate from operator .env — these tests must not hit live SQL.
+process.env.SQL_ENABLED = 'false';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { getTokenWithCache, getStats, _internal } = require('../src/utils/tokens-cache');

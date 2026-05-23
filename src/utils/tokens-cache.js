@@ -178,13 +178,123 @@ async function getTokenWithCache(symbol, chain, fetchFresh) {
   return fresh;
 }
 
+// Address-keyed in-memory cache for hot scanner paths (every-cycle fetches by
+// tokenAddress, not symbol). Same TTL + LRU as symbol cache. SQL lookup falls
+// through when address matches dbo.tokens.address — operator can disable SQL
+// hit per-call to keep latency tight on hot paths.
+const memByAddr = new Map();
+function _keyAddr(chain, address) {
+  return `${String(chain || '').toLowerCase()}|${String(address || '').toLowerCase()}`;
+}
+
+function _memGetByAddr(chain, address) {
+  const k = _keyAddr(chain, address);
+  const entry = memByAddr.get(k);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > MEM_TTL_MS) {
+    memByAddr.delete(k);
+    return null;
+  }
+  memByAddr.delete(k);
+  memByAddr.set(k, entry);
+  return entry.row;
+}
+
+function _memSetByAddr(chain, address, row) {
+  const k = _keyAddr(chain, address);
+  memByAddr.set(k, { row, fetchedAt: Date.now() });
+  if (memByAddr.size > MAX_MEM_ENTRIES) {
+    const oldest = memByAddr.keys().next().value;
+    if (oldest) memByAddr.delete(oldest);
+  }
+}
+
+/**
+ * Address-keyed read-through cache. Cheaper than symbol path — no SQL lookup
+ * by default since scanner cycles are latency-sensitive. Caller can opt in to
+ * SQL via `{ sql: true }`. write-through still updates SQL (fire-and-forget).
+ *
+ * @param {string} chain - chain key e.g. 'kucoin', 'bsc'
+ * @param {string} address - token address (case-insensitive)
+ * @param {() => Promise<object>} fetchFresh - provider thunk returning token row
+ * @param {object} opts - { sql?: boolean }
+ */
+async function getTokenByAddressWithCache(chain, address, fetchFresh, opts = {}) {
+  if (!chain || !address || typeof fetchFresh !== 'function') return null;
+
+  const memHit = _memGetByAddr(chain, address);
+  if (memHit) return memHit;
+
+  if (opts.sql) {
+    const sqlEnabled = String(process.env.SQL_ENABLED || '').toLowerCase() === 'true';
+    if (sqlEnabled) {
+      try {
+        const { getPool } = require('./sqlServer');
+        const pool = await getPool(logger).catch(() => null);
+        if (pool) {
+          const r = pool.request();
+          r.input('chain', String(chain).toLowerCase());
+          r.input('address', String(address).toLowerCase());
+          r.input('cutoff', new Date(Date.now() - SQL_FRESHNESS_MS));
+          const result = await r.query(`
+            SELECT TOP 1 symbol, chain, address, pair_address, name, decimals,
+                         liquidity_usd, volume_24h_usd, market_cap_usd, price_usd,
+                         price_change_24h, txns_24h, holder_count, top_holders_pct,
+                         listed_at, source, metadata_json, refreshed_at
+              FROM dbo.tokens
+             WHERE chain = @chain AND LOWER(address) = @address AND refreshed_at >= @cutoff
+             ORDER BY refreshed_at DESC
+          `);
+          const row = result.recordset?.[0] || null;
+          if (row) {
+            _memSetByAddr(chain, address, row);
+            return row;
+          }
+        }
+      } catch (err) {
+        const now = Date.now();
+        if (now - sqlWarnAt > 5 * 60_000) {
+          logger.warn(`tokens cache (addr) SQL lookup: ${err.message}`);
+          sqlWarnAt = now;
+        }
+      }
+    }
+  }
+
+  let fresh = null;
+  try {
+    fresh = await fetchFresh();
+  } catch (err) {
+    logger.debug(`tokens cache (addr): provider fetch failed for ${chain}:${address}: ${err.message}`);
+    return null;
+  }
+  if (!fresh) return null;
+  _memSetByAddr(chain, address, fresh);
+  if (fresh.symbol) {
+    _memSet(fresh.symbol, chain, fresh);
+    _sqlUpsert(fresh.symbol, chain, { ...fresh, address }).catch(() => null);
+  }
+  return fresh;
+}
+
 function getStats() {
-  return { memSize: mem.size, memTtlMs: MEM_TTL_MS, sqlFreshnessMs: SQL_FRESHNESS_MS };
+  return {
+    memSize: mem.size,
+    memByAddrSize: memByAddr.size,
+    memTtlMs: MEM_TTL_MS,
+    sqlFreshnessMs: SQL_FRESHNESS_MS,
+  };
 }
 
 function _flushCache() {
   mem.clear();
+  memByAddr.clear();
   sqlWarnAt = 0;
 }
 
-module.exports = { getTokenWithCache, getStats, _internal: { _flushCache, _key } };
+module.exports = {
+  getTokenWithCache,
+  getTokenByAddressWithCache,
+  getStats,
+  _internal: { _flushCache, _key, _keyAddr },
+};

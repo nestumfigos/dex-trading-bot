@@ -1672,7 +1672,32 @@ const strategy = {
       logger.info(`[Intelligence] ${tokenData?.symbol} sector boost +${sectorBoost} from hot sector alignment`);
     }
 
-    const macroSizeMultiplier = intelligenceAgent.getMacroSizeMultiplier();
+    // W16.5: optional ML-derived regime override. Mirrors live.
+    const macroSizeMultiplierBase = intelligenceAgent.getMacroSizeMultiplier();
+    let regimePatternMultiplier = 1.0;
+    let regimePatternChainAllowed = true;
+    try {
+      const _regimeModule = require('./agent/regime-patterns');
+      const currentRegime = String(marketState?.macroRegime?.regime || tokenData?.macroRegime || 'unknown').toLowerCase();
+      const currentStrategy = String(strategyName || 'momentum').toLowerCase();
+      if (currentRegime && currentRegime !== 'unknown') {
+        const cached = _regimeModule.getCachedRegimePattern({ regime: currentRegime, strategy: currentStrategy });
+        if (cached === undefined) {
+          _regimeModule.prefetch({ regime: currentRegime, strategy: currentStrategy });
+        } else if (cached) {
+          regimePatternMultiplier = _regimeModule.regimePatternSizeMultiplier(cached);
+          regimePatternChainAllowed = _regimeModule.chainAllowedByRegimePattern(cached, chainName);
+          if (regimePatternMultiplier !== 1.0 || !regimePatternChainAllowed) {
+            logger.debug(`[regime_patterns] ${tokenData?.symbol} regime=${currentRegime} mult=${regimePatternMultiplier} chainAllowed=${regimePatternChainAllowed} rec=${cached.recommendation}`);
+          }
+        }
+      }
+    } catch (_) { /* never throw — degrade silently */ }
+    const macroSizeMultiplier = macroSizeMultiplierBase * regimePatternMultiplier;
+    if (signal === 'BUY' && !regimePatternChainAllowed) {
+      logger.info(`[regime_patterns] ${tokenData?.symbol} BUY suppressed: chain ${chainName} not allowed for current regime`);
+      signal = 'HOLD';
+    }
 
     const memoryBoost = memoryPreference ? memoryPreference.boost : 0;
     if (signal === 'BUY' && memoryBoost > 0) {
@@ -4027,12 +4052,20 @@ const _momentumScanner = createMomentumScanner({
 const scanChain = _momentumScanner.scanChain;
 
 
+// W16.5: read-through cache for hot scanner path. Mem-LRU only (no SQL on
+// scanner cycle to keep latency tight); write-through to SQL on provider fetch.
+const { getTokenByAddressWithCache } = require('./utils/tokens-cache');
+
 async function processToken(chainName, exchange, tokenAddress, options = {}) {
   const tokenDataFetchTimeoutMs = Math.max(1000, Number(config.risk?.tokenDataFetchTimeoutMs || 5000));
-  const tokenData = await withTimeout(
-    exchange.getTokenData(tokenAddress),
-    tokenDataFetchTimeoutMs,
-    `Token data fetch timed out for ${chainName}:${tokenAddress}`
+  const tokenData = await getTokenByAddressWithCache(
+    chainName,
+    tokenAddress,
+    () => withTimeout(
+      exchange.getTokenData(tokenAddress),
+      tokenDataFetchTimeoutMs,
+      `Token data fetch timed out for ${chainName}:${tokenAddress}`,
+    ),
   ).catch((error) => {
     logger.debug(`Token data fetch skipped for ${chainName}:${tokenAddress}: ${error.message}`);
     return null;
