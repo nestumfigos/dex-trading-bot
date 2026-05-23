@@ -168,14 +168,52 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
   const warnings = [];
   const unknown = [];
 
-  // Default ignore prefixes — Node, npm, system, common third-party
+  // Default ignore prefixes — Node, npm, system, common third-party.
+  // 2026-05-23: expanded with full Windows env enumeration (ChocolateyInstall,
+  // ComSpec, etc.) and known bot config prefixes that are documented + parsed
+  // in config/index.js but not individually typed in KNOBS (long-tail strategy
+  // knobs that don't need bounds-checking at this layer).
   const defaultIgnore = [
+    // Node / npm / shell
     'npm_', 'NODE_', 'PATH', 'HOME', 'USER', 'PWD', 'TEMP', 'TMP',
-    'SystemRoot', 'ProgramFiles', 'ProgramData', 'APPDATA', 'LOCALAPPDATA',
     'COMPUTERNAME', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'PROCESSOR_',
     'NUMBER_OF_PROCESSORS', 'OS', 'COMSPEC', 'LANG', 'LC_', 'TZ',
     'PSModulePath', 'OneDrive', 'GIT_', 'SSH_', 'TERM', 'WINDIR',
     'CLAUDE_', 'VSCODE_', 'ELECTRON_', 'CHROME_',
+    // Windows-specific (case-sensitive match required)
+    'SystemRoot', 'SystemDrive', 'ProgramFiles', 'ProgramData', 'ProgramW6432',
+    'APPDATA', 'LOCALAPPDATA', 'ALLUSERSPROFILE', 'PUBLIC',
+    'CommonProgramFiles', 'CommonProgramW6432',
+    'ComSpec', 'DriverData', 'EFC_', 'EXIT_CODE', 'LOGONSERVER', 'PROMPT',
+    'PSExecutionPolicyPreference', 'POWERSHELL_TELEMETRY_OPTOUT',
+    'SESSIONNAME', 'windir',
+    'ChocolateyInstall', 'ChocolateyLastPathUpdate',
+    // MSYS / Git Bash / WSL / Cygwin
+    'MSYSTEM', 'EXEPATH', 'PLINK_PROTOCOL', 'SHELL', 'SHLVL', 'OLDPWD', '_',
+    'VIRTUAL_ENV', '__COMPAT_LAYER', 'NoDefaultCurrentDirectoryInExePath',
+    'COREPACK_ENABLE_AUTO_PIN', 'CLIENTNAME',
+    // Microsoft Copilot / VS Code / Application Insights telemetry
+    'COPILOT_', 'APPLICATION_INSIGHTS_', 'CLAUDECODE', 'MCP_',
+    // Case-variant duplicates from PowerShell env enumeration
+    'PROGRAMFILES', 'SYSTEMDRIVE', 'SYSTEMROOT', 'COMMONPROGRAMFILES',
+    // Bot config prefixes — these are parsed in config/index.js with their own
+    // defaults/validation. Listed here to keep the unknown-vars report focused
+    // on truly-unrecognized vars rather than legit long-tail strategy knobs.
+    'AI_', 'ANTHROPIC_', 'GEMINI_', 'GROQ_', 'OLLAMA_', 'POLYGON_',
+    'COINMARKETCAP_', 'COINPAPRIKA_', 'DEXSCREENER_', 'BIRDEYE_',
+    'BSC_', 'KUCOIN_', 'SOLANA_', 'BASE_',
+    'MOMENTUM_', 'STRATEGY_', 'BULL_FLAG_', 'BACKES_',
+    'JITO_', 'MERKLE_', 'MEV_',
+    'BREAKOUT_', 'BRAIN_', 'BACKTEST_',
+    'DAILY_', 'HOURLY_', 'HIGH_VOL_', 'LOW_VOL_', 'HYBRID_',
+    'EXECUTION_', 'EXCHANGE_',
+    'RECONCILE_', 'RECONCILIATION_', 'RECOVERY_',
+    'SCAN_', 'SLIPPAGE_', 'STOP_', 'TAKE_', 'TRAILING_', 'TRADING_', 'TRADINGVIEW_',
+    'SQL_', 'NATIVE_', 'NEWS_', 'MARKET_',
+    'LIQUIDITY_', 'LIVE_', 'LOG_',
+    'TOKEN_', 'USE_',
+    'RL_', 'MAX_', 'MIN_', 'ESTIMATED_', 'REQUIRE_', 'FAST_', 'YOUNG_',
+    'DASHBOARD_', 'DAILY_',
   ];
   const ignoreAll = [...defaultIgnore, ...ignorePrefixes];
 
