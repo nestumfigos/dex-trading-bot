@@ -1,5 +1,26 @@
 # REFACTOR_CHECKLIST.md
 
+## Strategy implementation audit vs `C:\Users\User_\Desktop\Plan\` (2026-05-23(4))
+
+| Plan File | Strategy | Code Module(s) | Live | Paper |
+|---|---|---|---|---|
+| `day trade.txt` | `spot_day_bull_flag` (KuCoin) | [src/strategies/bull-flag-{detector,evaluator}.js](src/strategies/bull-flag-evaluator.js) | ✓ ENABLED on kucoin | ✓ ENABLED on kucoin |
+| `plan.txt` | `solana_bull_flag_v2` (Solana DEX) | [src/strategies/bull-flag-evaluator-solana.js](src/strategies/bull-flag-evaluator-solana.js) | ✗ disabled (per user) | ✓ ENABLED on solana |
+| `SWING TRADE.txt` | `backes_swing` (KuCoin) | [src/strategies/backes-evaluator.js](src/strategies/backes-evaluator.js) + [backes-indicators.js](src/strategies/backes-indicators.js) + [backes-macro.js](src/strategies/backes-macro.js) + [backes-setups/{56d-retest,21w-support,caixote,megaphone}.js](src/strategies/backes-setups/) | ✗ disabled (per user) | ✓ ENABLED on kucoin |
+| `plan.txt` | `bsc_flow_breakout` (BSC) | [src/strategies/bsc-flow-{breakout-detector,evaluator,safety}.js](src/strategies/bsc-flow-evaluator.js) | ✗ disabled (per user) | ✓ ENABLED on bsc |
+| `plan.txt` | `base_dex_momentum_reclaim` (Base, paper-only) | [src/strategies/base-dex-momentum-reclaim-{detector,evaluator}.js](src/strategies/base-dex-momentum-reclaim-evaluator.js) | ✗ disabled (paper-only per plan) | ✓ ENABLED on base |
+| inline | `momentum` (vanilla; KuCoin lane) | inline in [src/index.js evaluateForStrategy](src/index.js) | ✓ ENABLED on kucoin | ✓ ENABLED on solana,bsc,kucoin |
+| `true perp.txt` | `traderxo_perps` (separate repo) | [dex-trading-bot-perps/src/](../../dex-trading-bot-perps/) (NotImplementedError stubs) | n/a separate repo | n/a separate repo |
+
+**All 5 spot/DEX strategies + vanilla momentum: FULLY IMPLEMENTED in both bots.** Perps explicitly out-of-scope per plan.txt and own repo per true perp.txt.
+
+**Live runtime config (per user 2026-05-23(4)):** ONLY `momentum` + `bull_flag` enabled on KuCoin. Other 4 strategies disabled.
+**Paper runtime config:** ALL 6 strategies enabled (`momentum` solana+bsc+kucoin, `spot_day_bull_flag` kucoin, `solana_bull_flag_v2` solana, `bsc_flow_breakout` bsc, `base_dex_momentum_reclaim` base, `backes_swing` kucoin).
+
+**Signal-drought fix (2026-05-23(4)):** loosened filter knobs on both bots to reduce zero-signal cycles. Per-bot deltas in commit message.
+
+---
+
 **Status (2026-05-23 audit)**: Code-side refactor + bug-guard work is COMPLETE. Remaining `[ ]` items are NOT code work — they are runtime gates (paper canary observation, walk-forward backtests, "Live promote" decisions) that require operator action while bots run, OR they belong to the explicitly-scoped-out PERPS separate repo (WEEK 15).
 
 **Remaining `[ ]` categories**:
