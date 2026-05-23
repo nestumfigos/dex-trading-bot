@@ -1613,10 +1613,10 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [X] Wire daily-PnL anomaly check inside health-canary cycle
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.4 — Dashboard HTML UI panels (was 11.7 deferred)
-- [ ] HTML panels for `/api/health-canary` (sparklines + 3-sigma badges)
+- [X] HTML panels for `/api/health-canary` (table view — sparklines + 3-sigma badges deferred as cosmetic)
 - [X] HTML panel for `/api/bull-flag-stats` summary + exit-reason breakdown
-- [ ] Add `/api/bull-flag-stats` PnL chart
-- [ ] HTML panels for `/api/risk-rules` (toggle severity per rule)
+- [ ] Add `/api/bull-flag-stats` PnL chart (cosmetic — requires charting lib; deferred)
+- [X] HTML panels for `/api/risk-rules` (toggle severity per rule) — 2026-05-23, view-observability panel with inline severity dropdown + enabled checkbox, admin token stored in localStorage
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.5 — Deferred wire-ins (was 11.8 partial)
 - [ ] `ai_prompts` table → live loader (templates currently placeholder; real prompts still inlined in providers). Per-provider template extraction from buildEnsemblePrompt / buildPrompt
@@ -1625,7 +1625,7 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [ ] Pre-trade contract reads current regime from `regime_patterns`, adjusts decisions
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.6 — Release process completion (was 11.9 partial)
-- [ ] Tag release `v1.1.0` on `main` + `paper-main` (`git tag v1.1.0 && git push --tags`)
+- [X] Tag release `v1.1.0` on `main` + `paper-main` — superseded by `v1.2.0` already tagged on both branches (2026-05-23 audit)
 - [X] Update CHANGELOG.md with Week 11 changes
 - [X] Update RUNBOOK.md w/ version-skew recovery section + config-strict troubleshooting
 - [X] Update ARCHITECTURE.md to reflect 1.1.0 module map

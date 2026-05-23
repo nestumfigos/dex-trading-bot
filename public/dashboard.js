@@ -544,14 +544,44 @@ async function refreshMarketIndicators() {
   }
 }
 
+// 2026-05-23: risk-rules helpers (Week 16.4 panel).
+function getAdminToken() {
+  return localStorage.getItem('dt.adminToken') || '';
+}
+function promptAdminToken() {
+  const cur = getAdminToken();
+  const next = window.prompt('Admin token (DASHBOARD_ADMIN_TOKEN) — required to edit risk rules:', cur);
+  if (next != null) localStorage.setItem('dt.adminToken', String(next));
+  return getAdminToken();
+}
+async function patchRiskRule(name, scope, body) {
+  let token = getAdminToken();
+  if (!token) token = promptAdminToken();
+  if (!token) return { ok: false, error: 'no admin token' };
+  try {
+    const res = await fetch(getBaseUrl() + `/api/risk-rules/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ scope, ...body }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, error: json?.error || `HTTP ${res.status}` };
+    return json || { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+}
+
 // ─── Week 6 observability ──────────────────────────────────────────────────
 async function refreshObservability() {
   if (el('view-observability').classList.contains('hidden')) return;
-  const [canary, ai, rej, aiHealth] = await Promise.all([
+  const [canary, ai, rej, aiHealth, rules] = await Promise.all([
     api('/api/health-canary?limit=30'),
     api('/api/ai-decisions/cost?hours=24'),
     api('/api/rejections?hours=24&limit=50'),
     api('/api/ai-health'),
+    api('/api/risk-rules'),
   ]);
   if (aiHealth && aiHealth.providers) {
     const cir = aiHealth.circuit || {};
@@ -614,6 +644,44 @@ async function refreshObservability() {
         <td title="${esc(r.reason)}">${esc((r.reason || '').slice(0, 80))}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="muted small">No rejections.</td></tr>';
   } else { el('w6-rejections-body').innerHTML = '<tr><td colspan="7" class="muted small">SQL disabled.</td></tr>'; }
+  // Week 16.4 — risk rules with inline severity + enabled toggles
+  if (rules?.data) {
+    const rows = rules.data;
+    if (el('w6-rules-count')) el('w6-rules-count').textContent = String(rows.length);
+    const sevOpts = (cur) => ['block', 'warn', 'log']
+      .map((s) => `<option value="${s}" ${s === cur ? 'selected' : ''}>${s}</option>`).join('');
+    el('w6-rules-body').innerHTML = rows.map((r) => `
+      <tr data-rule="${esc(r.name)}" data-scope="${esc(r.scope)}">
+        <td><strong>${esc(r.name)}</strong></td>
+        <td>${esc(r.scope)}</td>
+        <td><select class="rule-sev" data-name="${esc(r.name)}" data-scope="${esc(r.scope)}">${sevOpts(r.severity)}</select></td>
+        <td><input type="checkbox" class="rule-en" data-name="${esc(r.name)}" data-scope="${esc(r.scope)}" ${r.enabled ? 'checked' : ''}></td>
+        <td class="muted small">${esc((r.notes || '').slice(0, 80))}</td>
+        <td class="muted small">${esc(fmtDateTime(r.updated_at))}</td>
+      </tr>`).join('') || '<tr><td colspan="6" class="muted small">No rules.</td></tr>';
+    document.querySelectorAll('#w6-rules-body .rule-sev').forEach((sel) => {
+      sel.addEventListener('change', async (ev) => {
+        const { name, scope } = ev.target.dataset;
+        const result = await patchRiskRule(name, scope, { severity: ev.target.value });
+        if (!result.ok) {
+          window.alert(`PATCH failed: ${result.error}`);
+          refreshObservability();
+        }
+      });
+    });
+    document.querySelectorAll('#w6-rules-body .rule-en').forEach((cb) => {
+      cb.addEventListener('change', async (ev) => {
+        const { name, scope } = ev.target.dataset;
+        const result = await patchRiskRule(name, scope, { enabled: ev.target.checked });
+        if (!result.ok) {
+          window.alert(`PATCH failed: ${result.error}`);
+          refreshObservability();
+        }
+      });
+    });
+  } else if (el('w6-rules-body')) {
+    el('w6-rules-body').innerHTML = '<tr><td colspan="6" class="muted small">SQL disabled or endpoint unavailable.</td></tr>';
+  }
 }
 
 // ─── Logs view ────────────────────────────────────────────────────────────
