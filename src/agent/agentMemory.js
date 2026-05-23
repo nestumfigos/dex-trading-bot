@@ -20,6 +20,10 @@ const SqlCoordination = require('../utils/sqlCoordination');
 const { mergeFromRemote: pureMergeFromRemote } = require('./memory/merge');
 const _blacklistModule = require('./memory/blacklist');
 const _statsModule = require('./memory/stats');
+// Week 16.2 (2026-05-23): pure-helper modules for lessons / knowledge / insights.
+const _lessonsModule = require('./memory/lessons');
+const _knowledgeModule = require('./memory/knowledge');
+const _insightsModule = require('./memory/insights');
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const BOT_DATA_DIR = process.env.BOT_DATA_DIR || 'data';
@@ -246,31 +250,11 @@ class AgentMemory {
    * Called after loss (or notable win) with the position's entry conditions.
    */
   recordLesson({ symbol, chain, strategy, entryConditions, outcome, pnlUsd, pnlPct, reason, lesson, entryRegime, holdMinutes }) {
-    const entry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      ts: Date.now(),
-      botProfile: process.env.BOT_PROFILE || 'unknown',
-      symbol: String(symbol || '').toUpperCase(),
-      chain: String(chain || 'unknown'),
-      strategy: String(strategy || 'momentum'),
-      entryConditions: entryConditions || {},
-      outcome: outcome === 'win' ? 'win' : 'loss',
-      pnlUsd: Number(pnlUsd || 0),
-      pnlPct: Number(pnlPct || 0),
-      reason: String(reason || ''),
-      lesson: String(lesson || ''),
-      hitCount: 0,
-      entryRegime: String(entryRegime || 'unknown'),
-      holdMinutes: Number(holdMinutes || 0),
-    };
+    // Week 16.2: body extracted to src/agent/memory/lessons.js.
+    const entry = _lessonsModule.recordLessonInto(this.data, {
+      symbol, chain, strategy, entryConditions, outcome, pnlUsd, pnlPct, reason, lesson, entryRegime, holdMinutes,
+    }, { maxLessons: MAX_LESSONS });
 
-    this.data.tradeLessons.unshift(entry);
-    if (this.data.tradeLessons.length > MAX_LESSONS) {
-      this.data.tradeLessons = this.data.tradeLessons.slice(0, MAX_LESSONS);
-    }
-
-    // Counter buckets extracted to src/agent/memory/stats.js (Week 7 Track C, 2026-05-17).
-    // Delegates symbol/regime/chain/tokenAge/exitClassification updates in one call.
     const exitCode = String(entryConditions?.exitClassification || 'unknown');
     const tokenAgeBucket = entryConditions?.tokenAgeBucket || 'unknown';
     _statsModule.recordTradeOutcome(this.data, entry, {
@@ -289,83 +273,11 @@ class AgentMemory {
    * Returns { blocked: bool, reason: string, matchedLessons: [] }
    */
   checkLessons(symbol, conditions = {}) {
-    const sym = String(symbol || '').toUpperCase();
-    const lessons = this.data.tradeLessons;
-    const matched = [];
-    let blockScore = 0;
-
-    for (const lesson of lessons) {
-      if (lesson.outcome !== 'loss') continue;
-
-      let score = 0;
-      // Same symbol
-      if (lesson.symbol === sym) score += 40;
-
-      // Similar RSI range (within 10)
-      const ec = lesson.entryConditions || {};
-      if (conditions.rsi && ec.rsi && Math.abs(Number(conditions.rsi) - Number(ec.rsi)) < 10) score += 15;
-
-      // Same strategy
-      if (conditions.strategy && lesson.strategy === conditions.strategy) score += 10;
-
-      // Same chain
-      if (conditions.chain && lesson.chain === conditions.chain) score += 5;
-
-      // Recent volume spike match
-      if (conditions.volumeSpike && ec.volumeSpike) {
-        const diff = Math.abs(Number(conditions.volumeSpike) - Number(ec.volumeSpike));
-        if (diff < 1.0) score += 10;
-      }
-
-      // Recent lesson (decay by age — older lessons weigh less)
-      const ageHours = (Date.now() - lesson.ts) / 3_600_000;
-      const decayFactor = Math.max(0.2, 1 - (ageHours / (7 * 24))); // full weight for 1 week, 20% at 5 weeks
-      score = Math.round(score * decayFactor);
-
-      // Regime match bonus/penalty
-      const currentRegime = conditions.regime || 'unknown';
-      if (currentRegime !== 'unknown' && lesson.entryRegime && lesson.entryRegime !== 'unknown') {
-        if (lesson.entryRegime === currentRegime) {
-          score += 20; // Same regime: highly relevant
-        } else {
-          score = Math.round(score * 0.4); // Different regime: mostly irrelevant
-        }
-      }
-
-      if (score >= 30) {
-        lesson.hitCount = (lesson.hitCount || 0) + 1;
-        matched.push({ lesson, score });
-        blockScore = Math.max(blockScore, score);
-      }
-    }
-
-    matched.sort((a, b) => b.score - a.score);
-
-    // Lowered thresholds: previously 70/40 was so strict only near-identical setups triggered.
-    // Now 60 blocks high-confidence repeats and 35 warns on partial matches, so the agent
-    // actually applies its lessons rather than collecting them as decoration.
-    const blockThreshold = Number(this.config?.memoryBlockThreshold || 60);
-    const warnThreshold = Number(this.config?.memoryWarnThreshold || 35);
-
-    if (blockScore >= blockThreshold) {
-      const top = matched[0].lesson;
-      return {
-        blocked: true,
-        reason: `Memory block: similar setup lost $${Math.abs(top.pnlUsd).toFixed(2)} — ${top.lesson.slice(0, 120)}`,
-        matchedLessons: matched.slice(0, 3),
-      };
-    }
-
-    if (blockScore >= warnThreshold) {
-      return {
-        blocked: false,
-        warned: true,
-        reason: `Memory warning: similar conditions led to loss — ${matched[0]?.lesson?.lesson?.slice(0, 80) || ''}`,
-        matchedLessons: matched.slice(0, 3),
-      };
-    }
-
-    return { blocked: false, warned: false, matchedLessons: [] };
+    // Week 16.2: body extracted to src/agent/memory/lessons.js.
+    return _lessonsModule.checkLessonsFor(this.data, symbol, conditions, {
+      blockThreshold: Number(this.config?.memoryBlockThreshold || 60),
+      warnThreshold: Number(this.config?.memoryWarnThreshold || 35),
+    });
   }
 
   // ── Strategy Discoveries ─────────────────────────────────────────────────
@@ -453,127 +365,34 @@ class AgentMemory {
 
   // ── Evolution Outcomes ───────────────────────────────────────────────────
 
-  recordEvolutionOutcome({
-    patchSummary,
-    patchId,
-    patchType,
-    paramsChanged,
-    pfBefore, pfAfter,
-    wrBefore, wrAfter,
-    sampleSizeBefore, sampleSizeAfter,
-    holdoutWindowHours,
-    regimeFamily,
-    verdict,
-  }) {
-    const pfDelta = Number(pfAfter || 0) - Number(pfBefore || 0);
-    const wrDelta = Number(wrAfter || 0) - Number(wrBefore || 0);
-    // Causal confidence: scaled by sample size of the post-patch window. Small samples
-    // can't be trusted for verdict — we treat them as inconclusive even if metrics swing.
-    const minSampleForCausal = 10;
-    const postSample = Number(sampleSizeAfter || 0);
-    let causalConfidence = 0;
-    if (postSample >= minSampleForCausal) {
-      causalConfidence = Math.min(1, (postSample - minSampleForCausal) / 30 + 0.4);
-    } else if (postSample >= 5) {
-      causalConfidence = 0.25;
-    }
-    // Self-derived verdict: ignore caller verdict if causal confidence is low — small
-    // samples produce false positives. Caller verdict is honored only for sufficient samples.
-    let derivedVerdict = String(verdict || 'unknown');
-    if (causalConfidence < 0.3) {
-      derivedVerdict = 'inconclusive';
-    } else if (pfDelta >= 0.05 && wrDelta >= 2) {
-      derivedVerdict = 'improved';
-    } else if (pfDelta <= -0.05 || wrDelta <= -3) {
-      derivedVerdict = 'regressed';
-    } else if (Math.abs(pfDelta) < 0.05 && Math.abs(wrDelta) < 2) {
-      derivedVerdict = 'neutral';
-    }
-    this.data.evolutionOutcomes.unshift({
-      ts: Date.now(),
-      patchId: String(patchId || ''),
-      patchType: String(patchType || ''),
-      paramsChanged: paramsChanged || null,
-      patchSummary: String(patchSummary || '').slice(0, 200),
-      pfBefore: Number(pfBefore || 0),
-      pfAfter: Number(pfAfter || 0),
-      pfDelta,
-      wrBefore: Number(wrBefore || 0),
-      wrAfter: Number(wrAfter || 0),
-      wrDelta,
-      sampleSizeBefore: Number(sampleSizeBefore || 0),
-      sampleSizeAfter: postSample,
-      holdoutWindowHours: Number(holdoutWindowHours || 0),
-      regimeFamily: String(regimeFamily || 'unknown'),
-      causalConfidence: Number(causalConfidence.toFixed(2)),
-      callerVerdict: String(verdict || 'unknown'),
-      verdict: derivedVerdict,
-    });
-    if (this.data.evolutionOutcomes.length > MAX_EVOLUTION_LOG) {
-      this.data.evolutionOutcomes = this.data.evolutionOutcomes.slice(0, MAX_EVOLUTION_LOG);
-    }
+  recordEvolutionOutcome(fields) {
+    // Week 16.2: body extracted to src/agent/memory/knowledge.js.
+    _knowledgeModule.recordEvolutionOutcomeInto(this.data, fields, { maxLog: MAX_EVOLUTION_LOG });
     this._dirty = true;
   }
 
   getEvolutionSummary() {
-    const recent = this.data.evolutionOutcomes.slice(0, 10);
-    const improved = recent.filter((r) => r.verdict === 'improved').length;
-    const regressed = recent.filter((r) => r.verdict === 'regressed').length;
-    const inconclusive = recent.filter((r) => r.verdict === 'inconclusive').length;
-    const neutral = recent.filter((r) => r.verdict === 'neutral').length;
-    const avgCausalConfidence = recent.length > 0
-      ? recent.reduce((sum, r) => sum + Number(r.causalConfidence || 0), 0) / recent.length
-      : 0;
-    return {
-      total: recent.length,
-      improved,
-      regressed,
-      inconclusive,
-      neutral,
-      avgCausalConfidence: Number(avgCausalConfidence.toFixed(2)),
-    };
+    return _knowledgeModule.getEvolutionSummary(this.data);
   }
 
-  // Recommend whether to keep applying patches based on causal track record.
-  // If recent patches show high regression rate or low causal confidence, recommend pause.
   shouldPauseEvolution() {
-    const recent = this.data.evolutionOutcomes.slice(0, 8);
-    if (recent.length < 4) return { paused: false, reason: 'insufficient_history' };
-    const regressed = recent.filter((r) => r.verdict === 'regressed').length;
-    const inconclusive = recent.filter((r) => r.verdict === 'inconclusive').length;
-    const avgCausal = recent.reduce((s, r) => s + Number(r.causalConfidence || 0), 0) / recent.length;
-    if (regressed >= 3) return { paused: true, reason: `${regressed} of last ${recent.length} patches regressed` };
-    if (avgCausal < 0.3 && inconclusive >= 4) return { paused: true, reason: `${inconclusive} inconclusive (samples too small)` };
-    return { paused: false, reason: 'ok' };
+    return _knowledgeModule.shouldPauseEvolution(this.data);
   }
 
   // ── Knowledge Base ───────────────────────────────────────────────────────
 
   addKnowledge({ category, insight, source, confidence }) {
-    const isDuplicate = this.data.knowledgeBase.some(
-      (k) => k.insight === insight && (Date.now() - k.ts) < 12 * 3_600_000
+    // Week 16.2: body extracted to src/agent/memory/knowledge.js.
+    const added = _knowledgeModule.addKnowledgeInto(
+      this.data,
+      { category, insight, source, confidence },
+      { maxKnowledge: MAX_KNOWLEDGE, stableKnowledgeId },
     );
-    if (isDuplicate) return;
-
-    this.data.knowledgeBase.unshift({
-      id: stableKnowledgeId({ category, insight, source }),
-      ts: Date.now(),
-      category: String(category || 'general'),
-      insight: String(insight || '').slice(0, 400),
-      source: String(source || ''),
-      confidence: Math.min(100, Math.max(0, Number(confidence || 50))),
-    });
-    if (this.data.knowledgeBase.length > MAX_KNOWLEDGE) {
-      this.data.knowledgeBase = this.data.knowledgeBase.slice(0, MAX_KNOWLEDGE);
-    }
-    this._dirty = true;
+    if (added) this._dirty = true;
   }
 
   getKnowledge(category = null, limit = 10) {
-    const items = category
-      ? this.data.knowledgeBase.filter((k) => k.category === category)
-      : this.data.knowledgeBase;
-    return items.slice(0, limit);
+    return _knowledgeModule.getKnowledgeFrom(this.data, { category, limit });
   }
 
   ensureChartPatternPlaybook() {
@@ -1003,72 +822,27 @@ Return ONLY JSON: {"summary": "2-3 sentences", "action": "BUY_WATCH|HOLD_WATCH|A
     }
   }
 
+  // Week 16.2: bodies extracted to src/agent/memory/insights.js.
   getRegimeContext(regime = 'unknown', strategy = 'momentum') {
-    const key = `${regime}:${strategy}`;
     if (!this.data.regimeWinRates) this.data.regimeWinRates = {};
-    const r = this.data.regimeWinRates[key] || { wins: 0, losses: 0 };
-    const total = r.wins + r.losses;
-    const winRate = total > 0 ? Math.round((r.wins / total) * 100) : null;
-    const insights = [];
-    if (total >= 5) {
-      if (winRate >= 60) insights.push(`✅ ${regime}: ${winRate}% win rate (${total} ${strategy} trades)`);
-      else if (winRate <= 35) insights.push(`⚠️ ${regime}: only ${winRate}% win rate (${total} ${strategy} trades) — require higher confidence`);
-      else insights.push(`➡️ ${regime}: ${winRate}% win rate (${total} ${strategy} trades)`);
-    }
-    return { key, winRate, totalTrades: total, insights };
+    return _insightsModule.getRegimeContext(this.data, { regime, strategy });
   }
 
   getChainContext(chain = 'unknown', strategy = 'momentum') {
-    const key = `${chain}:${strategy}`;
     if (!this.data.chainPatterns) this.data.chainPatterns = {};
-    const p = this.data.chainPatterns[key] || { wins: 0, losses: 0, totalHoldMinutes: 0, tradeCount: 0 };
-    const total = p.wins + p.losses;
-    const winRate = total > 0 ? Math.round((p.wins / total) * 100) : null;
-    const avgHold = p.tradeCount > 0 ? Math.round(p.totalHoldMinutes / p.tradeCount) : null;
-    const insights = [];
-    if (total >= 3) {
-      if (winRate !== null) insights.push(`${chain} ${strategy}: ${winRate}% win rate (${total} trades)`);
-      if (avgHold !== null) insights.push(`${chain} avg hold: ${avgHold}min`);
-    }
-    return { key, winRate, totalTrades: total, avgHoldMinutes: avgHold, insights };
+    return _insightsModule.getChainContext(this.data, { chain, strategy });
   }
 
   // Per-symbol context: tracks recent wins/losses on a name so we can demand
   // higher AI confidence before re-entering a repeat-loser.
   getSymbolContext(symbol = '', strategy = 'momentum', windowDays = 14) {
     if (!this.data.symbolWinRates) this.data.symbolWinRates = {};
-    const key = `${String(symbol || '').toUpperCase()}:${strategy}`;
-    const r = this.data.symbolWinRates[key];
-    if (!r) return { key, recentLosses: 0, recentWins: 0, totalPnlUsd: 0, penaltyPct: 0, insights: [] };
-    const ageMs = Date.now() - Number(r.lastTradeTs || 0);
-    const stale = ageMs > windowDays * 24 * 3600 * 1000;
-    if (stale) return { key, recentLosses: 0, recentWins: 0, totalPnlUsd: 0, penaltyPct: 0, insights: [] };
-    const recentLosses = Number(r.losses || 0);
-    const recentWins = Number(r.wins || 0);
-    const totalPnlUsd = Number(r.totalPnlUsd || 0);
-    // Penalty: +5pp AI floor per loss (capped at +20pp). Wins reduce penalty by 3pp.
-    const penaltyPct = Math.max(0, Math.min(20, recentLosses * 5 - recentWins * 3));
-    const insights = [];
-    if (recentLosses >= 3 && recentWins === 0) {
-      insights.push(`⚠️ ${symbol} has lost ${recentLosses}× in last ${windowDays}d (cumulative $${totalPnlUsd.toFixed(2)})`);
-    } else if (recentLosses >= 2) {
-      insights.push(`${symbol} recent record: ${recentWins}W/${recentLosses}L`);
-    }
-    return { key, recentLosses, recentWins, totalPnlUsd, penaltyPct, insights };
+    return _insightsModule.getSymbolContext(this.data, { symbol, strategy, windowDays });
   }
 
   getTokenAgeContext(tokenAgeBucket = 'unknown', strategy = 'momentum') {
-    const key = `${tokenAgeBucket}:${strategy}`;
     if (!this.data.tokenAgePatterns) this.data.tokenAgePatterns = {};
-    const p = this.data.tokenAgePatterns[key] || { wins: 0, losses: 0, tradeCount: 0 };
-    const total = p.wins + p.losses;
-    const winRate = total > 0 ? Math.round((p.wins / total) * 100) : null;
-    const insights = [];
-    if (total >= 3 && winRate !== null) {
-      if (winRate < 35) insights.push(`⚠️ ${tokenAgeBucket} tokens (${strategy}): ${winRate}% win rate — require higher confidence`);
-      else insights.push(`${tokenAgeBucket} tokens (${strategy}): ${winRate}% win rate (${total} trades)`);
-    }
-    return { key, winRate, totalTrades: total, insights };
+    return _insightsModule.getTokenAgeContext(this.data, { tokenAgeBucket, strategy });
   }
 
   getContextForAI(options = {}) {

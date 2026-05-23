@@ -1610,13 +1610,13 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [ ] Live promote — pending paper canary pass
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.2 — Memory module split (was 11.5; Week 2 deferral closure)
-**Status (2026-05-23):** PARTIAL. 4 of 8 pure-helper modules extracted (`blacklist.js`, `merge.js`, `shape.js`, `stats.js`) — these covered the highest-risk areas (merge-completeness drift, shape coverage, stat-counter mutations). Remaining 4 sub-modules below are deferred as low-priority because callers still go through the `AgentMemory` class which proxies to them.
-- [ ] `src/agent/memory/lessons.js` — DEFERRED. recordLesson + queryLessons currently in AgentMemory class; method body is ~80 lines, extraction risk-of-bug > current pain
-- [ ] `src/agent/memory/knowledge.js` — DEFERRED. knowledgeBase + aiUsage + evolutionOutcomes are simple array push-ops on `this.data`, no extraction value
-- [ ] `src/agent/memory/insights.js` — DEFERRED. getIndicatorInsights reads several fields; extraction needs careful dep injection
-- [ ] `src/agent/memory/core.js` — DEFERRED. Pending all three above
-- [ ] Tests: 30+ across all 4 modules — DEFERRED with above
-- [ ] Paper canary + live promote — N/A (no behavior change pending)
+**Status (2026-05-23):** COMPLETE for 7 of 8 sub-modules. `core.js` (final assembly that eliminates `AgentMemory` class) deferred — class proxies are stable + tested; eliminating class would require migrating 50+ call sites for negligible benefit.
+- [X] `src/agent/memory/lessons.js` — 2026-05-23, recordLessonInto + checkLessonsFor as pure helpers; class wraps with _dirty + stats hook
+- [X] `src/agent/memory/knowledge.js` — 2026-05-23, addKnowledgeInto + getKnowledgeFrom + recordEvolutionOutcomeInto + getEvolutionSummary + shouldPauseEvolution as pure helpers
+- [X] `src/agent/memory/insights.js` — 2026-05-23, getRegimeContext + getChainContext + getSymbolContext + getTokenAgeContext as pure read-only helpers (no `this.data` mutation)
+- [ ] `src/agent/memory/core.js` — DEFERRED. Would assemble all 7 modules into single export and eliminate AgentMemory class. Requires 50+ call-site migrations (50+ files import `agentMemory.js`); no behavior benefit, pure file-shape change. Keep class as facade.
+- [X] Tests: 24 new tests (lessons 7, knowledge 10, insights 7) all pass. Pre-existing memory suite 51/51 also passes (no regression). Total 75/75 memory tests.
+- [ ] Paper canary + live promote — pending operator runtime gate (behavior identical, but standard process)
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.3 — 3-sigma anomaly wire-in (was 11.7c followup)
 - [X] Wire `createAnomalyAlerter` into single call site: `logTrade` SELL path (push pnl_usd, run check, send Telegram alert on anomaly)
