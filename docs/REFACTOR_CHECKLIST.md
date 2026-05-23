@@ -1623,14 +1623,14 @@ For any phase to be marked complete (reference checklist; ad-hoc applied per pha
 - [X] Wire daily-PnL anomaly check inside health-canary cycle
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.4 — Dashboard HTML UI panels (was 11.7 deferred)
-- [X] HTML panels for `/api/health-canary` (table view — sparklines + 3-sigma badges deferred as cosmetic)
+- [X] HTML panels for `/api/health-canary` with sparklines — 2026-05-23, new `/api/health-canary/sparklines` endpoint (last N statuses per check_name) + per-row colored-bar SVG sparkline (green/amber/red = PASS/WARN/FAIL). 3-sigma badges still deferred as cosmetic.
 - [X] HTML panel for `/api/bull-flag-stats` summary + exit-reason breakdown
 - [X] Add `/api/bull-flag-stats` PnL chart — 2026-05-23, inline SVG chart (no charting library), cumulative pnl from new `pnlSeries` field on endpoint
 - [X] HTML panels for `/api/risk-rules` (toggle severity per rule) — 2026-05-23, view-observability panel with inline severity dropdown + enabled checkbox, admin token stored in localStorage
 
 ### From WEEK 16 — REFACTOR CLOSEOUT v2 (carryover from Week 11) / 16.5 — Deferred wire-ins (was 11.8 partial)
-**Status (2026-05-23):** all 4 items remain DEFERRED with explicit rationale below. None are bugs; all are extension-points awaiting external pipelines.
-- [ ] `ai_prompts` table → live loader — DEFERRED. Requires per-provider template extraction from `buildEnsemblePrompt`/`buildPrompt` then SQL fetch+cache layer. Multi-day work, no current pain (prompts work fine inline). Re-prioritize if prompt A/B testing is needed.
+**Status (2026-05-23):** 16.5.1 SHIPPED. Remaining 3 items DEFERRED with rationale below.
+- [X] `ai_prompts` table → live loader — 2026-05-23, `src/ai/prompt-loader.js` (sync cache + bg prefetch + fallback), wired into `buildEnsemblePrompt`. Seed script `scripts/seed-ai-prompts.js`. Tests pass (7/7). When `dbo.ai_prompts` has active row, template overrides inline; else inline fallback. Run `node scripts/seed-ai-prompts.js` to populate.
 - [ ] `tokens` cache → scanner read-through — DEFERRED. Depends on full SQL `tokens` table schema decision. Current per-scan fetch already cached at provider level via DEXSCREENER_CACHE_TTL_MS etc.
 - [ ] `regime_patterns` populated by ML retrain output — DEFERRED. Awaits ML retrain pipeline to write rows. Macro regime currently computed live via `src/strategies/backes-macro.js` (4h cache) which is sufficient.
 - [ ] Pre-trade contract reads current regime from `regime_patterns` — DEFERRED with above. Live macro already wired via `intelligenceAgent.getMacroSizeMultiplier()` at `src/index.js:1679`.

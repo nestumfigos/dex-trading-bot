@@ -183,6 +183,13 @@ function buildWalletClusteringContext(tokenData, technicalDetails) {
   };
 }
 
+// 2026-05-23 W16.5: optional DB-driven template loader. When dbo.ai_prompts has
+// an active row for 'ensemble_signal', use that. Otherwise fall back to inline
+// builder below. Cached + safe — never throws. Sync peek + background prefetch
+// keeps the call site synchronous (no async refactor of provider call paths).
+const { getCachedPrompt: _getCachedPrompt, renderTemplate: _renderTemplate, prefetch: _prefetchPrompt } = require('./prompt-loader');
+const ENSEMBLE_PROMPT_NAME = 'ensemble_signal';
+
 function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
   const strategyName = String(technicalDetails.strategy || 'momentum');
   const confidenceFloor = Number(technicalDetails.confidenceFloor || 0);
@@ -215,6 +222,23 @@ function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
 
   const strategyKey = String(strategyName || '').toLowerCase();
   const longerTermProfile = strategyKey.includes('backes') || strategyKey.includes('swing');
+
+  // W16.5: prefer DB template when active row is cached. Background-prefetch
+  // when miss/stale so the next call has it. Falls back to inline string below.
+  const scope = String(process.env.BOT_PROFILE || 'global').toLowerCase();
+  const cachedRow = _getCachedPrompt(ENSEMBLE_PROMPT_NAME, { scope });
+  if (cachedRow === undefined) {
+    _prefetchPrompt(ENSEMBLE_PROMPT_NAME, { scope });
+  } else if (cachedRow && cachedRow.template) {
+    return _renderTemplate(cachedRow.template, {
+      strategy: strategyName,
+      symbol: tokenData.symbol,
+      chain: tokenData.chain,
+      longer_term: longerTermProfile ? 'longer-term established token setup' : 'short-term new-launch momentum setup',
+      context_json: JSON.stringify(context),
+      headlines_json: JSON.stringify(headlines),
+    });
+  }
 
   return [
     'You are a crypto market reviewer. Respond in minified JSON only.',

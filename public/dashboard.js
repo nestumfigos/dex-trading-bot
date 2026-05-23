@@ -387,6 +387,23 @@ function renderBullFlagStats(stats) {
   renderPnlSvg('bf-pnl-chart', data.pnlSeries || []);
 }
 
+// W16.4 — colored-bar sparkline for health-canary check trend.
+// Renders one small bar per recent check; green=PASS, amber=WARN, red=FAIL.
+function renderCanarySparkline(series) {
+  if (!Array.isArray(series) || series.length === 0) return '<span class="muted small">—</span>';
+  const bars = series.map((p) => {
+    const s = String(p.s || '').toUpperCase();
+    const color = s === 'PASS' ? '#39d98a' : s === 'WARN' ? '#f0b429' : s === 'FAIL' ? '#ff5d5d' : '#6b7785';
+    return `<rect width="3" height="12" x="0" y="0" fill="${color}"/>`;
+  }).join('');
+  const w = series.length * 4;
+  return `<svg viewBox="0 0 ${w} 12" width="${Math.min(w, 100)}" height="12" preserveAspectRatio="none" style="vertical-align:middle;">${series.map((p, i) => {
+    const s = String(p.s || '').toUpperCase();
+    const color = s === 'PASS' ? '#39d98a' : s === 'WARN' ? '#f0b429' : s === 'FAIL' ? '#ff5d5d' : '#6b7785';
+    return `<rect width="3" height="12" x="${i * 4}" y="0" fill="${color}"><title>${s}</title></rect>`;
+  }).join('')}</svg>`;
+}
+
 // W16.4 — minimal inline SVG line chart (no charting library).
 // Renders cumPnl series into an existing <svg> with viewBox="0 0 600 120".
 function renderPnlSvg(svgId, series) {
@@ -611,13 +628,15 @@ async function patchRiskRule(name, scope, body) {
 // ─── Week 6 observability ──────────────────────────────────────────────────
 async function refreshObservability() {
   if (el('view-observability').classList.contains('hidden')) return;
-  const [canary, ai, rej, aiHealth, rules] = await Promise.all([
+  const [canary, ai, rej, aiHealth, rules, sparks] = await Promise.all([
     api('/api/health-canary?limit=30'),
     api('/api/ai-decisions/cost?hours=24'),
     api('/api/rejections?hours=24&limit=50'),
     api('/api/ai-health'),
     api('/api/risk-rules'),
+    api('/api/health-canary/sparklines?perCheck=20'),
   ]);
+  const sparkByCheck = (sparks && sparks.data) || {};
   if (aiHealth && aiHealth.providers) {
     const cir = aiHealth.circuit || {};
     const meta = cir.open
@@ -648,11 +667,12 @@ async function refreshObservability() {
         <td>${esc(fmtDateTime(r.checked_at))}</td>
         <td>${esc(r.check_name)}</td>
         <td><span class="st-${r.status}">${esc(r.status)}</span></td>
+        <td>${renderCanarySparkline(sparkByCheck[r.check_name] || [])}</td>
         <td>${esc(r.value_observed || '—')}</td>
         <td>${esc(r.threshold || '—')}</td>
         <td>${esc((r.message || '') + (r.recovery_hint ? ' — ' + r.recovery_hint : ''))}</td>
-      </tr>`).join('') || '<tr><td colspan="6" class="muted small">No canary runs yet.</td></tr>';
-  } else { el('w6-canary-body').innerHTML = '<tr><td colspan="6" class="muted small">SQL disabled or endpoint unavailable.</td></tr>'; }
+      </tr>`).join('') || '<tr><td colspan="7" class="muted small">No canary runs yet.</td></tr>';
+  } else { el('w6-canary-body').innerHTML = '<tr><td colspan="7" class="muted small">SQL disabled or endpoint unavailable.</td></tr>'; }
   if (ai?.data) {
     const totalCost = ai.data.reduce((s, r) => s + Number(r.total_cost_usd || 0), 0);
     el('w6-kpi-cost').textContent = `$${totalCost.toFixed(4)}`;

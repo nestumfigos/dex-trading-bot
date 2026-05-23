@@ -74,11 +74,11 @@ test('mountWeek6Routes: registers all endpoints (GET + POST + DELETE + PATCH)', 
   const posts   = app._routes.filter((r) => r.method === 'POST').length;
   const deletes = app._routes.filter((r) => r.method === 'DELETE').length;
   const patches = app._routes.filter((r) => r.method === 'PATCH').length;
-  assert.equal(gets, 9, 'expected 9 GET endpoints (incl /api/risk-rules)');
+  assert.equal(gets, 10, 'expected 10 GET endpoints (incl /api/risk-rules, /api/health-canary/sparklines)');
   assert.equal(posts, 1, 'expected 1 POST endpoint');
   assert.equal(deletes, 1, 'expected 1 DELETE endpoint');
   assert.equal(patches, 1, 'expected 1 PATCH endpoint');
-  assert.equal(result.endpoints.length, 12);
+  assert.equal(result.endpoints.length, 13);
 });
 
 test('mountWeek6Routes: throws on non-Express app', () => {
