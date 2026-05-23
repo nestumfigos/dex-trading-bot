@@ -220,6 +220,31 @@ function mountWeek6Routes(app, { getPool, logger }) {
     }, res);
   });
 
+  // ─── /api/health-canary/sparklines (W16.4) ─────────────────────────────
+  app.get('/api/health-canary/sparklines', async (req, res) => {
+    return withPool(getPool, async (pool) => {
+      const perCheck = Math.max(5, Math.min(60, Number(req.query.perCheck) || 20));
+      const result = await pool.request().input('perCheck', perCheck).query(`
+        WITH ranked AS (
+          SELECT check_name, status, checked_at,
+                 ROW_NUMBER() OVER (PARTITION BY check_name ORDER BY checked_at DESC) AS rn
+            FROM dbo.health_checks
+        )
+        SELECT check_name, status, checked_at
+          FROM ranked
+         WHERE rn <= @perCheck
+         ORDER BY check_name, checked_at ASC
+      `);
+      const byCheck = {};
+      for (const row of result.recordset) {
+        const key = String(row.check_name);
+        if (!byCheck[key]) byCheck[key] = [];
+        byCheck[key].push({ t: row.checked_at, s: row.status });
+      }
+      res.json({ ok: true, perCheck, data: byCheck });
+    }, res);
+  });
+
   // ─── /api/ml-models ────────────────────────────────────────────────────
   app.get('/api/ml-models', async (req, res) => {
     return withPool(getPool, async (pool) => {
@@ -304,6 +329,7 @@ function mountWeek6Routes(app, { getPool, logger }) {
       'POST /api/symbol-overrides (auth)',
       'DELETE /api/symbol-overrides/:id (auth)',
       'GET /api/health-canary',
+      'GET /api/health-canary/sparklines',
       'GET /api/ml-models',
       'GET /api/backtest-runs',
       'GET /api/risk-rules',

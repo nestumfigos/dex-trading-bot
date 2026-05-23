@@ -183,6 +183,10 @@ function buildWalletClusteringContext(tokenData, technicalDetails) {
   };
 }
 
+// 2026-05-23 W16.5: optional DB-driven template loader. Mirrors live.
+const { getCachedPrompt: _getCachedPrompt, renderTemplate: _renderTemplate, prefetch: _prefetchPrompt } = require('./prompt-loader');
+const ENSEMBLE_PROMPT_NAME = 'ensemble_signal';
+
 function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
   const strategyName = String(technicalDetails.strategy || 'momentum');
   const confidenceFloor = Number(technicalDetails.confidenceFloor || 0);
@@ -215,6 +219,22 @@ function buildEnsemblePrompt(tokenData, technicalDetails, headlines) {
 
   const strategyKey = String(strategyName || '').toLowerCase();
   const longerTermProfile = strategyKey.includes('backes') || strategyKey.includes('swing');
+
+  // W16.5: prefer DB template when active row is cached, fallback to inline.
+  const scope = String(process.env.BOT_PROFILE || 'global').toLowerCase();
+  const cachedRow = _getCachedPrompt(ENSEMBLE_PROMPT_NAME, { scope });
+  if (cachedRow === undefined) {
+    _prefetchPrompt(ENSEMBLE_PROMPT_NAME, { scope });
+  } else if (cachedRow && cachedRow.template) {
+    return _renderTemplate(cachedRow.template, {
+      strategy: strategyName,
+      symbol: tokenData.symbol,
+      chain: tokenData.chain,
+      longer_term: longerTermProfile ? 'longer-term established token setup' : 'short-term new-launch momentum setup',
+      context_json: JSON.stringify(context),
+      headlines_json: JSON.stringify(headlines),
+    });
+  }
 
   return [
     'You are a crypto market reviewer. Respond in minified JSON only.',
