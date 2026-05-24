@@ -27,7 +27,7 @@ Out of scope for Phase 1 (deferred to later phases): test generation, correctnes
 |------|------|--------|-------|
 | Live (spot) | `C:\Users\User_\Desktop\dex-trading-bot` | `main` | This repo. Active live bot. |
 | Paper | `C:\Users\User_\Desktop\dex-trading-bot-paper` | `paper-main` (worktree of live repo) | Same git history as live, different branch. |
-| Perps | `C:\Users\User_\Desktop\dex-trading-bot-perps` | `main` (separate repo) | Only initial scaffold commit. In D.13 paper soak. |
+| Perps | `C:\Users\User_\Desktop\dex-trading-bot-perps` | `master` (separate repo) | Only initial scaffold commit. In D.13 paper soak. |
 
 ## Branch Strategy
 
@@ -42,8 +42,8 @@ paper worktree (same repo):
   ruflo/phase1-paper     <- swarm works here, PR → paper-main
 
 perps repo (separate):
-  main                   <- current HEAD eb60871, becomes baseline
-  ruflo/phase1-perps     <- swarm works here, PR → main
+  master                 <- current HEAD eb60871, becomes baseline (note: master, not main)
+  ruflo/phase1-perps     <- swarm works here, PR → master
 ```
 
 Three independent PRs, each reviewable in isolation.
