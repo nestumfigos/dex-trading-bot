@@ -1,0 +1,21 @@
+
+> dex-trading-bot-perps@0.0.0 test
+> node --test test/*.test.js
+
+✔ scaffold guard: ../src/exchanges/binance-perps.js throws NotImplementedError (9.5123ms)
+✔ scaffold guard: ../src/strategies/perps-anchors.js throws NotImplementedError (2.2446ms)
+✔ scaffold guard: ../src/strategies/perps-range-detector.js throws NotImplementedError (1.8171ms)
+✔ scaffold guard: ../src/strategies/perps-deviation-reclaim.js throws NotImplementedError (4.138ms)
+✔ scaffold guard: ../src/strategies/perps-mss-detector.js throws NotImplementedError (2.3572ms)
+✔ scaffold guard: ../src/strategies/perps-l2l-detector.js throws NotImplementedError (1.8744ms)
+✔ scaffold guard: ../src/strategies/perps-sizing.js throws NotImplementedError (1.6608ms)
+✔ scaffold guard: ../src/risk/perps-gates.js throws NotImplementedError (2.2379ms)
+✔ _not-implemented exports guard + NotImplementedError class (1.8968ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 257.3466
