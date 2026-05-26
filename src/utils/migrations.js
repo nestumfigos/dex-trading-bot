@@ -178,6 +178,48 @@ async function migrate({ logger = console, dryRun = false } = {}) {
   return { applied: appliedThisRun, skipped, dryRun };
 }
 
+
+// B1.8: critical-table sanity check. After migrations apply (or are confirmed
+// up-to-date), assert that hot-path tables actually exist. Fail-fast at boot
+// instead of mid-trade 500 if a migration was dropped, rolled back, or applied
+// out of order across live and paper. List is conservative — only tables the
+// trading loop reads on every cycle.
+const CRITICAL_TABLES = [
+  'schema_migrations',
+  'bot_runs',
+  'bot_kv',
+  'positions',
+  'position_snapshots',
+  'bot_trade_ledger',
+  'ai_decisions',
+  'signals',
+  'risk_rules',
+  'sell_tiers',
+  'regime_patterns',
+];
+
+async function assertCriticalTables({ logger = console } = {}) {
+  if (!isSqlEnabled()) return { ok: true, skipped: true };
+  const pool = await getPool(logger);
+  if (!pool) throw new Error('[migrations] SQL pool unavailable for critical-table check.');
+  const missing = [];
+  for (const t of CRITICAL_TABLES) {
+    const r = await pool.request().query(`
+      SELECT CAST(COUNT(*) AS INT) AS cnt
+      FROM sys.tables
+      WHERE name = '${t}' AND schema_id = SCHEMA_ID('dbo');
+    `);
+    if (!(r.recordset?.[0]?.cnt > 0)) missing.push(t);
+  }
+  if (missing.length) {
+    const msg = `[migrations] critical tables missing: ${missing.join(', ')}. Run \`npm run db:migrate\` to repair before trading.`;
+    logger.error(msg);
+    throw new Error(msg);
+  }
+  logger.info(`[migrations] critical-table check: all ${CRITICAL_TABLES.length} tables present.`);
+  return { ok: true, checked: CRITICAL_TABLES.length };
+}
+
 async function rollback({ logger = console, version = null } = {}) {
   if (!isSqlEnabled()) {
     logger.warn('[migrations] SQL_ENABLED=false — nothing to do.');
@@ -261,6 +303,8 @@ module.exports = {
   listMigrationFiles,
   splitBatches,
   sha256,
+  assertCriticalTables,
+  CRITICAL_TABLES,
   MIGRATIONS_DIR,
   ROLLBACKS_DIR,
 };

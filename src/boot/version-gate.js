@@ -62,6 +62,25 @@ async function checkSchemaVersion({ getPool, logger, minSchemaVersion, maxSchema
     return { ok: false, applied, minV, maxV, reason: 'too_high' };
   }
 
+  // B1.8: in addition to version-count gate, assert every hot-path table
+  // actually exists. Survives migration-rollback races where the schema
+  // version still records the migration but the table was rolled back.
+  try {
+    const { assertCriticalTables } = require('../utils/migrations');
+    if (typeof assertCriticalTables === 'function') {
+      await assertCriticalTables({ logger: log });
+    }
+  } catch (e) {
+    const msg = `[version-gate] critical-table check failed: ${e?.message || e}`;
+    if (strict) {
+      const err = new Error(msg);
+      err.code = 'VERSION_GATE_TABLE_MISSING';
+      throw err;
+    }
+    log.error?.(msg);
+    return { ok: false, applied, minV, maxV, reason: 'critical_table_missing', detail: e?.message || String(e) };
+  }
+
   log.info?.(`[version-gate] OK — schema_migrations applied=${applied} (range ${minV}..${maxV === Infinity ? '∞' : maxV})`);
   return { ok: true, applied, minV, maxV };
 }
