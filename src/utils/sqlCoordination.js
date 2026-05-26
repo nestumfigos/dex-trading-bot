@@ -1,6 +1,7 @@
  'use strict';
  
  const { getPool, ensureSchema, sql } = require('./sqlServer');
+const config = require('../../config');
  
  function nowUtcPlusMs(ms) {
    return new Date(Date.now() + Math.max(0, Number(ms || 0)));
@@ -119,44 +120,66 @@
      return { ok: true, found: true, value: row.v, updatedAt: row.updated_at, ver: row.ver };
    }
  
-   async kvPut(key, value, { expectedVer = null } = {}) {
-     const pool = await getPool(this.logger);
-     if (!pool) return { ok: false, reason: 'sql_disabled' };
-     await ensureSchema(this.logger);
- 
-     const k = String(key).slice(0, 200);
-     const v = value === undefined ? null : String(value);
- 
-     // If expectedVer is provided, do an optimistic update (no lost updates).
-     if (expectedVer) {
-       const req = pool.request();
-       req.input('k', sql.NVarChar(200), k);
-       req.input('v', sql.NVarChar(sql.MAX), v);
-       req.input('ver', sql.VarBinary(8), expectedVer);
-       const result = await req.query(`
- UPDATE dbo.bot_kv
- SET v=@v, updated_at=SYSUTCDATETIME()
- WHERE k=@k AND ver=@ver;
- SELECT @@ROWCOUNT AS affected;
- `);
-       const affected = result.recordset?.[0]?.affected || 0;
-       return affected === 1 ? { ok: true } : { ok: false, reason: 'version_conflict' };
-     }
- 
-     const req = pool.request();
-     req.input('k', sql.NVarChar(200), k);
-     req.input('v', sql.NVarChar(sql.MAX), v);
-     await req.query(`
- MERGE dbo.bot_kv WITH (HOLDLOCK) AS t
- USING (SELECT @k AS k, @v AS v) AS s
- ON t.k = s.k
- WHEN MATCHED THEN
-   UPDATE SET v=s.v, updated_at=SYSUTCDATETIME()
- WHEN NOT MATCHED THEN
-   INSERT (k, v) VALUES (s.k, s.v);
- `);
-     return { ok: true };
-   }
+   async kvPut(key, value, { expectedVer = null, allowUnversioned = null } = {}) {
+    const pool = await getPool(this.logger);
+    if (!pool) return { ok: false, reason: 'sql_disabled' };
+    await ensureSchema(this.logger);
+
+    const k = String(key).slice(0, 200);
+    const v = value === undefined ? null : String(value);
+
+    // If expectedVer is provided, do an optimistic update (no lost updates).
+    if (expectedVer) {
+      const req = pool.request();
+      req.input('k', sql.NVarChar(200), k);
+      req.input('v', sql.NVarChar(sql.MAX), v);
+      req.input('ver', sql.VarBinary(8), expectedVer);
+      const result = await req.query(`
+UPDATE dbo.bot_kv
+SET v=@v, updated_at=SYSUTCDATETIME()
+WHERE k=@k AND ver=@ver;
+SELECT @@ROWCOUNT AS affected;
+`);
+      const affected = result.recordset?.[0]?.affected || 0;
+      return affected === 1 ? { ok: true } : { ok: false, reason: 'version_conflict' };
+    }
+
+    // B1.9: unversioned path. Old code used MERGE + HOLDLOCK under READ_COMMITTED;
+    // two concurrent writers same key could both succeed and lose an update. Now
+    // wrap the MERGE in SERIALIZABLE isolation + explicit transaction so the
+    // exchange-locks block the second writer until the first commits.
+    //
+    // The audit's stricter recommendation was: require expectedVer in prod paths.
+    // Keeping the unversioned path callable for callsites that genuinely don't
+    // have a prior version (first write), but logging a warn so they can be
+    // migrated incrementally. Set strictVersionedKv=true to convert the warn
+    // into a hard error.
+    const strict = config?.sql?.strictVersionedKv === true;
+    const allow = allowUnversioned === true || allowUnversioned === null;
+    if (!allow || strict) {
+      const msg = `[kvPut] unversioned write on k="${k}" rejected (strictVersionedKv=${strict})`;
+      this.logger?.warn?.(msg);
+      return { ok: false, reason: 'unversioned_write_rejected' };
+    }
+    this.logger?.debug?.(`[kvPut] unversioned write on k="${k}" — consider passing expectedVer to avoid lost-update risk`);
+
+    const req = pool.request();
+    req.input('k', sql.NVarChar(200), k);
+    req.input('v', sql.NVarChar(sql.MAX), v);
+    await req.query(`
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+BEGIN TRANSACTION;
+MERGE dbo.bot_kv WITH (HOLDLOCK) AS t
+USING (SELECT @k AS k, @v AS v) AS s
+ON t.k = s.k
+WHEN MATCHED THEN
+  UPDATE SET v=s.v, updated_at=SYSUTCDATETIME()
+WHEN NOT MATCHED THEN
+  INSERT (k, v) VALUES (s.k, s.v);
+COMMIT TRANSACTION;
+`);
+    return { ok: true };
+  }
  }
  
  module.exports = SqlCoordination;
