@@ -16,6 +16,16 @@ class RLOnlineUpdater {
   /**
    * Update Q-values based on a completed trade outcome
    */
+  /**
+   * Update Q-values based on a completed trade outcome.
+   *
+   * B1.7: by default the call only BUFFERS the update; it does NOT touch the
+   * live Q-table. An offline batch validator must confirm the update before it
+   * is applied. To re-enable direct live updates set `config.rl.onlineUpdatesEnabled = true`
+   * (do this ONLY after a shadow-validation pipeline is in place — uncritical
+   * online updates against live Q-values were corrupting the policy on a
+   * single unlucky trade sequence).
+   */
   updateFromTrade(tradeOutcome) {
     if (!tradeOutcome || !tradeOutcome.symbols || !tradeOutcome.pnl) {
       return;
@@ -27,17 +37,70 @@ class RLOnlineUpdater {
       const reward = this.computeReward(tradeOutcome);
       const nextState = this.encodeNextState(tradeOutcome);
 
-      this.updateQValue(state, action, reward, nextState);
+      // Always record into experience buffer (used by future batch replay).
       this.recordExperience({ state, action, reward, nextState, ...tradeOutcome });
 
-      if (tradeOutcome.pnl > 0) {
+      // Always buffer into pending-validations queue for offline review.
+      this._bufferPendingUpdate({
+        state,
+        action,
+        reward,
+        nextState,
+        ts: Date.now(),
+        symbols: tradeOutcome.symbols,
+        pnl: Number(tradeOutcome.pnl || 0),
+        sizeUsd: Number(tradeOutcome.sizeUsd || 0),
+        strategy: tradeOutcome.strategy || 'unknown',
+      });
+
+      const onlineEnabled = this.config?.rl?.onlineUpdatesEnabled === true;
+      if (onlineEnabled) {
+        this.updateQValue(state, action, reward, nextState);
+        if (tradeOutcome.pnl > 0) {
+          this.logger?.debug(
+            `[RLOnline] LIVE Q-update applied: ${state} -> ${action} | reward=${reward.toFixed(2)} | PnL=$${tradeOutcome.pnl.toFixed(2)}`
+          );
+        }
+      } else {
         this.logger?.debug(
-          `[RLOnline] Updated Q-table: ${state} -> ${action} | reward=${reward.toFixed(2)} | PnL=$${tradeOutcome.pnl.toFixed(2)}`
+          `[RLOnline] SHADOW buffered (online disabled): ${state} -> ${action} | reward=${reward.toFixed(2)} | PnL=$${tradeOutcome.pnl.toFixed(2)}`
         );
       }
     } catch (err) {
       this.logger?.warn(`[RLOnline] Failed to update from trade: ${err.message}`);
     }
+  }
+
+  /**
+   * B1.7: queue update for offline validation. Persists to a JSONL file so
+   * an external batch reviewer can apply only validated entries to the live
+   * Q-table on a confirmed cadence.
+   */
+  _bufferPendingUpdate(entry) {
+    if (!Array.isArray(this.pendingUpdates)) this.pendingUpdates = [];
+    this.pendingUpdates.push(entry);
+    const cap = Math.max(100, Number(this.maxBufferSize || 1000) * 2);
+    while (this.pendingUpdates.length > cap) {
+      this.pendingUpdates.shift();
+    }
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const dir = path.join(process.cwd(), 'data');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+      const file = path.join(dir, 'rl-pending-validations.jsonl');
+      fs.appendFileSync(file, JSON.stringify(entry) + '\n');
+    } catch (_) {
+      // Best-effort persistence — never block the trade loop on disk I/O failures.
+    }
+  }
+
+  getPendingUpdates() {
+    return Array.isArray(this.pendingUpdates) ? this.pendingUpdates.slice() : [];
+  }
+
+  clearPendingUpdates() {
+    this.pendingUpdates = [];
   }
 
   /**
