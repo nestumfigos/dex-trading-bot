@@ -244,6 +244,13 @@ function createExecutionFlow(deps = {}) {
     const tokenKey = buildTokenKey(chainName, tokenData.address);
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQuoteUsd, filledQuoteUsd);
 
+    // B1.6: detect scale-in BEFORE overwriting. We snapshot the old position so
+    // the post-assignment merge can compute weighted-average entry, cumulative
+    // cost-basis, and preserve open-position bookkeeping (realizedPnl, tier
+    // state, openedAt, trailing stop).
+    const existingPosition = portfolio.positions[tokenKey];
+    const isScaleIn = existingPosition && Number(existingPosition.quantity || 0) > 0;
+
     portfolio.balance -= filledQuoteUsd;
     portfolio.positions[tokenKey] = {
       key: tokenKey,
@@ -319,6 +326,42 @@ function createExecutionFlow(deps = {}) {
       breakoutClosePrice: Number.isFinite(Number(tokenData.breakoutClosePrice)) ? Number(tokenData.breakoutClosePrice) : null,
       manualCutDeadlineAt: tokenData.manualCutDeadlineAt || null,
     };
+
+    if (isScaleIn) {
+      const oldQty = Number(existingPosition.quantity || 0);
+      const oldCostBasis = Number(existingPosition.costBasisUsd || 0);
+      const newTotalQty = oldQty + quantity;
+      const newCostBasis = oldCostBasis + filledQuoteUsd;
+      const weightedEntry = newTotalQty > 0 ? newCostBasis / newTotalQty : realizedEntryPrice;
+      const newPos = portfolio.positions[tokenKey];
+      newPos.entryPrice = weightedEntry;
+      newPos.quantity = newTotalQty;
+      newPos.costBasisUsd = newCostBasis;
+      newPos.initialSizeUsd = newCostBasis;
+      newPos.filledEntryUsd = Number(existingPosition.filledEntryUsd || 0) + filledQuoteUsd;
+      newPos.filledEntryQuantity = Number(existingPosition.filledEntryQuantity || 0) + quantity;
+      newPos.requestedEntryUsd = Number(existingPosition.requestedEntryUsd || 0) + requestedQuoteUsd;
+      newPos.requestedEntryQuantity = Number(existingPosition.requestedEntryQuantity || 0)
+        + (realizedEntryPrice > 0 ? requestedQuoteUsd / realizedEntryPrice : quantity);
+      newPos.stopLoss = risk.stopLossPrice(weightedEntry, strategyName);
+      newPos.takeProfit = risk.takeProfitPrice(weightedEntry, strategyName);
+      newPos.highestPrice = Math.max(Number(existingPosition.highestPrice || 0), realizedEntryPrice);
+      newPos.tierLocalHigh = Math.max(Number(existingPosition.tierLocalHigh || 0), realizedEntryPrice);
+      newPos.openedAt = existingPosition.openedAt || newPos.openedAt;
+      newPos.scaleInCount = Number(existingPosition.scaleInCount || 0) + 1;
+      newPos.lastScaleInTxid = txResult.txid;
+      newPos.lastScaleInAt = new Date().toISOString();
+      newPos.lastScaleInEntryPrice = realizedEntryPrice;
+      newPos.realizedPnl = Number(existingPosition.realizedPnl || 0);
+      newPos.realizedPnlByTier = existingPosition.realizedPnlByTier || {};
+      newPos.triggeredSellTiers = existingPosition.triggeredSellTiers || {};
+      newPos.tierDelayedAt = existingPosition.tierDelayedAt || {};
+      newPos.trailingStop = existingPosition.trailingStop || null;
+      logger.info(
+        `Scale-in for ${tokenData.symbol}: ${oldQty.toFixed(6)}@${Number(existingPosition.entryPrice || 0).toFixed(8)} + ${quantity.toFixed(6)}@${realizedEntryPrice.toFixed(8)} ` +
+        `→ ${newTotalQty.toFixed(6)}@${weightedEntry.toFixed(8)} (cost-basis $${newCostBasis.toFixed(2)})`
+      );
+    }
 
     portfolio.strategies[strategyName].positions[tokenKey] = portfolio.positions[tokenKey];
     ensureLiquiditySentinel(chainName, tokenData.pairAddress);
