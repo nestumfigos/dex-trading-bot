@@ -784,7 +784,7 @@ function startDashboard(portfolio, ctx) {
 
   // ─── Force-sell a position from dashboard ────────────────────────────
   // POST /api/admin/sell-position  { key: 'kucoin:abc/usdt' }
-  app.post('/api/admin/sell-position', async (req, res) => {
+  app.post('/api/admin/sell-position', requireAdminToken, async (req, res) => {
     if (typeof ctx.forceSellPosition !== 'function') {
       res.status(503).json({ ok: false, error: 'forceSellPosition not exposed in ctx (needs index.js wire-up)' });
       return;
