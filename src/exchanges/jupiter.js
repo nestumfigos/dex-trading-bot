@@ -295,12 +295,29 @@ class JupiterExchange {
   async withRetry(label, fn) {
     const retries = Math.max(1, Number(config.execution.maxRetries || 3));
     const delayMs = Math.max(200, Number(config.execution.retryDelayMs || 1200));
+    // B1.5 idempotency: track every broadcasted txid + its result across retries.
+    // If a prior attempt's tx actually landed on-chain, never broadcast a second swap.
+    const state = { broadcastedTxids: [] };
 
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
-        return await fn(attempt);
+        if (state.broadcastedTxids.length > 0) {
+          const landed = await this._findLandedTxid(state.broadcastedTxids);
+          if (landed) {
+            logger.warn(`${label}: prior attempt landed (${landed.txid}); skipping retry to avoid double-fill`);
+            return landed.result;
+          }
+        }
+        return await fn(attempt, state);
       } catch (error) {
         if (attempt >= retries) {
+          if (state.broadcastedTxids.length > 0) {
+            const landed = await this._findLandedTxid(state.broadcastedTxids);
+            if (landed) {
+              logger.warn(`${label}: final attempt errored but ${landed.txid} landed; returning that fill`);
+              return landed.result;
+            }
+          }
           throw error;
         }
         logger.warn(`${label} attempt ${attempt}/${retries} failed: ${error.message}`);
@@ -309,6 +326,25 @@ class JupiterExchange {
     }
 
     throw new Error(`${label} failed`);
+  }
+
+  async _findLandedTxid(broadcastedRecords) {
+    if (!Array.isArray(broadcastedRecords) || broadcastedRecords.length === 0) return null;
+    try {
+      const txids = broadcastedRecords.map((r) => r.txid).filter(Boolean);
+      if (!txids.length) return null;
+      const statuses = await this.connection.getSignatureStatuses(txids, { searchTransactionHistory: true });
+      if (!Array.isArray(statuses?.value)) return null;
+      for (let i = 0; i < statuses.value.length; i += 1) {
+        const status = statuses.value[i];
+        if (status && !status.err && (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized')) {
+          return broadcastedRecords[i];
+        }
+      }
+    } catch (e) {
+      logger.warn(`Jupiter idempotency landed-check failed: ${e?.message || e}`);
+    }
+    return null;
   }
 
   async getMintDecimals(mintAddress) {
@@ -345,7 +381,7 @@ class JupiterExchange {
     return Math.max(0, raw);
   }
 
-  async executeSwapFromQuote(quote, slippageBps, sideLabel) {
+  async executeSwapFromQuote(quote, slippageBps, sideLabel, state) {
     const priorityFeeLamports = Number(config.execution.solanaPriorityFeeLamports || 50000);
 
     const swapRes = await axios.post(`${JUPITER_QUOTE_API}/swap`, {
@@ -375,6 +411,13 @@ class JupiterExchange {
       maxRetries: Number(config.execution.maxRetries || 3),
     });
 
+    // B1.5: register the broadcast BEFORE confirm so a timeout/throw on confirm
+    // still leaves a trail withRetry can re-check before issuing another swap.
+    const broadcastRecord = { txid, result: null };
+    if (state && Array.isArray(state.broadcastedTxids)) {
+      state.broadcastedTxids.push(broadcastRecord);
+    }
+
     await this.connection.confirmTransaction(txid, 'confirmed');
     logger.info(
       `${sideLabel} confirmed: https://solscan.io/tx/${txid} ` +
@@ -382,12 +425,14 @@ class JupiterExchange {
     );
 
     const fill = await this.extractFillFromParsedTransaction(txid, quote).catch(() => ({}));
-    return {
+    const result = {
       txid,
       slippageBps,
       quotedPriceImpactPct: Number(quote?.priceImpactPct || 0) * 100,
       ...fill,
     };
+    broadcastRecord.result = result;
+    return result;
   }
 
   async extractFillFromParsedTransaction(txid, quote) {
@@ -474,7 +519,7 @@ class JupiterExchange {
     if (!this.wallet) throw new Error('Solana wallet not configured');
 
     try {
-      return await this.withRetry('Jupiter BUY', async (attempt) => {
+      return await this.withRetry('Jupiter BUY', async (attempt, state) => {
         const amountLamports = Math.floor(usdcAmount * 1_000_000);
         const slippageBps = Math.min(2000, Math.max(30, Number(config.execution.slippageBps || 100) + (attempt - 1) * 20));
         const quote = await this.getQuote(USDC_MINT, tokenMint, amountLamports, slippageBps);
@@ -483,7 +528,7 @@ class JupiterExchange {
           throw new Error(`Price impact ${priceImpactPct.toFixed(2)}% above limit ${config.execution.solanaMaxPriceImpactPct}%`);
         }
 
-        return this.executeSwapFromQuote(quote, slippageBps, 'Jupiter BUY');
+        return this.executeSwapFromQuote(quote, slippageBps, 'Jupiter BUY', state);
       });
     } catch (err) {
       logger.error(`Jupiter BUY failed: ${err.message}`);
@@ -500,7 +545,7 @@ class JupiterExchange {
     if (!this.wallet) throw new Error('Solana wallet not configured');
 
     try {
-      return await this.withRetry('Jupiter SELL', async (attempt) => {
+      return await this.withRetry('Jupiter SELL', async (attempt, state) => {
         const rawTokenAmount = await this.toRawTokenAmount(tokenMint, tokenAmount);
         if (!rawTokenAmount) {
           throw new Error(`Invalid token amount for Jupiter SELL: ${tokenAmount}`);
@@ -512,7 +557,7 @@ class JupiterExchange {
           throw new Error(`Price impact ${priceImpactPct.toFixed(2)}% above limit ${config.execution.solanaMaxPriceImpactPct}%`);
         }
 
-        return this.executeSwapFromQuote(quote, slippageBps, 'Jupiter SELL');
+        return this.executeSwapFromQuote(quote, slippageBps, 'Jupiter SELL', state);
       });
     } catch (err) {
       logger.error(`Jupiter SELL failed: ${err.message}`);

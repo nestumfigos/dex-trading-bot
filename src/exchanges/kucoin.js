@@ -331,6 +331,47 @@ class KuCoinExchange {
     }
   }
 
+  // B1.5: idempotency helpers.
+  // clientOid is KuCoin's native idempotency key. Pass it on every createOrder so
+  // a retry that times out can be cross-checked: the bot queries each prior clientOid
+  // before issuing a new order to detect orders that actually landed despite throwing.
+  _genClientOid(side) {
+    const ts = Date.now().toString(36);
+    const rnd = Math.random().toString(36).slice(2, 8);
+    return `b1-${side}-${ts}-${rnd}`;
+  }
+
+  async _findFilledKucoinOrder(symbol, clientOids) {
+    if (!Array.isArray(clientOids) || clientOids.length === 0) return null;
+    for (const oid of clientOids) {
+      try {
+        // ccxt-kucoin: when id is undefined and params.clientOid set, routes to /order/client-order/{clientOid}
+        const order = await this.exchange.fetchOrder(undefined, symbol, { clientOid: oid });
+        if (order && Number(order.filled || 0) > 0) {
+          return { ...order, clientOid: oid };
+        }
+      } catch (_) {
+        // not found — try next oid
+      }
+    }
+    return null;
+  }
+
+  _orderToFillResult(order, opts = {}) {
+    const filled = Number(order?.filled || 0);
+    const avgPrice = Number(order?.average || order?.avgPrice || opts.fallbackPrice || 0);
+    const cost = Number(order?.cost || (filled * avgPrice) || opts.fallbackCost || 0);
+    return {
+      txid: order?.id || `recovered_${order?.clientOid || Date.now()}`,
+      simulated: false,
+      executedPriceUsd: avgPrice,
+      filledBaseQty: filled,
+      filledQuoteUsd: cost,
+      hasExchangeFilledData: Boolean(filled > 0 && cost > 0),
+      recoveredViaClientOid: Boolean(order?.clientOid),
+    };
+  }
+
   normalizeSymbol(symbol) {
     const raw = String(symbol || '').trim();
     if (!raw) return raw;
@@ -617,13 +658,24 @@ class KuCoinExchange {
       const strategyName = String(options?.strategyName || 'momentum').toLowerCase();
       const useMarketBuy = Boolean(config.execution?.kucoinMomentumUseMarketBuy !== false && strategyName === 'momentum');
       let marketAttemptUsed = false;
+      const placedClientOids = []; // B1.5: idempotency tracker across retries
       for (let attempt = 1; attempt <= retries; attempt += 1) {
+        const clientOid = this._genClientOid('buy');
         try {
+          if (placedClientOids.length > 0) {
+            const landed = await this._findFilledKucoinOrder(symbol, placedClientOids);
+            if (landed) {
+              logger.warn(`KuCoin BUY ${symbol}: prior attempt ${landed.clientOid} actually filled; returning that fill instead of re-ordering`);
+              return this._orderToFillResult(landed);
+            }
+          }
+          placedClientOids.push(clientOid);
           if (useMarketBuy && !marketAttemptUsed) {
             marketAttemptUsed = true;
             const funds = Number(this.exchange.costToPrecision(symbol, Number(usdtAmount)));
             const order = await this.exchange.createOrder(symbol, 'market', 'buy', null, null, {
               funds,
+              clientOid,
             });
 
             let filled = Number(order?.filled || 0);
@@ -672,6 +724,7 @@ class KuCoinExchange {
 
           const order = await this.exchange.createOrder(symbol, 'limit', 'buy', baseAmount, limitPrice, {
             timeInForce: 'IOC',
+            clientOid,
           });
 
           const filled = Number(order?.filled || 0);
@@ -740,7 +793,8 @@ class KuCoinExchange {
           }
           // Use funds-based market sell: KuCoin accepts `funds` param to sell by quote value
           const fundsValue = Number(this.exchange.costToPrecision(symbol, estimatedFunds * 0.999)); // tiny discount to avoid rounding above actual balance
-          const order = await this.exchange.createOrder(symbol, 'market', 'sell', null, null, { funds: fundsValue });
+          const fundsSellClientOid = this._genClientOid('sell');
+          const order = await this.exchange.createOrder(symbol, 'market', 'sell', null, null, { funds: fundsValue, clientOid: fundsSellClientOid });
           await new Promise((resolve) => setTimeout(resolve, 800));
           let filledOrder = order;
           if (order?.id) {
@@ -766,9 +820,19 @@ class KuCoinExchange {
         logger.warn(`KuCoin sell preflight/funds-sell failed (${preflightErr.message}), falling back to limit sell`);
       }
 
+      const placedSellClientOids = []; // B1.5: idempotency tracker for SELL retries
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         const attemptStartedAtMs = Date.now();
+        const clientOid = this._genClientOid('sell');
         try {
+          if (placedSellClientOids.length > 0) {
+            const landed = await this._findFilledKucoinOrder(symbol, placedSellClientOids);
+            if (landed) {
+              logger.warn(`KuCoin SELL ${symbol}: prior attempt ${landed.clientOid} actually filled; returning that fill instead of re-ordering`);
+              return this._orderToFillResult(landed);
+            }
+          }
+          placedSellClientOids.push(clientOid);
           const { bestBid } = await this.getTopOfBook(symbol);
           const slippagePct = maxSlippagePct + (attempt - 1) * 0.25;
           const limitPriceRaw = bestBid * (1 - slippagePct / 100);
@@ -781,6 +845,7 @@ class KuCoinExchange {
 
           const order = await this.exchange.createOrder(symbol, 'limit', 'sell', sellAmount, limitPrice, {
             timeInForce: 'IOC',
+            clientOid,
           });
 
           let filled = Number(order?.filled || 0);
