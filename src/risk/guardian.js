@@ -34,7 +34,22 @@ class RiskGuardian {
 
   releaseInFlightOrder(chainKey, sizeUsd) {
     const k = String(chainKey || '').toLowerCase();
-    this._inFlightUsd[k] = Math.max(0, (this._inFlightUsd[k] || 0) - Math.max(0, Number(sizeUsd || 0)));
+    const current = Number(this._inFlightUsd[k] || 0);
+    const release = Math.max(0, Number(sizeUsd || 0));
+    if (release > current + 1e-6) {
+      const mismatch = release - current;
+      const mismatchPct = current > 0 ? (mismatch / current) * 100 : 100;
+      logger.warn(
+        `In-flight release > registration on ${k}: release=$${release.toFixed(2)} current=$${current.toFixed(2)} mismatch=$${mismatch.toFixed(2)} (${mismatchPct.toFixed(1)}%)`
+      );
+      if (current > 0 && mismatchPct > 10) {
+        logger.error(`In-flight underflow on ${k}: mismatch >10%; clamping to 0 and emitting alert`);
+      }
+      this._inFlightUsd[k] = 0;
+      return { ok: current === 0, mismatch, mismatchPct };
+    }
+    this._inFlightUsd[k] = Math.max(0, current - release);
+    return { ok: true, mismatch: 0, mismatchPct: 0 };
   }
 
   invalidateHoneypotCache(tokenAddress, chain) {
@@ -611,6 +626,55 @@ class RiskGuardian {
     };
   }
 
+  getTotalInFlightUsd() {
+    return Object.values(this._inFlightUsd || {}).reduce((sum, v) => sum + Number(v || 0), 0);
+  }
+
+  getGlobalGrossExposureUsd() {
+    const exemptSymbols = new Set((config.risk?.heatExemptSymbols || []).map((s) => String(s).toUpperCase()));
+    const exposureFromPositions = Object.values(this.portfolio.positions || {}).reduce((sum, position) => {
+      const sym = String(position?.symbol || position?.token || '').toUpperCase();
+      if (exemptSymbols.has(sym)) return sum;
+      return sum + this.getPositionCostBasisUsd(position);
+    }, 0);
+    return exposureFromPositions + this.getTotalInFlightUsd();
+  }
+
+  /**
+   * Aggregate exposure cap across ALL chains + in-flight.
+   * Without this, per-chain caps allow stacking (e.g. 45% sol + 45% bsc + 45% kucoin = 135% gross).
+   * Returns same shape as checkPortfolioHeat.
+   */
+  checkGlobalExposure(tokenData = {}, strategyName = 'momentum') {
+    const equityUsd = Math.max(0, Number(this.getEquityBalanceUsd() || 0));
+    if (equityUsd <= 0) {
+      return { exposurePct: 0, blocked: false };
+    }
+    const maxGlobalExposurePct = Number(config.risk?.maxGlobalExposurePct ?? 90);
+    const candidateSizeUsd = Math.max(0, Number(this.positionSize(tokenData, strategyName) || 0));
+    const currentGrossUsd = this.getGlobalGrossExposureUsd();
+    const projectedGrossUsd = currentGrossUsd + candidateSizeUsd;
+    const exposurePct = (projectedGrossUsd / equityUsd) * 100;
+    const blocked = exposurePct > maxGlobalExposurePct;
+    if (blocked) {
+      logger.warn(
+        `Global exposure check: projected ${exposurePct.toFixed(1)}% ($${projectedGrossUsd.toFixed(2)} / $${equityUsd.toFixed(2)} equity) exceeds cap ${maxGlobalExposurePct}%`
+      );
+    }
+    return {
+      exposurePct,
+      currentExposurePct: (currentGrossUsd / equityUsd) * 100,
+      projectedGrossUsd,
+      equityUsd,
+      candidateSizeUsd,
+      blocked,
+      code: blocked ? 'global_exposure_cap' : undefined,
+      reason: blocked
+        ? `global gross exposure ${exposurePct.toFixed(1)}% exceeds cap ${maxGlobalExposurePct}% (prevents cross-chain stacking)`
+        : undefined,
+    };
+  }
+
   async canTrade(tokenData, priceHistories = {}, strategyName = 'momentum') {
     const normalizedChain = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
     if (!config.paperTrading && normalizedChain === 'bsc' && config.risk?.liveBscEntriesEnabled !== true) {
@@ -689,6 +753,15 @@ class RiskGuardian {
         allowed: false,
         reason: portfolioHeat.reason,
         code: portfolioHeat.code || 'portfolio_heat',
+      };
+    }
+
+    const globalExposure = this.checkGlobalExposure(tokenData, strategyName);
+    if (globalExposure.blocked) {
+      return {
+        allowed: false,
+        reason: globalExposure.reason,
+        code: globalExposure.code || 'global_exposure_cap',
       };
     }
 
