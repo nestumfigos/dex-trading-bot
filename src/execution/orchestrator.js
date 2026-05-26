@@ -310,105 +310,116 @@ function createExecutionOrchestrator(deps) {
   }
 
   async function executeSell(chainName, exchange, tokenData, position, sellPct = 1, reason = 'EXIT') {
-    if (position?.exitInProgress) {
-      logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol || position?.address}: exit already in progress`);
-      return;
-    }
-
-    // Set inside try so a throw between flag-set and try-block can never strand exitInProgress=true.
-    const strategyName = position.strategy || 'momentum';
-    const fraction = Math.max(0.01, Math.min(Number(sellPct || 1), 1));
-    const positionQuantityBefore = Number(position.quantity || 0);
-    const quantityToSell = positionQuantityBefore * fraction;
-    const expectedExitPrice = Number(tokenData.price);
-    const sellStartedAtMs = Date.now();
-
+    // B1.4: acquire positionMutex BEFORE any other check so two concurrent callers
+    // serialize. The boolean exitInProgress flag alone could not prevent two callers
+    // from racing past the check; the mutex makes the second wait until the first
+    // releases (and at that point the position will either be closed or the flag set).
+    const release = await positionMutex.lock();
     try {
-      position.exitInProgress = true;
-      const { getPool } = require('../utils/sqlServer');
-      const ptPool = await getPool(logger).catch(() => null);
-      const positionValueUsd = positionQuantityBefore * (Number(tokenData?.price) || Number(position?.entryPrice) || 0);
-      const ptResult = await runPreTradeContract({
-        side: 'SELL',
-        trade: { symbol: tokenData.symbol, chain: chainName, address: tokenData.address, sizeUsd: 0, positionValueUsd },
-        state: { aiCircuitOpen: aiCircuit.cooldownUntil > Date.now() },
-        scope: BOT_PROFILE,
-        strategy: strategyName,
-        sql: ptPool,
-        logger,
-        botVersion: process.env.BOT_VERSION || null,
-      });
-      if (!ptResult.ok) {
-        logger.warn(`[pre-trade-contract] enforce: ${tokenData.symbol} SELL blocked (reason=${reason}), skipping`);
-        position.exitInProgress = false;
+      if (position?.exitInProgress) {
+        logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol || position?.address}: exit already in progress`);
         return;
       }
-    } catch (e) {
-      logger.debug(`[pre-trade-contract] SELL check threw: ${e?.message || e} — proceeding`);
-    }
+      const remainingQty = Number(position?.quantity || 0);
+      if (!position || remainingQty <= 0) {
+        logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol}: position already closed (qty=${remainingQty})`);
+        return;
+      }
 
-    logger.info(`Executing SELL: ${tokenData.symbol} @ $${tokenData.price} | selling ${round(fraction * 100, 1)}%`);
+      const strategyName = position.strategy || 'momentum';
+      const fraction = Math.max(0.01, Math.min(Number(sellPct || 1), 1));
+      const positionQuantityBefore = remainingQty;
+      const quantityToSell = positionQuantityBefore * fraction;
+      const expectedExitPrice = Number(tokenData.price);
+      const sellStartedAtMs = Date.now();
 
-    try {
-      const sellTimeoutMs = Math.max(15000, Number(config.execution?.sellTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+      try {
+        position.exitInProgress = true;
+        const { getPool } = require('../utils/sqlServer');
+        const ptPool = await getPool(logger).catch(() => null);
+        const positionValueUsd = positionQuantityBefore * (Number(tokenData?.price) || Number(position?.entryPrice) || 0);
+        const ptResult = await runPreTradeContract({
+          side: 'SELL',
+          trade: { symbol: tokenData.symbol, chain: chainName, address: tokenData.address, sizeUsd: 0, positionValueUsd },
+          state: { aiCircuitOpen: aiCircuit.cooldownUntil > Date.now() },
+          scope: BOT_PROFILE,
+          strategy: strategyName,
+          sql: ptPool,
+          logger,
+          botVersion: process.env.BOT_VERSION || null,
+        });
+        if (!ptResult.ok) {
+          logger.warn(`[pre-trade-contract] enforce: ${tokenData.symbol} SELL blocked (reason=${reason}), skipping`);
+          return;
+        }
+      } catch (e) {
+        logger.debug(`[pre-trade-contract] SELL check threw: ${e?.message || e} — proceeding`);
+      }
 
-      const txResult = await executeSellViaVenue({
-        exchange,
-        tokenData,
-        quantityToSell,
-        execTimeoutMs: sellTimeoutMs,
-        withTimeout,
-      });
-      await finalizeSellExecution({
-        chainName,
-        tokenData,
-        position,
-        txResult,
-        reason,
-        strategyName,
-        expectedExitPrice,
-        quantityRequested: quantityToSell,
-        requestedFraction: fraction,
-      });
-    } catch (error) {
-      const errorText = String(error?.message || error || '');
-      const recoveredTxResult = await recoverFailedSellExecutionFromExchange({
-        chainName,
-        exchange,
-        tokenData,
-        quantityToSell,
-        sellStartedAtMs,
-        errorText,
-      });
-      if (recoveredTxResult) {
+      logger.info(`Executing SELL: ${tokenData.symbol} @ $${tokenData.price} | selling ${round(fraction * 100, 1)}%`);
+
+      try {
+        const sellTimeoutMs = Math.max(15000, Number(config.execution?.sellTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+
+        const txResult = await executeSellViaVenue({
+          exchange,
+          tokenData,
+          quantityToSell,
+          execTimeoutMs: sellTimeoutMs,
+          withTimeout,
+        });
         await finalizeSellExecution({
           chainName,
           tokenData,
           position,
-          txResult: recoveredTxResult,
+          txResult,
           reason,
           strategyName,
           expectedExitPrice,
           quantityRequested: quantityToSell,
           requestedFraction: fraction,
         });
-        return;
-      }
+      } catch (error) {
+        const errorText = String(error?.message || error || '');
+        const recoveredTxResult = await recoverFailedSellExecutionFromExchange({
+          chainName,
+          exchange,
+          tokenData,
+          quantityToSell,
+          sellStartedAtMs,
+          errorText,
+        });
+        if (recoveredTxResult) {
+          await finalizeSellExecution({
+            chainName,
+            tokenData,
+            position,
+            txResult: recoveredTxResult,
+            reason,
+            strategyName,
+            expectedExitPrice,
+            quantityRequested: quantityToSell,
+            requestedFraction: fraction,
+          });
+          return;
+        }
 
-      await executionFlow.handleSellExecutionFailure({
-        chainName,
-        exchange,
-        tokenData,
-        position,
-        quantityToSell,
-        strategyName,
-        reason,
-        error,
-      });
+        await executionFlow.handleSellExecutionFailure({
+          chainName,
+          exchange,
+          tokenData,
+          position,
+          quantityToSell,
+          strategyName,
+          reason,
+          error,
+        });
+      }
     } finally {
       if (position && typeof position === 'object') {
         position.exitInProgress = false;
       }
+      try { release(); } catch (_) { /* swallow */ }
     }
   }
 
