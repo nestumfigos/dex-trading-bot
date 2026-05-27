@@ -19,6 +19,42 @@ function createPaperApiServer({
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
     };
+    // B4P.backtest-gate: whitelist research-request options so callers cannot
+    // pass through risk-bypassing knobs (e.g. forced leverage, disabled
+    // admission, custom liquidationBufferMultiple, mode='live'). Anything
+    // outside ALLOWED_RESEARCH_OPTIONS is dropped before reaching the
+    // replay service.
+    const ALLOWED_RESEARCH_OPTIONS = new Set([
+      'symbols', 'symbol',
+      'days', 'trainingDays', 'validationDays',
+      'startTime', 'endTime',
+      'variantId',
+      'equityUsd', 'leverage', // bounded by hard caps below
+      'fundingBpsPerEightHours',
+      'baseSlippageBps', 'depthUsd',
+    ]);
+    const HARD_LEVERAGE_CAP = 5; // matches paper-mode cap in perps-gates
+    const HARD_EQUITY_CAP = 100000;
+    function sanitizeResearchOptions(rawOptions, mode) {
+      const out = {};
+      const rejected = [];
+      for (const [k, v] of Object.entries(rawOptions || {})) {
+        if (!ALLOWED_RESEARCH_OPTIONS.has(k)) { rejected.push(k); continue; }
+        out[k] = v;
+      }
+      if (Number.isFinite(Number(out.leverage)) && Number(out.leverage) > HARD_LEVERAGE_CAP) {
+        out.leverage = HARD_LEVERAGE_CAP;
+        rejected.push(`leverage_clamped_to_${HARD_LEVERAGE_CAP}`);
+      }
+      if (Number.isFinite(Number(out.equityUsd)) && Number(out.equityUsd) > HARD_EQUITY_CAP) {
+        out.equityUsd = HARD_EQUITY_CAP;
+        rejected.push(`equityUsd_clamped_to_${HARD_EQUITY_CAP}`);
+      }
+      // Force research mode = 'paper'. The replay service is for backtest only;
+      // any caller trying to set live/canary mode is misusing the endpoint.
+      out.mode = 'paper';
+      return { sanitized: out, rejected };
+    }
     const runResearchRequest = (runner, mode) => {
       let raw = '';
       req.on('data', (chunk) => {
@@ -33,11 +69,13 @@ function createPaperApiServer({
           sendJson(400, { error: 'invalid_json' });
           return;
         }
-        runner(options)
+        const { sanitized, rejected } = sanitizeResearchOptions(options, mode);
+        runner(sanitized)
           .then((result) => sendJson(200, {
             mode,
             liveExecutionEnabled: false,
             persistsPaperTrades: false,
+            rejectedOptions: rejected.length > 0 ? rejected : undefined,
             result,
           }))
           .catch((error) => sendJson(422, { error: error.message }));

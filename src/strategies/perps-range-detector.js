@@ -23,11 +23,26 @@ function detectHorizontalRange(candles = [], {
   // Tying tolerance to `high` produces a stable relative band consistent
   // across regimes; same range geometry passes the same touch threshold.
   const tolerance = high * (Number(touchTolerancePct) / 100);
-  const highTouches = rows.filter((candle) => high - candle.high <= tolerance).length;
-  const lowTouches = rows.filter((candle) => candle.low - low <= tolerance).length;
+  // B4P.range recency: require touches to occur within a recent sub-window so a
+  // broken range can't qualify just because it WAS a range earlier in the
+  // lookback. Touches inside the last `recencyWindow` bars count toward the
+  // confirmation; older touches still mark the range but cannot satisfy the
+  // minTouches floor alone.
+  const recencyWindow = Math.min(rows.length, Math.max(3, Math.floor(rows.length / 2)));
+  const recentRows = rows.slice(-recencyWindow);
+  const highTouchesAll = rows.filter((candle) => high - candle.high <= tolerance).length;
+  const lowTouchesAll = rows.filter((candle) => candle.low - low <= tolerance).length;
+  const highTouchesRecent = recentRows.filter((candle) => high - candle.high <= tolerance).length;
+  const lowTouchesRecent = recentRows.filter((candle) => candle.low - low <= tolerance).length;
+  const highTouches = highTouchesAll;
+  const lowTouches = lowTouchesAll;
   const reasons = [];
   if (!Number.isFinite(widthPct) || widthPct <= 0 || widthPct > maxWidthPct) reasons.push('range_width_invalid');
   if (highTouches < minTouches || lowTouches < minTouches) reasons.push('range_touches_unconfirmed');
+  // B4P.range recency: range must still be active. At least 1 recent touch on
+  // EACH side (within the last `recencyWindow` bars) — otherwise the levels
+  // are stale and price has already moved on.
+  if (highTouchesRecent < 1 || lowTouchesRecent < 1) reasons.push('range_touches_not_recent');
   return {
     qualifies: reasons.length === 0,
     reasons,
@@ -37,6 +52,8 @@ function detectHorizontalRange(candles = [], {
     widthPct,
     highTouches,
     lowTouches,
+    highTouchesRecent,
+    lowTouchesRecent,
   };
 }
 

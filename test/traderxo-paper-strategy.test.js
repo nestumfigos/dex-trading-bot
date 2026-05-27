@@ -65,10 +65,13 @@ test('anchors derive monthly weekly and daily bias from perps candle data', () =
 });
 
 test('horizontal range requires repeated RH and RL touches', () => {
+  // B4P.range recency: range now also requires at least one touch per side
+  // within the recency window (last half of lookback). Fixture extended to
+  // include both old + recent touches so the range still qualifies.
   const detected = detectHorizontalRange([
     candle(1, 105, 110, 104, 106), candle(2, 105, 106, 100, 103),
     candle(3, 105, 109.9, 103, 106), candle(4, 104, 106, 100.1, 102),
-    candle(5, 103, 109, 101, 105), candle(6, 104, 108, 102, 104),
+    candle(5, 103, 109.95, 100.05, 105), candle(6, 104, 109.9, 100.1, 104),
   ]);
   assert.equal(detected.qualifies, true);
   assert.equal(detected.eq, 105);
@@ -183,11 +186,15 @@ test('native paper scanner opens, scales, and closes a genuine perps lifecycle',
   const adapter = createPaperExecutionAdapter({ telemetry });
   const processor = createPaperSignalProcessor({ adapter, telemetry });
   let phase = 'open';
+  // B4P.range recency: range now requires a recent touch on each side. Old
+  // fixture only had touches early in the window; extended to include recent
+  // touches at both 110 (RH) and 100 (RL) so the range qualifies under the
+  // tightened detector.
   const rangeCandles = [
     candle(1, 105, 110, 104, 106), candle(2, 105, 106, 100, 103),
     candle(3, 105, 109.9, 103, 106), candle(4, 104, 106, 100.1, 102),
-    candle(5, 103, 109, 101, 105), candle(6, 104, 108, 102, 104),
-    candle(7, 104, 107, 103, 105), candle(8, 104, 108, 102, 104),
+    candle(5, 103, 109.95, 100.05, 105), candle(6, 104, 108, 100.1, 104),
+    candle(7, 104, 109.9, 103, 105), candle(8, 104, 109.95, 100.05, 104),
   ];
   const feed = {
     async getDailyCandles() {
@@ -225,11 +232,15 @@ test('native scanner blocks new entries behind failed admission evidence but sti
     id: 'direct-open', symbol: 'BTCUSDT', side: 'long', equityUsd: 1000, riskPct: 0.5,
     entryPrice: 100, stopPrice: 98, leverage: 3, plannedRewardRisk: 3, marginMode: 'isolated',
   }).reasons, ['historical_evidence_not_passed']);
+  // B4P.range recency: range now requires a recent touch on each side. Old
+  // fixture only had touches early in the window; extended to include recent
+  // touches at both 110 (RH) and 100 (RL) so the range qualifies under the
+  // tightened detector.
   const rangeCandles = [
     candle(1, 105, 110, 104, 106), candle(2, 105, 106, 100, 103),
     candle(3, 105, 109.9, 103, 106), candle(4, 104, 106, 100.1, 102),
-    candle(5, 103, 109, 101, 105), candle(6, 104, 108, 102, 104),
-    candle(7, 104, 107, 103, 105), candle(8, 104, 108, 102, 104),
+    candle(5, 103, 109.95, 100.05, 105), candle(6, 104, 108, 100.1, 104),
+    candle(7, 104, 109.9, 103, 105), candle(8, 104, 109.95, 100.05, 104),
   ];
   let closeExisting = false;
   const feed = {
