@@ -4,6 +4,15 @@ const axios = require('axios');
 const config = require('../../config');
 const logger = require('./logger');
 
+// B4.cso.1: redact API key from any error.message that contains it. axios
+// errors sometimes include the full request config in `error.toString()` /
+// `error.stack` (depends on adapter version). We sanitize before logging.
+function _sanitizeError(error) {
+  const key = config.coinmarketcap?.apiKey;
+  if (!key || !error?.message) return error?.message || 'unknown';
+  return String(error.message).split(key).join('[REDACTED_CMC_KEY]');
+}
+
 const listingCache = new Map();
 const quoteCache = new Map();
 
@@ -78,7 +87,7 @@ async function findListingBySymbol(symbol, name) {
     listingCache.set(cacheKey, result);
     return result;
   } catch (error) {
-    logger.debug(`CoinMarketCap listing lookup failed for ${symbol}: ${error.message}`);
+    logger.debug(`CoinMarketCap listing lookup failed for ${symbol}: ${_sanitizeError(error)}`);
     listingCache.set(cacheKey, null);
     return null;
   }
@@ -119,7 +128,7 @@ async function getQuoteBySymbol(symbol) {
     quoteCache.set(normalizedSymbol, { value: result, fetchedAt: Date.now() });
     return result;
   } catch (error) {
-    logger.debug(`CoinMarketCap quote lookup failed for ${symbol}: ${error.message}`);
+    logger.debug(`CoinMarketCap quote lookup failed for ${symbol}: ${_sanitizeError(error)}`);
     quoteCache.set(normalizedSymbol, { value: null, fetchedAt: Date.now() });
     return null;
   }

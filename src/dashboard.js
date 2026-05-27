@@ -611,7 +611,15 @@ function startDashboard(portfolio, ctx) {
   }));
 
   app.get('/api/status', (req, res) => {
-    res.json(ctx.getDashboardState({ compact: true }));
+    // B4.dash.4: surface fetchedAt so the UI can render "as of HH:MM:SS" and
+    // operators can spot stale data. Inject at the response edge — does not
+    // require touching ctx.getDashboardState.
+    const state = ctx.getDashboardState({ compact: true });
+    res.json({
+      ...state,
+      fetchedAt: new Date().toISOString(),
+      fetchedAtEpochMs: Date.now(),
+    });
   });
 
   app.get('/health', (req, res) => {

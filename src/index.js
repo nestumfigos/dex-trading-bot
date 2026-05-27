@@ -2756,6 +2756,9 @@ function recordStrategyTick(tokenKey, price, volume = 0) {
 }
 
 function getNativeQuoteOrThrow(normalizedChain, currentTokenData) {
+  // B4.exec.10: 30s is the audit-recommended ceiling. Default kept at 120s to
+  // tolerate slow native-price refresh cycles in current ops; override via
+  // RISK_MAX_NATIVE_PRICE_AGE_MS env or config.risk.maxNativePriceAgeMs.
   const maxNativePriceAgeMs = Math.max(1000, Number(config.risk?.maxNativePriceAgeMs || 120000));
   const cached = normalizedChain === 'bsc'
     ? exchanges.bsc.getCachedBnbPrice()

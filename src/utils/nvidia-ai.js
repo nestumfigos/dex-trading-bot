@@ -11,6 +11,15 @@ function getNvidiaConfig() {
   };
 }
 
+// B4.cso.1: sanitize bearer token from any error string before propagation.
+// Bearer tokens otherwise leak via axios error.message / error.stack.
+function _redactBearer(text, apiKey) {
+  if (!apiKey || !text) return text;
+  return String(text)
+    .split(apiKey).join('[REDACTED_NVIDIA_KEY]')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]');
+}
+
 async function nvidiaAnalyzeBatch(texts, prompt) {
   const { apiKey, model, apiUrl } = getNvidiaConfig();
   if (!apiKey) throw new Error('NVIDIA_API_KEY not set');
@@ -18,14 +27,22 @@ async function nvidiaAnalyzeBatch(texts, prompt) {
     role: 'user',
     content: prompt ? `${prompt}: ${text}` : text,
   }));
-  const res = await axios.post(apiUrl, {
-    model,
-    messages,
-  }, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    timeout: 15000,
-  });
-  return res.data;
+  try {
+    const res = await axios.post(apiUrl, {
+      model,
+      messages,
+    }, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 15000,
+    });
+    return res.data;
+  } catch (error) {
+    // Redact key before rethrow so any caller logger only sees [REDACTED_NVIDIA_KEY].
+    const sanitized = _redactBearer(error?.message || '', apiKey);
+    const next = new Error(sanitized);
+    next.code = error?.code || (error?.response?.status ? `HTTP_${error.response.status}` : 'NVIDIA_UNKNOWN');
+    throw next;
+  }
 }
 
 async function nvidiaExplainTrade(trade) {

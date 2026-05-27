@@ -78,9 +78,30 @@ function getApiKey() {
 const MAX_HISTORY = 20;
 const relayState = new Map(); // relayName → [{ ok, ts }, ...]
 
+// B4.api.8: outcome recording is now phased.
+//   - recordRelayOutcome(name, ok)           — submission accepted (HTTP 200 +
+//                                                bundleHash). This is the
+//                                                fastest signal but does NOT
+//                                                imply the bundle landed.
+//   - recordRelayLandedOutcome(name, ok)     — bundle confirmed included in a
+//                                                block via pollBundleStatus +
+//                                                merkle_bundleStats. Optional —
+//                                                callers MAY skip if they don't
+//                                                wait for inclusion.
+//   - getRelayScore                          — when "landed" data exists for
+//                                                a relay, weights landed > accepted.
+//                                                Otherwise falls back to legacy
+//                                                accepted-only score.
 function recordRelayOutcome(relayName, ok) {
   const arr = relayState.get(relayName) || [];
-  arr.push({ ok: Boolean(ok), ts: Date.now() });
+  arr.push({ ok: Boolean(ok), ts: Date.now(), kind: 'accepted' });
+  if (arr.length > MAX_HISTORY) arr.splice(0, arr.length - MAX_HISTORY);
+  relayState.set(relayName, arr);
+}
+
+function recordRelayLandedOutcome(relayName, ok) {
+  const arr = relayState.get(relayName) || [];
+  arr.push({ ok: Boolean(ok), ts: Date.now(), kind: 'landed' });
   if (arr.length > MAX_HISTORY) arr.splice(0, arr.length - MAX_HISTORY);
   relayState.set(relayName, arr);
 }
@@ -88,6 +109,19 @@ function recordRelayOutcome(relayName, ok) {
 function getRelayScore(relayName) {
   const arr = relayState.get(relayName) || [];
   if (arr.length === 0) return 0.5; // unknown → middle
+  // B4.api.8: prefer "landed" outcomes when present (5x weight). Falls back to
+  // accepted-only score when no landed data is available — matches legacy
+  // behavior for callers that haven't wired pollBundleStatus yet.
+  const landed = arr.filter((h) => h.kind === 'landed');
+  if (landed.length > 0) {
+    const accepted = arr.filter((h) => h.kind === 'accepted');
+    const landedWeight = 5;
+    const acceptedWins = accepted.filter((h) => h.ok).length;
+    const landedWins = landed.filter((h) => h.ok).length;
+    const num = (acceptedWins) + (landedWins * landedWeight);
+    const den = (accepted.length) + (landed.length * landedWeight);
+    return den > 0 ? num / den : 0.5;
+  }
   const wins = arr.filter((h) => h.ok).length;
   return wins / arr.length;
 }
@@ -281,6 +315,7 @@ async function pollBundleStatus({ bundleHash, txHashes = [], relayUrl = '', time
 module.exports = {
   sendPrivateRawTransaction,
   sendBundle,
+  recordRelayLandedOutcome, // B4.api.8: callers wiring pollBundleStatus should call this with the terminal status
   pollBundleStatus,
   getRelayStats,
   getRelays,

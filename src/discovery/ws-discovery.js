@@ -433,6 +433,26 @@ class WebSocketDiscovery extends EventEmitter {
       this.status[chainKey].connected = true;
       this.status[chainKey].subscriptions = 1;
       this.status[chainKey].lastError = null;
+      // B4.api.9: validate that the PairCreated subscription is alive immediately
+      // after `contract.on(...)` registration. If the upstream WS rejected the
+      // subscribe call silently (some providers do this on reconnect), the
+      // listener is registered locally but never delivers events. Probe via
+      // the subscription manager when available; if probe fails, mark
+      // subscriptions=0 and let the reconnect logic try again.
+      try {
+        const listenerCount = typeof contract.listenerCount === 'function'
+          ? contract.listenerCount('PairCreated')
+          : 1;
+        if (!listenerCount) {
+          this.status[chainKey].subscriptions = 0;
+          this.status[chainKey].lastError = 'subscribe_validation_zero_listeners';
+          logger.warn(`WS discovery ${chainKey} subscribe validation failed: 0 listeners registered`);
+          this.scheduleEvmReconnect(chainKey, wsUrl, factoryAddress);
+          return 0;
+        }
+      } catch (probeErr) {
+        logger.warn(`WS discovery ${chainKey} subscribe probe error (non-fatal): ${probeErr.message}`);
+      }
       this.clearReconnectTimer(chainKey);
       if (this.reconnectState[chainKey]) {
         this.reconnectState[chainKey].attempts = 0;

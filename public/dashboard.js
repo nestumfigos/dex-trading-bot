@@ -179,13 +179,29 @@ function renderPositions(positions) {
     btn.addEventListener('click', async () => {
       const key = btn.dataset.sellKey;
       const sym = btn.dataset.symbol || key;
-      if (!confirm(`Force-sell ${sym} at market? This exits the position immediately.`)) return;
+      // B4.dash.7: tightened confirmation. window.confirm is too easy to fat-finger;
+      // also vulnerable to JS-injection bypass. Require operator to type the symbol
+      // (case-insensitive) to confirm. Also surface the admin-token requirement.
+      const typed = window.prompt(`Force-sell ${sym} at MARKET? This exits the position immediately and CANNOT be undone.\n\nType the symbol "${sym}" to confirm:`);
+      if (typed == null) return; // cancel
+      if (String(typed).trim().toUpperCase() !== String(sym).toUpperCase()) {
+        alert(`Aborted: typed "${typed}" does not match "${sym}".`);
+        return;
+      }
+      // B4.dash.7: ensure admin token attached. Server gates this route via
+      // requireAdminToken (B1.1); without the header the request 401s.
+      let token = getAdminToken();
+      if (!token) token = promptAdminToken();
+      if (!token) { alert('Admin token required for force-sell.'); return; }
       btn.disabled = true;
       btn.textContent = 'Selling...';
       try {
         const res = await fetch(getBaseUrl() + '/api/admin/sell-position', {
           method: 'POST', mode: 'cors',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
           body: JSON.stringify({ key }),
         });
         const j = await res.json().catch(() => null);

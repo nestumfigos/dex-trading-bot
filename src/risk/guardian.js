@@ -346,6 +346,19 @@ class RiskGuardian {
     const managedExposureUsd = Number(this.getChainExposureUsd(normalized) || 0);
     const unmanagedExposureUsd = Number(this.portfolio?.untrackedWalletPositionValueUsdByChain?.[normalized] || 0);
     const capitalBaseUsd = freeCashUsd + managedExposureUsd + unmanagedExposureUsd;
+    // B4.risk.7: untracked-wallet exposure visibility. Audit 03-risk.md #7
+    // flagged that operator-manual buys reduce available capital but never
+    // trigger a kill switch. Warn-once per session when untracked exceeds 50%
+    // of capital base — bot can't manage these positions, so a large untracked
+    // bucket is an operator alert, not a block (we cannot exit something we
+    // didn't open). Operator sees the alert in logs + can surface via dashboard.
+    if (capitalBaseUsd > 0 && unmanagedExposureUsd / capitalBaseUsd > 0.5) {
+      this._untrackedWalletWarned = this._untrackedWalletWarned || new Set();
+      if (!this._untrackedWalletWarned.has(normalized)) {
+        this._untrackedWalletWarned.add(normalized);
+        logger.warn(`[RiskGuardian] untracked wallet exposure on ${normalized} = $${unmanagedExposureUsd.toFixed(2)} (${((unmanagedExposureUsd / capitalBaseUsd) * 100).toFixed(1)}% of capital). Bot cannot manage these positions; operator action recommended.`);
+      }
+    }
     return Number.isFinite(capitalBaseUsd) && capitalBaseUsd > 0 ? capitalBaseUsd : freeCashUsd;
   }
 
@@ -503,6 +516,17 @@ class RiskGuardian {
             reason: `Profit factor ${Number.isFinite(profitFactor) ? profitFactor.toFixed(2) : '0.00'} below minimum ${minProfitFactor.toFixed(2)}`,
           };
         }
+      } else {
+        // B4.risk.8: visibility for "all wins, no losses" skip path. Phase A
+        // audit 03-risk.md #8 flagged this skip as silent. With 40+ closed
+        // trades and zero losses, a win streak is real signal — but the
+        // operator should see that the PF gate is being skipped because of it,
+        // not because of a bug. Warn-once per session to avoid log spam.
+        this._pfGateSkipWarned = this._pfGateSkipWarned || false;
+        if (!this._pfGateSkipWarned) {
+          this._pfGateSkipWarned = true;
+          logger.warn(`[RiskGuardian] profit-factor gate skipped: ${closedTrades} closed trades, zero losses. Edge unvalidated until first loss. Verify strategy isn't masking a sampling artifact.`);
+        }
       }
     }
 
@@ -579,6 +603,12 @@ class RiskGuardian {
 
     let maxChainHeatPct = Number(config.risk?.maxPortfolioHeatPct || 40);
     const chainKeyLower = String(chainKey).toLowerCase();
+    // B4.risk.9 (verified no-fix): the KuCoin per-chain cap is enforced in
+    // checkChainHeat (this fn) which runs PRE-order via the risk gates. Audit
+    // 03-risk.md #9 flagged it as "soft multiplier during sizing"; grep
+    // confirms `kucoinMaxPositionSizePct` is referenced ONLY here in the chain-
+    // heat path, never in sizing. No fix needed. If a future code path adds a
+    // sizing-side reference, that path must also call this gate.
     if (chainKeyLower === 'kucoin' && config.risk?.kucoinMaxPositionSizePct) {
       maxChainHeatPct = Number(config.risk.kucoinMaxPositionSizePct);
     }

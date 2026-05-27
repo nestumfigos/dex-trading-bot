@@ -319,6 +319,13 @@ function mountWeek6Routes(app, { getPool, logger }) {
     }, res);
   });
 
+  // B4.dash.10: tighten PATCH schema. Original code validated severity but
+  // accepted arbitrary `scope` and arbitrarily-long `name`. Add scope
+  // whitelist + name length cap + reject unknown body fields to prevent
+  // mass-update via spoofed column names. SQL is already parameterized
+  // (mssql .input) so this is defense-in-depth, not the primary control.
+  const ALLOWED_RISK_RULE_SCOPES = ['live', 'paper', 'both'];
+  const ALLOWED_RISK_RULE_FIELDS = new Set(['scope', 'enabled', 'severity', 'notes']);
   app.patch('/api/risk-rules/:name', requireAdmin, async (req, res) => {
     await withPool(async (pool) => {
       const name = String(req.params.name || '').trim();
@@ -326,9 +333,19 @@ function mountWeek6Routes(app, { getPool, logger }) {
       const enabled = req.body?.enabled != null ? Boolean(req.body.enabled) : null;
       const severity = req.body?.severity ? String(req.body.severity).toLowerCase() : null;
       const notes = req.body?.notes ? String(req.body.notes).slice(0, 500) : null;
-      if (!name) return res.status(400).json({ ok: false, error: 'name required' });
+      if (!name || name.length > 64) return res.status(400).json({ ok: false, error: 'name required (max 64 chars)' });
+      if (!ALLOWED_RISK_RULE_SCOPES.includes(scope)) {
+        return res.status(400).json({ ok: false, error: `scope must be one of ${ALLOWED_RISK_RULE_SCOPES.join('|')}` });
+      }
       if (severity && !['block', 'warn', 'log'].includes(severity)) {
         return res.status(400).json({ ok: false, error: 'severity must be block|warn|log' });
+      }
+      // Reject any body keys outside the allowed set so a spoofed payload
+      // can't slip past us if a future SET clause picks up extras.
+      const bodyKeys = req.body ? Object.keys(req.body) : [];
+      const unknownKeys = bodyKeys.filter((k) => !ALLOWED_RISK_RULE_FIELDS.has(k));
+      if (unknownKeys.length) {
+        return res.status(400).json({ ok: false, error: `unknown fields: ${unknownKeys.join(', ')}` });
       }
       const sets = [];
       const r = pool.request();
