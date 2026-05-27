@@ -18,18 +18,33 @@ function cacheSet(key, value, ttlMs) {
   return value;
 }
 
-async function fetchStablecoinSupply({ ttlMs = 10 * 60_000 } = {}) {
+// B3.api.10: surface DeFiLlama macro errors. Previous caller used
+// `.catch(() => null)` which swallowed everything (network, 5xx, 429,
+// parse errors). Now we log url+status+timestamp+code and the caller's
+// catch still resolves to null — preserves graceful degradation but
+// makes a sustained DeFiLlama outage visible in the operator log.
+const DEFILLAMA_URL = 'https://stablecoins.llama.fi/stablecoins';
+async function fetchStablecoinSupply({ ttlMs = 10 * 60_000, logger = console } = {}) {
   const cacheKey = 'defillama:stablecoins';
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
-  const response = await axios.get('https://stablecoins.llama.fi/stablecoins', { timeout: 10_000 });
-  const rows = Array.isArray(response.data?.peggedAssets) ? response.data.peggedAssets : [];
-  const totalSupplyUsd = rows.reduce((sum, row) => sum + Number(row.circulating?.peggedUSD || row.circulating?.peggedUsd || 0), 0);
-  return cacheSet(cacheKey, {
-    source: 'defillama_stablecoins',
-    totalSupplyUsd,
-    assetCount: rows.length,
-  }, ttlMs);
+  try {
+    const response = await axios.get(DEFILLAMA_URL, { timeout: 10_000 });
+    const rows = Array.isArray(response.data?.peggedAssets) ? response.data.peggedAssets : [];
+    const totalSupplyUsd = rows.reduce((sum, row) => sum + Number(row.circulating?.peggedUSD || row.circulating?.peggedUsd || 0), 0);
+    return cacheSet(cacheKey, {
+      source: 'defillama_stablecoins',
+      totalSupplyUsd,
+      assetCount: rows.length,
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    }, ttlMs);
+  } catch (error) {
+    const statusCode = error.response?.status;
+    const errCode = error.code || (statusCode ? `HTTP_${statusCode}` : 'UNKNOWN');
+    logger?.warn?.(`[OnchainMacro] DeFiLlama fetch failed (${errCode}) url=${DEFILLAMA_URL} at=${new Date().toISOString()}: ${error.message}`);
+    throw error; // preserve caller's `.catch(() => null)` semantics
+  }
 }
 
 function deriveOnchainMacroFeatures(tokenData = {}, external = {}) {

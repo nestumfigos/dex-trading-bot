@@ -242,9 +242,12 @@ class EvolutionGovernor {
     } else if (targetRegimeFamily !== 'unknown' && currentRegimeFamily !== 'unknown' && targetRegimeFamily !== currentRegimeFamily) {
       decision = 'hold';
       reasons.push(`regime_mismatch:${targetRegimeFamily}->${currentRegimeFamily}`);
-    } else if (discrepancy.score > settings.maxPaperLiveDiscrepancyScore) {
+    } else if ((discrepancy.scoreRaw ?? discrepancy.score) > settings.maxPaperLiveDiscrepancyScore) {
+      // B3.sl.11: use scoreRaw (unclamped) for threshold compare so a 150-pt
+      // divergence isn't hidden behind the clamp-to-100. Fall back to clamped
+      // for legacy callers that only populate `.score`.
       decision = 'hold';
-      reasons.push(`paper_live_discrepancy:${discrepancy.score.toFixed(2)}`);
+      reasons.push(`paper_live_discrepancy:${(discrepancy.scoreRaw ?? discrepancy.score).toFixed(2)}`);
     } else if (observationMinutes >= settings.minObservationMinutes && observedClosedTrades >= settings.minClosedTrades) {
       // B2.22: optional belt-and-suspenders floors independent of the
       // weighted `promotionConfidence` aggregate. Audit 05-self-learning.md

@@ -166,8 +166,12 @@ function momentumSignal(priceHistory, volumeHistory, cfg) {
   const rsiBuyMin = Number(rsiBuyThreshold || 40);
   const rsiBuyMax = Number(rsiBuyMaxThreshold || 95);
   const rsiAllowsBuy = rsiVal >= rsiBuyMin && rsiVal <= rsiBuyMax;
-  // Only flag extreme overbought above 95 (parabolic exhaustion)
-  const rsiExtreme = rsiVal > 95;
+  // B3.strat.7: extreme-overbought floor follows the same config knob as the
+  // BUY ceiling. Previously `rsiBuyMax` (default 95) capped BUY admission but
+  // the SELL-on-extreme line was hardcoded to 95, so a config override to
+  // (e.g.) 90 created a dead zone 90<rsi≤95 that rejected BUY AND failed to
+  // flag extreme SELL. Now consistent: same single ceiling.
+  const rsiExtreme = rsiVal > rsiBuyMax;
   const hasVolumeSpike = Number.isFinite(spike) && spike >= volumeSpikeMultiplier;
   const bullishTrend = emaCrossUp || (cfg.allowTrendContinuation && emaAlignedUp);
 

@@ -53,6 +53,13 @@ class OrderBookImbalanceAnalyzer {
       const bidSpread = bestBid * 0.01; // 1% of best bid
       const askSpread = bestAsk * 0.01;
 
+      // B3.strat.9 (verified no-fix): bids are sorted DESC by price so "near
+      // bid" = within 1% BELOW bestBid → filter `price >= bestBid - bidSpread`
+      // accepts that band correctly. Asks sorted ASC; "near ask" = within 1%
+      // ABOVE bestAsk → `price <= bestAsk + askSpread` accepts that band.
+      // Phase A audit 01-strategy-signals.md #9 flagged the filter as inverted;
+      // re-read confirms it's correct. Comment pinned so a future reviewer
+      // doesn't re-flag.
       const nearBidVolume = bids
         .filter(([price]) => Number(price) >= bestBid - bidSpread)
         .reduce((sum, [, qty]) => sum + (Number(qty) || 0), 0);

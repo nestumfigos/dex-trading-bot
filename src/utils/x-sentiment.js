@@ -29,7 +29,14 @@ async function fetchXPosts(symbol = '', logger = console) {
       }))
       : [];
   } catch (error) {
-    logger?.warn?.(`[XSentiment] fetch failed for ${symbol}: ${error.message}`);
+    // B3.api.5: bump to error + include HTTP context so a sustained Twitter
+    // blackout shows up in logs as a data-feed alert rather than as
+    // "sentiment quiet on this symbol". Downstream still treats [] as a
+    // valid empty fetch — a fuller solution (cached-posts fallback + stale
+    // flag) is deferred to a separate refactor.
+    const statusCode = error.response?.status;
+    const errCode = error.code || (statusCode ? `HTTP_${statusCode}` : 'UNKNOWN');
+    logger?.error?.(`[XSentiment] fetch failed for ${symbol} (${errCode}): ${error.message}`);
     return [];
   }
 }

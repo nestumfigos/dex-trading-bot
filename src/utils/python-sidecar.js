@@ -33,7 +33,11 @@ async function runPythonSidecar(command, payload = {}, logger = console) {
   }
   const pythonBin = resolvePythonBin();
   const scriptPath = resolveScriptPath();
-  const timeoutMs = Math.max(1000, Number(config.pythonSidecar?.timeoutMs || 12000));
+  // B3.api.6: 12s default was longer than the 5s trading-loop tick, so a
+  // sidecar hang stalled the entire cycle. 4s default keeps sidecar inside
+  // one tick; callers MUST handle PYTHON_SIDECAR_TIMEOUT with a JS fallback
+  // (callers that don't have one should disable the sidecar via config).
+  const timeoutMs = Math.max(1000, Number(config.pythonSidecar?.timeoutMs || 4000));
 
   return new Promise((resolve, reject) => {
     const child = spawn(pythonBin, [scriptPath, String(command || '').trim()], {

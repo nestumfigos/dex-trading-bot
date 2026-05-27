@@ -63,17 +63,40 @@ async function getPool(logger = console) {
     return null;
   }
 
+  // B3.sql.10: pool creation with exponential backoff. Previous code set
+  // poolPromise=null and rethrew on connect failure → caller saw immediate
+  // failure, re-called getPool, hit same code path, infinite tight-loop
+  // failure during a transient SQL outage. Now retry up to 5 attempts with
+  // 500ms→8s backoff before surfacing the error, and emit a clear log line
+  // for each attempt so the operator sees the recovery progress.
   if (!poolPromise) {
-    poolPromise = sql.connect(conn).catch((err) => {
+    poolPromise = (async () => {
+      const maxAttempts = Math.max(1, Number(process.env.SQL_POOL_RETRY_ATTEMPTS || 5));
+      let lastErr = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await sql.connect(conn);
+        } catch (err) {
+          lastErr = err;
+          if (attempt >= maxAttempts) {
+            updateStatus({
+              connected: false,
+              schemaReady: false,
+              databaseExplicit: hasExplicitDatabase(conn),
+              lastError: err.message,
+            });
+            poolPromise = null;
+            throw err;
+          }
+          const delay = Math.min(8000, 500 * (2 ** (attempt - 1)));
+          logger.warn(`[SQL] pool connect attempt ${attempt}/${maxAttempts} failed (${err.code || err.message}); retrying in ${delay}ms`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      // Defensive — loop always returns or throws.
       poolPromise = null;
-      updateStatus({
-        connected: false,
-        schemaReady: false,
-        databaseExplicit: hasExplicitDatabase(conn),
-        lastError: err.message,
-      });
-      throw err;
-    });
+      throw lastErr;
+    })();
   }
 
   const pool = await poolPromise;

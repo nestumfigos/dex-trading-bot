@@ -51,6 +51,14 @@ async function executeBuyViaVenue({
     );
   }
 
+  // B3.exec.10 (deferred): Phase A audit 02-execution.md #10 wants a quote
+  // freshness check (reject if >30s old). Current `getNativeQuote` returns a
+  // bare number with no fetchedAt timestamp; tracking that requires plumbing
+  // through every native-quote consumer. Tracking issue: introduce
+  //   getNativeQuoteWithMeta(chain, tokenData) → { price, fetchedAt }
+  // then refuse sizing when Date.now() - fetchedAt > config.execution.maxQuoteAgeMs.
+  // Until then, the caller's `withTimeout` wraps execution so a stale upstream
+  // quote can't hang the loop, but the order may still mispriced 1-3%.
   const nativeQuote = await getNativeQuote(chainName, tokenData);
   if (!Number.isFinite(nativeQuote) || nativeQuote <= 0) {
     throw new Error(`Native quote unavailable for ${chainName}:${tokenData?.symbol || tokenData?.address} — cannot size order (got ${nativeQuote})`);

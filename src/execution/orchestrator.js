@@ -174,7 +174,13 @@ function createExecutionOrchestrator(deps) {
       logger.debug(`[pre-trade-contract] BUY check threw: ${e?.message || e} — proceeding (degraded open)`);
     }
 
-    const lockTtlMs = Math.max(5000, Number(process.env.SQL_LOCK_TTL_MS || 30000));
+    // B3.exec.8: TTL must exceed execTimeoutMs + buffer so a slow exchange
+    // can't release the lock before execution actually completes. Default
+    // execTimeoutMs is ~45s; pin lock TTL >= execTimeoutMs + 10s. Honors
+    // SQL_LOCK_TTL_MS override but floors against the buffer.
+    const execTimeoutMsForLock = Math.max(15000, Number(config.execution?.timeoutMs || 45000));
+    const requestedLockTtl = Number(process.env.SQL_LOCK_TTL_MS || 30000);
+    const lockTtlMs = Math.max(requestedLockTtl, execTimeoutMsForLock + 10000);
     const lockKey = `buy:${String(chainName || '').toLowerCase()}:${String(tokenData?.symbol || tokenData?.address || '').toUpperCase()}`.slice(0, 200);
     const dist = await sqlCoordination.acquireLock(lockKey, { ttlMs: lockTtlMs, waitMs: 0 });
     if (!dist.ok) {

@@ -597,13 +597,32 @@ async function refreshMarketIndicators() {
 }
 
 // 2026-05-23: risk-rules helpers (Week 16.4 panel).
+// B3.dash.8: admin token now expires after 30 min of inactivity. Previously
+// persisted in localStorage indefinitely — any XSS or shared-browser access
+// would grant full admin privileges with no time bound. We store token +
+// last-used timestamp and treat anything older than DASH_ADMIN_TOKEN_TTL_MS
+// as expired.
+const DASH_ADMIN_TOKEN_TTL_MS = 30 * 60 * 1000;
 function getAdminToken() {
-  return localStorage.getItem('dt.adminToken') || '';
+  const stamp = Number(localStorage.getItem('dt.adminTokenLastUsedAt') || 0);
+  if (stamp && (Date.now() - stamp) > DASH_ADMIN_TOKEN_TTL_MS) {
+    // Expired — clear stored token and force re-prompt.
+    localStorage.removeItem('dt.adminToken');
+    localStorage.removeItem('dt.adminTokenLastUsedAt');
+    return '';
+  }
+  const token = localStorage.getItem('dt.adminToken') || '';
+  // Sliding refresh: touch the last-used timestamp on each successful read.
+  if (token) localStorage.setItem('dt.adminTokenLastUsedAt', String(Date.now()));
+  return token;
 }
 function promptAdminToken() {
   const cur = getAdminToken();
-  const next = window.prompt('Admin token (DASHBOARD_ADMIN_TOKEN) — required to edit risk rules:', cur);
-  if (next != null) localStorage.setItem('dt.adminToken', String(next));
+  const next = window.prompt('Admin token (DASHBOARD_ADMIN_TOKEN) — required to edit risk rules. Expires after 30 min idle:', cur);
+  if (next != null) {
+    localStorage.setItem('dt.adminToken', String(next));
+    localStorage.setItem('dt.adminTokenLastUsedAt', String(Date.now()));
+  }
   return getAdminToken();
 }
 async function patchRiskRule(name, scope, body) {

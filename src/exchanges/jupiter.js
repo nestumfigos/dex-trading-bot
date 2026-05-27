@@ -298,6 +298,17 @@ class JupiterExchange {
     // B1.5 idempotency: track every broadcasted txid + its result across retries.
     // If a prior attempt's tx actually landed on-chain, never broadcast a second swap.
     const state = { broadcastedTxids: [] };
+    // B3.exec.4: errors that are permanent (price-impact-too-high, token-blacklisted,
+    // etc.) MUST not retry — each retry escalates slippage by 20bps and burns
+    // toward the 2000bps cap on tokens that were never going to fill anyway.
+    // Patterns matched against error.message to fail-fast.
+    const PERMANENT_ERROR_PATTERNS = [
+      /Price impact .* above limit/i,
+      /Quote returned 0 out/i,
+      /no route/i,
+      /insufficient funds/i,
+      /token .* blacklisted/i,
+    ];
 
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
@@ -310,6 +321,13 @@ class JupiterExchange {
         }
         return await fn(attempt, state);
       } catch (error) {
+        // B3.exec.4: fail-fast on permanent errors — don't retry into the
+        // slippage cap on a token that the venue has already classified as
+        // not-routable.
+        if (PERMANENT_ERROR_PATTERNS.some((re) => re.test(String(error.message || '')))) {
+          logger.warn(`${label} attempt ${attempt}/${retries}: PERMANENT error, aborting retries: ${error.message}`);
+          throw error;
+        }
         if (attempt >= retries) {
           if (state.broadcastedTxids.length > 0) {
             const landed = await this._findLandedTxid(state.broadcastedTxids);

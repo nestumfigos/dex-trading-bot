@@ -61,10 +61,13 @@ async function searchCoinGeckoId(query, retryCount = 0) {
     return tokenIdCache.get(normalized);
   }
   
-  // Check if we recently failed to find it (avoid retrying immediately)
+  // B3.api.11: 5min cache (was 1h). 1h was too long — tokens that briefly
+  // 404 on CoinGecko (listing-propagation race) stayed dark in our pipeline
+  // for an hour. 5min suppresses the obvious retry storm while still
+  // letting fresh listings get re-discovered within the same trading session.
   if (failedSearchCache.has(normalized)) {
     const failedAt = failedSearchCache.get(normalized);
-    if (Date.now() - failedAt < 3600000) { // Don't retry for 1 hour
+    if (Date.now() - failedAt < 300000) { // 5min not-found cache
       return null;
     }
   }

@@ -78,6 +78,15 @@ class TimeframeConfluenceAnalyzer {
       const ema9Val = ema9[ema9.length - 1];
       const ema21Val = ema21[ema21.length - 1];
 
+      // B3.strat.6: when EMA arrays are empty or values undefined (input too
+      // short / non-finite slot), bail this timeframe out as 'neutral' rather
+      // than letting NaN comparisons silently produce 'bearish'. Callers that
+      // depend on a confluence score will skip this timeframe in the average
+      // instead of being skewed by a phantom bearish vote.
+      if (!Number.isFinite(ema9Val) || !Number.isFinite(ema21Val) || !Number.isFinite(lastClose)) {
+        return { timeframe, emaSignal: 'neutral', rsiVal: null, neutralReason: 'ema_data_insufficient' };
+      }
+
       const rsiVal = rsi[rsi.length - 1];
       const emaSignal = lastClose > ema9Val && ema9Val > ema21Val ? 'bullish' : 'bearish';
 

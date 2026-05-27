@@ -294,13 +294,17 @@ async function submitSwapAsBundle({ wallet, signedSwapTx, tipLamports, logger = 
  *
  * @returns {{ status, landedSlot, attempts, error }}
  */
-async function pollBundleStatus({ bundleId, endpoint, timeoutMs = 30000, intervalMs = 2000, logger = console }) {
+// B3.api.7: bounded poll. Previously only `timeoutMs` capped the loop; if the
+// endpoint returned garbage forever we kept ramming it (no per-attempt sleep
+// floor either — could DDoS the relay). Add a hard maxAttempts ceiling
+// (default 15) so a hung endpoint stops being hammered even before timeoutMs.
+async function pollBundleStatus({ bundleId, endpoint, timeoutMs = 30000, intervalMs = 2000, maxAttempts = 15, logger = console }) {
   if (!bundleId) return { status: 'unknown', error: 'no bundleId' };
   const url = (endpoint || getEndpoints()[0]).replace('/bundles', '/getBundleStatuses');
   const start = Date.now();
   let attempts = 0;
 
-  while (Date.now() - start < timeoutMs) {
+  while (Date.now() - start < timeoutMs && attempts < maxAttempts) {
     attempts += 1;
     try {
       const payload = {

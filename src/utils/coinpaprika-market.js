@@ -2,6 +2,7 @@
 
 const axios = require('axios');
 const config = require('../../config');
+const { getWithRetry } = require('./http-retry'); // B3.api.4
 
 const CACHE = new Map();
 let tickerListCache = null;
@@ -56,9 +57,13 @@ async function fetchCoinPaprikaTicker(symbol, { ttlMs } = {}) {
 
   const listTtlMs = Math.max(10_000, Number(ttlMs || config.coinpaprika?.snapshotTtlMs || 60_000));
   if (!tickerListCache || tickerListCache.expiresAt <= Date.now()) {
-    const response = await axios.get(`${config.coinpaprika?.baseUrl || 'https://api.coinpaprika.com/v1'}/tickers`, {
+    // B3.api.4: retry transient 429/5xx with exponential backoff. CoinPaprika
+    // free tier hits 429 in clusters during cycle bursts; retries with jitter
+    // avoid the IP-ban path the audit flagged.
+    const response = await getWithRetry(`${config.coinpaprika?.baseUrl || 'https://api.coinpaprika.com/v1'}/tickers`, {
       params: { quotes: 'USD' },
       timeout: Math.max(1000, Number(process.env.COINPAPRIKA_TIMEOUT_MS || 5000)),
+      label: 'coinpaprika:tickers',
     });
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`CoinPaprika ticker request failed with HTTP ${response.status}`);

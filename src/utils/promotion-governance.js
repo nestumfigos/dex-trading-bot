@@ -58,8 +58,14 @@ function computeDiscrepancyScore(comparison = {}) {
     + clamp((avgConfirmationsDelta / 5) * 3)
   );
 
+  // B3.sl.11: expose BOTH the clamped score (for display) and the raw
+  // unclamped score. Phase A audit 05-self-learning.md #11 flagged that the
+  // clamp-to-100 hides huge divergences from threshold comparisons. Threshold
+  // checks (e.g. `maxPaperLiveDiscrepancyScore`) should test against
+  // `scoreRaw`; UI/display still use `score`.
   return {
     score: clamp(Number(weighted.toFixed(2))),
+    scoreRaw: Number(weighted.toFixed(2)),
     components: {
       profitFactorDelta,
       winRateDeltaPct,
