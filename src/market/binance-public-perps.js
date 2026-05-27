@@ -9,17 +9,54 @@ function createBinancePublicPerpsFeed({
 } = {}) {
   if (typeof fetchFn !== 'function') throw new Error('fetchFn is required');
 
+  // B3P.14: retry transient 429 / 5xx with exponential backoff + jitter.
+  // Binance Futures rate-limits the public klines endpoint; without retry the
+  // scanner hangs on the first 429 and operator sees a feed-down without
+  // recovery.
+  const MAX_KLINE_ATTEMPTS = 4;
+  const KLINE_BASE_DELAY_MS = 500;
+  const KLINE_MAX_DELAY_MS = 8000;
+
+  function shouldRetryKlineResponse(status) {
+    return status === 429 || (status >= 500 && status < 600);
+  }
+
+  async function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function getKlines(symbol, interval, limit, { startTime, endTime } = {}) {
     const query = new URLSearchParams({ symbol, interval, limit: String(limit) });
     if (Number.isFinite(Number(startTime))) query.set('startTime', String(Number(startTime)));
     if (Number.isFinite(Number(endTime))) query.set('endTime', String(Number(endTime)));
-    const response = await fetchFn(`${baseUrl}/fapi/v1/klines?${query.toString()}`, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) throw new Error(`Binance Futures klines failed with HTTP ${response.status}`);
-    const rows = await response.json();
-    if (!Array.isArray(rows)) throw new Error('Binance Futures klines response is invalid');
-    return rows;
+    const url = `${baseUrl}/fapi/v1/klines?${query.toString()}`;
+    let lastError = null;
+    for (let attempt = 1; attempt <= MAX_KLINE_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await fetchFn(url, { signal: AbortSignal.timeout(10000) });
+        if (!response.ok) {
+          if (shouldRetryKlineResponse(response.status) && attempt < MAX_KLINE_ATTEMPTS) {
+            const retryAfter = Number(response.headers?.get?.('retry-after')) * 1000;
+            const backoff = Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter
+              : Math.min(KLINE_MAX_DELAY_MS, KLINE_BASE_DELAY_MS * (2 ** (attempt - 1)));
+            await sleep(Math.floor(Math.random() * backoff));
+            continue;
+          }
+          throw new Error(`Binance Futures klines failed with HTTP ${response.status}`);
+        }
+        const rows = await response.json();
+        if (!Array.isArray(rows)) throw new Error('Binance Futures klines response is invalid');
+        return rows;
+      } catch (err) {
+        lastError = err;
+        const transient = err.name === 'TimeoutError' || err.name === 'AbortError' || err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED';
+        if (!transient || attempt >= MAX_KLINE_ATTEMPTS) throw err;
+        const backoff = Math.min(KLINE_MAX_DELAY_MS, KLINE_BASE_DELAY_MS * (2 ** (attempt - 1)));
+        await sleep(Math.floor(Math.random() * backoff));
+      }
+    }
+    throw lastError;
   }
 
   async function getCompletedCandles(symbol, interval, limit) {

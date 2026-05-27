@@ -175,7 +175,8 @@ test('replay study compares enabled contracts and walk-forward blocks weak valid
   const walkForward = await service.runWalkForward({ symbol: 'BTCUSDT', trainingDays: 30, validationDays: 30 });
   assert.equal(walkForward.parametersFrozen, true);
   assert.equal(walkForward.passed, false);
-  assert.ok(walkForward.reasons.includes('validation_trade_count_below_10'));
+  // B3P.09: WF floor raised 10 -> 30 trades (aligns with historical-replay gate).
+  assert.ok(walkForward.reasons.includes('validation_trade_count_below_30'));
   assert.ok(walkForward.reasons.includes('validation_expectancy_not_positive'));
 });
 

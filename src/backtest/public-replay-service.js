@@ -43,9 +43,15 @@ function evaluateEvidenceGate(summary) {
   return reasons;
 }
 
+// B3P.09: walk-forward floor raised from 10 → 30 trades. Audit
+// 04-paper-engine.md #9 flagged that the WF gate (10 trades) was less strict
+// than the historical-replay gate (30 trades) used at the same promotion
+// stage, letting variants slip through WF on a 10-trade sample only to fail
+// at full soak. Aligning both gates to 30 trades makes WF a meaningful
+// promotion sieve, not just a learning sniff test.
 function evaluateWalkForwardGate(summary) {
   const reasons = [];
-  if (summary.completedTrades < 10) reasons.push('validation_trade_count_below_10');
+  if (summary.completedTrades < 30) reasons.push('validation_trade_count_below_30');
   if (summary.expectancyUsd <= 0) reasons.push('validation_expectancy_not_positive');
   if (summary.stressedPnlUsd <= 0) reasons.push('validation_stressed_pnl_not_positive');
   if (summary.maxDrawdownPct > 6) reasons.push('validation_drawdown_above_6_pct');
