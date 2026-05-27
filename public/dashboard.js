@@ -2,9 +2,13 @@
 // Uses real endpoints: /api/status, /api/tracked-tokens, /api/ohlcv,
 // /api/market-indicators, Week 6 observability.
 
+// B5.dash.5: relaxed default polling from 5s → 10s. Server `/api/status`
+// recomputes in ~10s for spot LIVE; polling faster than server cadence
+// just paints the same numbers twice and burns dashboard quota. Override
+// via localStorage `dt.refreshMs` for operators who want tighter cadence.
 const STATE = {
   bot: localStorage.getItem('dt.bot') || 'live',
-  refreshMs: 5000,
+  refreshMs: Math.max(2000, Number(localStorage.getItem('dt.refreshMs') || 10000)),
   chartSymbol: localStorage.getItem('dt.chartSymbol') || 'BTCUSDT',
   chartInterval: localStorage.getItem('dt.chartInterval') || '5m',
   chart: null,
@@ -89,10 +93,19 @@ function renderBalancesAndPnl(portfolio) {
   el('kpi-total-balance').innerHTML = `${fmtUSD(equity)} <span class="card-suffix">USD</span>`;
 
   // Invested = exposureUsd (sum of position cost basis)
+  // B5.dash.6: invested % follows the SAME definition the server uses for
+  // exposure caps — gross-exposure / equity, where gross-exposure is the SUM
+  // of every position's current value. Prefer `portfolio.exposurePctOfEquity`
+  // when the server provides it; only fall back to local recompute when
+  // missing. Avoids the drift between client (cost-basis ratio) and server
+  // (mark-value ratio) the audit flagged.
   const invested = Number(portfolio.exposureUsd || 0);
   if (el('kpi-invested')) {
     el('kpi-invested').textContent = fmtUSD(invested);
-    const pct = equity > 0 ? (invested / equity) * 100 : 0;
+    const serverPct = Number(portfolio.exposurePctOfEquity);
+    const pct = Number.isFinite(serverPct)
+      ? serverPct
+      : (equity > 0 ? (invested / equity) * 100 : 0);
     el('kpi-invested-pct').textContent = `${pct.toFixed(1)}% of equity`;
   }
 
@@ -104,8 +117,17 @@ function renderBalancesAndPnl(portfolio) {
     ? detailParts.join(' · ')
     : `Cash $${cash.toFixed(2)}`;
 
-  // 24h PnL (best-effort from pnlHistory)
-  const pnl24h = compute24hPnl(portfolio.pnlHistory) ?? unrealizedPnl;
+  // 24h PnL — prefer server-supplied value when present; only fall back to
+  // client-side recompute if the server payload didn't include it. The
+  // previous always-fallback to `unrealizedPnl` was misleading when pnlHistory
+  // was thin (it showed live unrealized as if it were 24h delta).
+  // B5.dash.3: never silently fall back to unrealizedPnl. Surface "—" when no
+  // real 24h sample exists.
+  const serverPnl24h = Number(portfolio.pnl24hUsd);
+  const computedPnl24h = compute24hPnl(portfolio.pnlHistory);
+  const pnl24h = Number.isFinite(serverPnl24h)
+    ? serverPnl24h
+    : (computedPnl24h !== null ? computedPnl24h : NaN);
   setPnl('kpi-pnl-24h', 'kpi-pnl-24h-pct', pnl24h, equity);
   setPnl('kpi-pnl-total', 'kpi-pnl-total-pct', totalPnl, equity);
   // Override total-pct with totalReturnPct if available
@@ -465,9 +487,25 @@ function initChart() {
   const container = el('chart-container');
   if (!container) return;
   if (!window.LightweightCharts) {
+    // B5.dash.9: fail-loud when chart CDN is blocked. Previously the message
+    // was placid grey text most operators tuned out. Surface a banner alert
+    // so the operator sees the chart isn't usable; trading state remains
+    // intact (dashboard KPIs + position table render without the chart) but
+    // the user knows they're flying without price visualization.
     const blocked = window.__chartCdnFailed ? 'BOTH unpkg.com AND cdn.jsdelivr.net blocked' : 'CDN script not loaded yet';
-    chartMsg(`Chart library unavailable — ${blocked}. Disable adblock for this page or whitelist unpkg.com/jsdelivr.net.`, '#f87171');
+    chartMsg(`⚠ Chart library unavailable — ${blocked}. Disable adblock for this page or whitelist unpkg.com/jsdelivr.net. KPIs + positions still update.`, '#f87171');
     console.error('[chart] LightweightCharts global missing. cdnFailed=', !!window.__chartCdnFailed);
+    // One-time visible alert so the operator notices on first render.
+    if (!window.__chartFailAlerted) {
+      window.__chartFailAlerted = true;
+      try {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#7f1d1d;color:#fef2f2;padding:8px 16px;border-radius:6px;z-index:9999;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.4);';
+        banner.textContent = '⚠ Chart CDN blocked — trading remains live, but price chart is unavailable.';
+        document.body.appendChild(banner);
+        setTimeout(() => banner.remove(), 15000);
+      } catch (_) { /* ignore DOM errors */ }
+    }
     return;
   }
   if (STATE.chart) return;

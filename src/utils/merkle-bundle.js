@@ -235,6 +235,22 @@ async function sendBundle({ signedTxs, targetBlockNumber = null, logger = consol
         recordRelayOutcome(relay.name, true);
         const bundleHash = body.result?.bundleHash || body.result || '';
         logger.info(`[Merkle] Bundle accepted by ${relay.name} → bundleHash=${bundleHash}`);
+        // B5.8: fire-and-forget landed check. Poll for inclusion in the
+        // background and record the terminal outcome against the relay's
+        // landed-score. Failure or timeout records ok=false. Does not block
+        // the caller because submission-accepted is the primary success
+        // signal — landed-score is for future relay ranking.
+        const relayName = relay.name;
+        const relayUrl = relay.url;
+        (async () => {
+          try {
+            const pollResult = await pollBundleStatus({ bundleHash, relayUrl, logger });
+            recordRelayLandedOutcome(relayName, pollResult?.status === 'included' || pollResult?.status === 'landed');
+          } catch (pollErr) {
+            recordRelayLandedOutcome(relayName, false);
+            logger.debug?.(`[Merkle] landed-check failed for ${relayName}: ${pollErr.message}`);
+          }
+        })();
         return { ok: true, relay: relay.name, bundleHash, error: null };
       }
       const errMsg = body?.error?.message || 'no result field';
