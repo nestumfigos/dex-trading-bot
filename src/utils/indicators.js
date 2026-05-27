@@ -64,26 +64,68 @@ function volumeSpike(volumes, options = {}) {
   return latestVolume / baseline;
 }
 
-function adx(prices, period = 14) {
+// B2.10: ADX with proper True Range.
+//
+// Accepts either:
+//   (closesArray, period)   — legacy shape. TR falls back to |Δclose|. Marked
+//                             deprecated; emits warn-on-first-use because TR
+//                             without H/L underestimates volatility and skews
+//                             directional indices.
+//   (ohlcvArray, period)    — preferred. Each entry is {high, low, close} (or
+//                             {h,l,c}). TR = max(H-L, |H-Cp|, |L-Cp|) per Wilder.
+//
+// Returns mean of last DX values; null if input insufficient.
+let _adxLegacyShapeWarned = false;
+function adx(input, period = 14) {
   const normalizedPeriod = Math.max(2, Number(period || 14));
-  if (!Array.isArray(prices) || prices.length < normalizedPeriod + 1) return null;
+  if (!Array.isArray(input) || input.length < normalizedPeriod + 1) return null;
 
-  const closes = prices
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  if (closes.length < normalizedPeriod + 1) return null;
+  const isOhlcv = typeof input[0] === 'object' && input[0] !== null;
+
+  const bars = isOhlcv
+    ? input
+        .map((bar) => ({
+          high: Number(bar.high ?? bar.h),
+          low: Number(bar.low ?? bar.l),
+          close: Number(bar.close ?? bar.c),
+        }))
+        .filter((bar) => (
+          Number.isFinite(bar.high) && Number.isFinite(bar.low) && Number.isFinite(bar.close)
+          && bar.high > 0 && bar.low > 0 && bar.close > 0
+          && bar.high >= bar.low
+        ))
+    : input
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((close) => ({ high: close, low: close, close }));
+
+  if (!isOhlcv && !_adxLegacyShapeWarned) {
+    _adxLegacyShapeWarned = true;
+    // eslint-disable-next-line no-console
+    console.warn('[indicators.adx] legacy closes-only input — TR falls back to |Δclose|, which underestimates volatility. Pass [{high,low,close}, ...] for Wilder TR.');
+  }
+
+  if (bars.length < normalizedPeriod + 1) return null;
 
   const dxValues = [];
-  for (let index = normalizedPeriod; index < closes.length; index += 1) {
+  for (let index = normalizedPeriod; index < bars.length; index += 1) {
     let positiveDm = 0;
     let negativeDm = 0;
     let trueRange = 0;
 
     for (let offset = index - normalizedPeriod + 1; offset <= index; offset += 1) {
-      const delta = closes[offset] - closes[offset - 1];
-      if (delta > 0) positiveDm += delta;
-      else if (delta < 0) negativeDm += Math.abs(delta);
-      trueRange += Math.abs(delta);
+      const cur = bars[offset];
+      const prev = bars[offset - 1];
+      const upMove = cur.high - prev.high;
+      const downMove = prev.low - cur.low;
+      if (upMove > downMove && upMove > 0) positiveDm += upMove;
+      if (downMove > upMove && downMove > 0) negativeDm += downMove;
+      const tr = Math.max(
+        cur.high - cur.low,
+        Math.abs(cur.high - prev.close),
+        Math.abs(cur.low - prev.close),
+      );
+      trueRange += tr;
     }
 
     if (trueRange <= 0) continue;

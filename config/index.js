@@ -212,7 +212,9 @@ const config = {
   risk: {
     maxPositionSizePct: parseFloat(process.env.MAX_POSITION_SIZE_PCT) || 3,
     kucoinMaxPositionSizePct: parseFloat(process.env.KUCOIN_MAX_POSITION_SIZE_PCT || '140') || 140,
-    stopLossPct: parseFloat(process.env.STOP_LOSS_PCT) || 8,
+    // B2.21: synced paper→live (paper tighter = safer). Paper has 6%; live had 8%.
+    // Earlier stop firing reduces tail-loss exposure. Operators may override via env.
+    stopLossPct: parseFloat(process.env.STOP_LOSS_PCT) || 6,
     takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT) || 25,
     // Disaster-floor: hard exit if position drops more than this % from entry, regardless
     // of configured stopLoss. Catches cases where stopLoss is missing/misconfigured.
@@ -234,6 +236,10 @@ const config = {
     // Graduated stale-drift exit: forces out barely-profitable positions that won't move.
     // Without this, slow-bleed winners trap capital indefinitely (never hit TP, never hit SL).
     staleDriftExitEnabled: process.env.STALE_DRIFT_EXIT_ENABLED !== 'false',
+    // B2.21 (drift retained intentional): live keeps tighter stale-drift windows
+    // (12h/1%) versus paper (24h/3%). Live is more aggressive on cleaning up
+    // slow-bleed winners that won't move — operator may sync paper-side later
+    // after A/B observation. See audit/phase-a/11-live-paper-drift.md.
     staleDriftTier1Hours: parseFloat(process.env.STALE_DRIFT_TIER1_HOURS || '12'),
     staleDriftTier1MinProfitPct: parseFloat(process.env.STALE_DRIFT_TIER1_MIN_PROFIT_PCT || '1'),
     staleDriftTier2Hours: parseFloat(process.env.STALE_DRIFT_TIER2_HOURS || '24'),
@@ -246,7 +252,9 @@ const config = {
     btcRiskOffThresholdPct: parseFloat(process.env.BTC_RISK_OFF_THRESHOLD_PCT || '2'),
     btcRiskOffPollMinutes: parseFloat(process.env.BTC_RISK_OFF_POLL_MINUTES || '5'),
     minLiquidityUsd: minLiquidityUsdDefault,
-    newListingAgeSec: parseInt(process.env.NEW_LISTING_AGE_SEC || '3600', 10),
+    // B2.21: synced paper→live (paper: 1800s / 30min). Tighter window forces
+    // fresher catalyst data when admitting recent listings; reduces stale entries.
+    newListingAgeSec: parseInt(process.env.NEW_LISTING_AGE_SEC || '1800', 10),
     newListingVolThresholdUsd: parseFloat(process.env.NEW_LISTING_VOL_THRESHOLD || String(minLiquidityUsdDefault / 2)),
     catalystEnabled: process.env.CATALYST_ENABLED !== 'false',
     catalystCacheTtlSeconds: parseInt(process.env.CATALYST_CACHE_TTL_SECONDS || '900', 10),
@@ -259,7 +267,10 @@ const config = {
     dailyDrawdownLimitPct: parseFloat(process.env.DAILY_DRAWDOWN_LIMIT_PCT || String(defaultMaxDailyLossPct)) || defaultMaxDailyLossPct,
     maxTokenAgeHours: parseFloat(process.env.MAX_TOKEN_AGE_HOURS) || 6,
     trailingStopAfterMultiplier: parseFloat(process.env.TRAILING_STOP_AFTER_MULTIPLIER) || 2,
-    trailingStopPct: parseFloat(process.env.TRAILING_STOP_PCT) || 15,
+    // B2.21: synced paper→live (paper: 2.5%). Tighter trailing locks in gains
+    // sooner on volatile reversals — the previous 15% trailing meant winners
+    // could pull back 15% before exit, surrendering most of the move.
+    trailingStopPct: parseFloat(process.env.TRAILING_STOP_PCT) || 2.5,
     maxCorrelationPct: parseFloat(process.env.MAX_CORRELATION_PCT) || 75,
     aiConfidenceFloor: parseFloat(process.env.AI_CONFIDENCE_FLOOR) || 70,
     maxConsecutiveLosses: parseInt(process.env.MAX_CONSECUTIVE_LOSSES || '4', 10),

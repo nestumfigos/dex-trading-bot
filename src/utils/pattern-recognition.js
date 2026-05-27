@@ -150,7 +150,13 @@ function detectPatternsForCandles(candles = [], interval = '4h') {
     }
   }
 
-  const recent = closes.slice(-25);
+  // B2.12: exclude the in-progress bar from rounding-bottom confirmation.
+  // Using `slice(-25)` (which includes the current open candle) confirms patterns
+  // on data that has not yet closed, producing late entries with unavoidable
+  // slippage in live and an artificially optimistic backtest. Confirm on the
+  // last closed bar (index N) and let the caller act on N+1.
+  const closedBarsOnly = closes.slice(0, -1); // drop in-progress candle
+  const recent = closedBarsOnly.slice(-25);
   const minRecent = Math.min(...recent);
   const maxRecent = Math.max(...recent);
   const endClose = recent[recent.length - 1];

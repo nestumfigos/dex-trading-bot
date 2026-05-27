@@ -3,6 +3,9 @@
 const config = require('../../config');
 const { runModelInference } = require('./ml-inference');
 const { classifyRegimeFamily } = require('./promotion-governance');
+// B2.17: Bayesian fusion ported from PAPER (W12 audit). Pure-fn module: takes
+// likelihood inputs per evidence channel, returns posterior probability.
+const { evaluateGraphicalBayesianNetwork } = require('./bayesian-network');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -37,6 +40,44 @@ function scoreLlmSignal(aiDecision = {}) {
   if (signal === 'BUY') return 0.5 + (confidence * 0.35);
   if (signal === 'SELL') return 0.5 - (confidence * 0.35);
   return 0.5;
+}
+
+// B2.17: helpers ported from paper for Bayesian fusion.
+function likelihoodFromSignal(signal = 'HOLD', confidence = 0, fallbackScore = 0.5) {
+  const normalized = String(signal || 'HOLD').toUpperCase();
+  const conf = clamp(Number(confidence || 0), 0, 1);
+  const score = clamp(Number(fallbackScore || 0.5), 0, 1);
+  if (normalized === 'BUY') return clamp(0.55 + (conf * 0.35) + ((score - 0.5) * 0.2), 0.05, 0.95);
+  if (normalized === 'SELL') return clamp(0.45 - (conf * 0.35) + ((score - 0.5) * 0.2), 0.05, 0.95);
+  return clamp(0.45 + (score * 0.1), 0.20, 0.80);
+}
+
+function computeBayesianPosterior({ inputs = {}, regimeFamily = 'unknown', taskClass = '' } = {}) {
+  const isEntry = String(taskClass || '').includes('entry');
+  const priors = {
+    high_volatility: isEntry ? 0.42 : 0.50,
+    downtrend: isEntry ? 0.40 : 0.50,
+    uptrend: isEntry ? 0.56 : 0.50,
+    ranging: isEntry ? 0.48 : 0.50,
+    unknown: 0.50,
+  };
+  const prior = clamp(Number(priors[regimeFamily] ?? priors.unknown), 0.05, 0.95);
+  let logOdds = Math.log(prior / (1 - prior));
+  const evidence = [
+    { name: 'technical', likelihood: likelihoodFromSignal(inputs.technicalSignal, 0.45, inputs.technicalScore), weight: 0.95 },
+    { name: 'ml', likelihood: likelihoodFromSignal(inputs.mlSignal, inputs.mlConfidence, inputs.mlScore), weight: 1.10 },
+    { name: 'rl', likelihood: likelihoodFromSignal(inputs.rlSignal, inputs.rlConfidence, inputs.rlScore), weight: 0.65 },
+    { name: 'sentiment', likelihood: likelihoodFromSignal(inputs.sentimentSignal, inputs.sentimentConfidence, inputs.sentimentScore), weight: 0.75 },
+    { name: 'llm', likelihood: likelihoodFromSignal(inputs.llmSignal, inputs.llmConfidence, inputs.llmScore), weight: 0.70 },
+  ];
+  const terms = evidence.map((item) => {
+    const likelihood = clamp(item.likelihood, 0.05, 0.95);
+    const contribution = Math.log(likelihood / (1 - likelihood)) * item.weight;
+    logOdds += contribution;
+    return { name: item.name, likelihood, weight: item.weight, contribution };
+  });
+  const posterior = 1 / (1 + Math.exp(-logOdds));
+  return { prior, posterior: clamp(posterior, 0.01, 0.99), terms };
 }
 
 function aggregateRouteScores(weights, inputs = {}) {
@@ -168,32 +209,62 @@ async function runHybridDecision({
     sentimentScore: Number(sentimentSnapshot?.aggregateScore || 0.5),
     llmScore,
   });
+  // B2.17: Bayesian fusion. Replaces raw `aggregateScore` as the threshold
+  // input for the entry/exit branches below. Adds a posterior probability
+  // from a likelihood-weighted log-odds aggregation across all evidence
+  // channels (technical, ML, RL, sentiment, LLM) plus a graphical Bayesian
+  // network probability. Fusion weights match paper: 0.62 aggregate +
+  // 0.23 posterior + 0.15 network probability. Previously LIVE used raw
+  // aggregateScore (0.60/0.64 thresholds) which is systematically MORE
+  // permissive than paper — closing that gap aligns live edge with paper.
+  const bayesianInputs = {
+    technicalSignal: evaluation?.signal || 'HOLD',
+    technicalScore: scoreTechnicalSignal(evaluation?.signal),
+    mlSignal: ml.aggregate?.signal || 'HOLD',
+    mlScore: ml.aggregate?.score || 0.5,
+    mlConfidence: Number(ml.aggregate?.confidence || 0),
+    rlSignal: rlResolved?.signal || 'HOLD',
+    rlScore: rlResolved?.signal === 'BUY' ? 0.75 : rlResolved?.signal === 'SELL' ? 0.25 : 0.5,
+    rlConfidence: Number(rlResolved?.confidence || 0),
+    sentimentSignal: sentimentSnapshot?.signal || 'HOLD',
+    sentimentScore: Number(sentimentSnapshot?.aggregateScore || 0.5),
+    sentimentConfidence: Number(sentimentSnapshot?.confidence || 0),
+    llmSignal: evaluation?.details?.aiReason ? (evaluation?.signal || 'HOLD') : 'HOLD',
+    llmScore,
+    llmConfidence: clamp(Number(evaluation?.details?.aiConfidence || 0) / 100, 0, 1),
+  };
+  const bayesian = computeBayesianPosterior({ regimeFamily, taskClass, inputs: bayesianInputs });
+  const bayesianNetwork = evaluateGraphicalBayesianNetwork({ regimeFamily, signals: bayesianInputs, taskClass });
+  const fusedScore = clamp((aggregateScore * 0.62) + (bayesian.posterior * 0.23) + (bayesianNetwork.probability * 0.15), 0, 1);
+
   const coPolicyDecision = buildCoPolicyDecision({
     technicalSignal: evaluation?.signal || 'HOLD',
     mlSignal: ml.aggregate?.signal || 'HOLD',
     rlSignal: rlResolved?.signal || 'HOLD',
     sentimentSignal: sentimentSnapshot?.signal || 'HOLD',
     llmSignal: evaluation?.details?.aiReason ? (evaluation?.signal || 'HOLD') : 'HOLD',
-    aggregateScore,
+    aggregateScore: fusedScore,
   });
 
   let finalSignal = evaluation?.signal || 'HOLD';
   const technicalSignal = evaluation?.signal || 'HOLD';
-  if (coPolicyDecision.signal === 'BUY' && technicalSignal !== 'BUY' && aggregateScore >= 0.60) {
+  // B2.17: thresholds tested against FUSED score, not raw aggregate.
+  if (coPolicyDecision.signal === 'BUY' && technicalSignal !== 'BUY' && fusedScore >= 0.60) {
     finalSignal = 'BUY';
-  } else if (technicalSignal !== 'BUY' && aggregateScore >= 0.64 && (ml.aggregate?.signal === 'BUY' || rlResolved?.signal === 'BUY')) {
+  } else if (technicalSignal !== 'BUY' && fusedScore >= 0.64 && (ml.aggregate?.signal === 'BUY' || rlResolved?.signal === 'BUY')) {
     finalSignal = 'BUY';
-  } else if ((coPolicyDecision.signal === 'SELL' && technicalSignal === 'BUY') || (technicalSignal === 'BUY' && aggregateScore <= 0.40 && (ml.aggregate?.signal === 'SELL' || rlResolved?.signal === 'SELL' || sentimentSnapshot?.signal === 'SELL'))) {
+  } else if ((coPolicyDecision.signal === 'SELL' && technicalSignal === 'BUY') || (technicalSignal === 'BUY' && fusedScore <= 0.40 && (ml.aggregate?.signal === 'SELL' || rlResolved?.signal === 'SELL' || sentimentSnapshot?.signal === 'SELL'))) {
     finalSignal = 'HOLD';
   }
 
-  const confidence = clamp(Math.abs(aggregateScore - 0.5) * 2, 0, 1);
+  const confidence = clamp(Math.abs(fusedScore - 0.5) * 2, 0, 1);
   const result = {
     taskClass,
     regimeFamily,
     finalSignal,
     confidence,
-    aggregateScore,
+    aggregateScore: fusedScore,
+    aggregateScoreRaw: aggregateScore, // for telemetry parity with paper
     route: {
       weights,
       baseWeights,
@@ -207,6 +278,8 @@ async function runHybridDecision({
         confidence: sentimentSnapshot.confidence,
         score: sentimentSnapshot.aggregateScore,
       } : null,
+      bayesian,
+      bayesianNetwork,
     },
     predictions: ml.predictions,
   };
@@ -234,7 +307,10 @@ async function runHybridDecision({
         confidence,
         route: result.route,
         context: {
-          aggregateScore,
+          aggregateScore: fusedScore,
+          aggregateScoreRaw: aggregateScore,
+          bayesianPosterior: bayesian.posterior,
+          bayesianNetworkProbability: bayesianNetwork.probability,
           strategyName,
         },
       }).catch((error) => logger?.warn?.(`[Hybrid] route persistence failed: ${error.message}`)),

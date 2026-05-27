@@ -167,6 +167,22 @@ class RLOnlineUpdater {
       reward += (tradeOutcome.confidence - 0.8) * 20; // Scale by high confidence
     }
 
+    // B2.13: drawdown penalty. Previous reward shape rewarded PnL % and quick
+    // exits with no proportional penalty for cumulative drawdown. Reward-hacking
+    // policies that maximize per-trade PnL while letting account drawdown drift
+    // toward the kill-switch threshold passed evaluation. Penalize current
+    // portfolio drawdown_pct (already exposed via calculateDrawdown) so the
+    // policy converges on risk-adjusted PnL, not raw PnL.
+    const currentDrawdownPct = this.calculateDrawdown(tradeOutcome.portfolio || {});
+    if (Number.isFinite(currentDrawdownPct) && currentDrawdownPct > 0) {
+      // Coefficient 0.15: a 20% account drawdown shaves 3 points off reward —
+      // enough to flip a marginal win into a neutral signal, large losses become
+      // strongly negative once drawdown stacks. Tune via rl.drawdownPenaltyCoef
+      // if/when available on config.
+      const drawdownPenaltyCoef = Number(tradeOutcome.drawdownPenaltyCoef ?? 0.15);
+      reward -= currentDrawdownPct * drawdownPenaltyCoef;
+    }
+
     return Math.max(-100, Math.min(100, reward)); // Clamp
   }
 

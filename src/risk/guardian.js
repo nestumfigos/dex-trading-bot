@@ -288,6 +288,13 @@ class RiskGuardian {
 
   // Cost-basis valuation — used for heat/exposure checks so that price appreciation
   // on winners doesn't artificially inflate exposure and block new trades.
+  //
+  // B2.20 (verified no-change): Phase A audit 03-risk.md #5 suggested using
+  // mark value for leverage calc. That recommendation assumed a leveraged
+  // (margin/perp) bot. This is the SPOT bot — there is no leverage and there is
+  // no leverage gate. The closest analog (`heatPct = exposure / capital`) uses
+  // cost-basis intentionally per the rationale above. Perp bot (separate repo)
+  // already uses mark-based liquidation math in `src/strategies/perps-sizing.js`.
   getPositionCostBasisUsd(position = {}) {
     const costBasis = Number(position.costBasisUsd || 0);
     if (Number.isFinite(costBasis) && costBasis > 0) return costBasis;

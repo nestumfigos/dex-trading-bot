@@ -70,17 +70,45 @@ class BTCMacroFilter {
       }
 
       if (btcData) {
-        // Estimate 1h change from 24h (rough approximation)
-        // More accurate would be to track historical data
-        const hoursSince = 1;
-        const estimatedChange1h = btcData.priceChange24h / 24;
+        // B2.11: real 1h delta from Binance klines instead of the linear 24h/24
+        // estimate. The estimate (`priceChange24h / 24`) assumes constant
+        // velocity, which is wrong by construction — price moves cluster on
+        // catalysts. Risk-off filter triggers on noise or fails to trigger on
+        // genuine 1h drawdowns. Fetch an actual 1h candle and compute close-to-close.
+        let priceChange1hPct = null;
+        try {
+          const axios = (await import('axios')).default;
+          // limit=2 returns the in-progress + last fully closed 1h candle.
+          const klines = await axios.get(
+            'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=2',
+            { timeout: 5000 },
+          );
+          const rows = Array.isArray(klines?.data) ? klines.data : [];
+          // Use last fully closed candle (index 0 of the slice when limit=2):
+          // [openTime, open, high, low, close, volume, closeTime, ...]
+          const closed = rows.length >= 2 ? rows[rows.length - 2] : null;
+          if (closed) {
+            const open1h = Number(closed[1]);
+            const close1h = Number(closed[4]);
+            if (Number.isFinite(open1h) && open1h > 0 && Number.isFinite(close1h)) {
+              priceChange1hPct = ((close1h - open1h) / open1h) * 100;
+            }
+          }
+        } catch (err) {
+          this.logger?.debug(`Binance 1h klines fetch failed: ${err.message}`);
+        }
+        // Fallback only if real 1h fetch failed. Tag the cache entry so callers
+        // can distinguish a real reading from an emergency estimate.
+        const usingEstimate = !Number.isFinite(priceChange1hPct);
+        const change1h = usingEstimate ? (btcData.priceChange24h / 24) : priceChange1hPct;
 
         this.btcCache = {
           price: btcData.price,
           timestamp: now,
-          priceChange1h: estimatedChange1h,
+          priceChange1h: change1h,
+          priceChange1hSource: usingEstimate ? '24h_div_24_fallback' : 'binance_1h_klines',
           priceChange24h: btcData.priceChange24h,
-          riskOffTriggered: estimatedChange1h < -2, // Threshold from config
+          riskOffTriggered: change1h < -2, // Threshold from config
         };
 
         return this.btcCache;

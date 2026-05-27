@@ -63,7 +63,14 @@ class TimeframeConfluenceAnalyzer {
       const lows = ohlcv.map((bar) => bar.low);
       const volumes = ohlcv.map((bar) => bar.volume);
 
-      const rsi = computeRsi(closes, timeframe === '1h' ? 14 : 14);
+      // B2.23: RSI period per timeframe. Previous code used 14 for both 1h and
+      // 4h, which over-smooths the 4h reading and misaligns the cross-TF
+      // confluence score. Standard convention: shorter window on longer TF
+      // (or vice versa) — here 4h uses 9 to react to HTF shifts; 1h keeps 14;
+      // anything else stays at config default (14 fallback).
+      const rsiPeriodByTf = { '1h': 14, '4h': 9, '1d': 9 };
+      const rsiPeriod = rsiPeriodByTf[timeframe] ?? 14;
+      const rsi = computeRsi(closes, rsiPeriod);
       const ema9 = this.computeEma(closes, 9);
       const ema21 = this.computeEma(closes, 21);
 

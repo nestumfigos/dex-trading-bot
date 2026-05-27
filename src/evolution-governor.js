@@ -246,11 +246,27 @@ class EvolutionGovernor {
       decision = 'hold';
       reasons.push(`paper_live_discrepancy:${discrepancy.score.toFixed(2)}`);
     } else if (observationMinutes >= settings.minObservationMinutes && observedClosedTrades >= settings.minClosedTrades) {
+      // B2.22: optional belt-and-suspenders floors independent of the
+      // weighted `promotionConfidence` aggregate. Audit 05-self-learning.md
+      // #4 raised concern that the aggregate can pass on a strong showing
+      // in one dimension masking weakness elsewhere. These floors are
+      // OPT-IN via settings — default permissive so existing promotion
+      // flow is unchanged. Operators tighten by setting
+      //   strictDiscrepancyFloor (e.g. 15) and
+      //   strictProfitFactorDeltaFloor (e.g. 0.05).
+      const strictDiscrepancyFloor = Number.isFinite(Number(settings.strictDiscrepancyFloor))
+        ? Number(settings.strictDiscrepancyFloor)
+        : Infinity;
+      const strictPfFloor = Number.isFinite(Number(settings.strictProfitFactorDeltaFloor))
+        ? Number(settings.strictProfitFactorDeltaFloor)
+        : -Infinity;
+      const passStrictDiscrepancy = discrepancy.score < strictDiscrepancyFloor;
+      const passStrictPf = profitFactorDelta > strictPfFloor;
       const passPf = profitFactorDelta >= settings.promoteMinProfitFactorDelta;
       const passWr = winRateDeltaPct >= settings.promoteMinWinRateDeltaPct;
       const passDd = drawdownDeltaPct <= settings.maxDrawdownDeltaPct;
       const passConfidence = promotionConfidence >= settings.minPromotionConfidence;
-      if (passPf && passWr && passDd && passConfidence) {
+      if (passPf && passWr && passDd && passConfidence && passStrictDiscrepancy && passStrictPf) {
         decision = 'promote';
         reasons.push('observation_passed');
         if (settings.shadowModeRequired && observedClosedTrades < settings.minShadowClosedTrades) {

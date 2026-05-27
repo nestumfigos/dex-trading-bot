@@ -578,14 +578,32 @@ function createExecutionFlow(deps = {}) {
     }
 
     const proceedsUsd = filledQuoteUsd;
-    // Fee accounting: deduct realistic round-trip costs the exchanges already took
-    // out of the cash flow but are not reflected in PnL math. Without this, every
-    // closed trade's PnL is overstated by ~0.2-0.4% which masks the real edge.
+    // B2.18: fee double-subtraction guard.
+    //
+    // The previous code applied `feeProfile` bps unconditionally. That's correct
+    // ONLY when `filledQuoteUsd` is GROSS (exchange-reported fill notional before
+    // fees). If a venue returns NET (gross minus exchange fee already netted into
+    // the cash flow — common on Jupiter/aggregator paths), then balance was
+    // already debited/credited net, costBasisUsd is net, and adding feeProfile
+    // again subtracts the fee TWICE → realized PnL understated by ~0.2-0.4%.
+    //
+    // Per-chain `feeProfile.netInQuote=true` opts the chain into "net" semantics
+    // and we SKIP modeled bps. Default (false) preserves prior behavior. Position
+    // also carries the exchange-reported entry-fee when available, so the SELL
+    // path can subtract the actual entry-fee paid instead of a modeled estimate.
     const feeProfile = (config.execution?.feeProfile || {})[chainName]
       || (config.execution?.feeProfile || {}).default
-      || { entryBps: 10, exitBps: 10 };
-    const entryFeeUsd = costBasisPortion * (Number(feeProfile.entryBps || 10) / 10000);
-    const exitFeeUsd = proceedsUsd * (Number(feeProfile.exitBps || 10) / 10000);
+      || { entryBps: 10, exitBps: 10, netInQuote: false };
+    const netInQuote = feeProfile.netInQuote === true;
+    const entryFeeRecorded = Number(position.exchangeFeeUsdEntry || 0);
+    const entryFeeUsd = netInQuote
+      ? 0 // already deducted in BUY-side cash flow
+      : (entryFeeRecorded > 0
+        ? entryFeeRecorded * filledFraction
+        : costBasisPortion * (Number(feeProfile.entryBps || 10) / 10000));
+    const exitFeeUsd = netInQuote
+      ? 0 // exchange will report net; balance += proceedsUsd is post-fee already
+      : proceedsUsd * (Number(feeProfile.exitBps || 10) / 10000);
     const totalFeesUsd = entryFeeUsd + exitFeeUsd;
     const pnl = proceedsUsd - costBasisPortion - totalFeesUsd;
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQty, filledBaseQty);

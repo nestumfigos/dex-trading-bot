@@ -21,6 +21,45 @@ function createAiDecisionQueue(deps) {
   const aiDecisionQueue = new Map();
   let aiDecisionInFlightKey = null;
 
+  // B2.16: AI daily-budget tracking. Phase A audit 06-agent-orchestration.md #5
+  // (AI budget runaway) found no per-day/per-hour cap. With 100 tokens/cycle on
+  // a 30s loop, the system could rack up ~12k AI calls/day uncontrolled.
+  // Track calls per UTC day; reject enqueues past the cap. Reset on day rollover.
+  const DEFAULT_DAILY_CAP = 2000;
+  const aiBudgetState = {
+    day: new Date().toISOString().slice(0, 10),
+    callsCount: 0,
+  };
+  function getDailyAiCap() {
+    return Math.max(100, Number(config.ai?.dailyCallCap ?? DEFAULT_DAILY_CAP));
+  }
+  function rollAiBudgetDayIfNeeded() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== aiBudgetState.day) {
+      aiBudgetState.day = today;
+      aiBudgetState.callsCount = 0;
+    }
+  }
+  function aiBudgetExhausted() {
+    rollAiBudgetDayIfNeeded();
+    return aiBudgetState.callsCount >= getDailyAiCap();
+  }
+  function incrementAiCallCount() {
+    rollAiBudgetDayIfNeeded();
+    aiBudgetState.callsCount += 1;
+  }
+  function getAiBudgetStatus() {
+    rollAiBudgetDayIfNeeded();
+    const cap = getDailyAiCap();
+    return {
+      day: aiBudgetState.day,
+      callsToday: aiBudgetState.callsCount,
+      dailyCap: cap,
+      remaining: Math.max(0, cap - aiBudgetState.callsCount),
+      exhausted: aiBudgetState.callsCount >= cap,
+    };
+  }
+
   function buildAiDecisionCacheKey(tokenData, strategyName) {
     const chainKey = normalizeChainKey(tokenData?.chainKey || tokenData?.chain || 'unknown');
     const address = String(tokenData?.address || '').toLowerCase();
@@ -162,11 +201,22 @@ function createAiDecisionQueue(deps) {
     const [cacheKey, queued] = nextEntry;
     const existing = aiDecisionCache.get(cacheKey) || {};
     aiDecisionInFlightKey = cacheKey;
+    // B2.15: capture the queuedAt the pump is acting on. Used in .then/.catch
+    // to avoid wiping a NEWER enqueue that arrived while the pump was awaiting
+    // the AI provider. Previously `aiDecisionQueue.delete(cacheKey)` ran
+    // unconditionally, silently dropping any re-queue.
+    const queuedAtPumpStart = queued.queuedAt;
+    // B2.16: count this as one AI call against the daily budget.
+    incrementAiCallCount();
 
     const request = AITradeBrain.evaluateToken(queued.tokenData, queued.technicalDetails)
       .then((aiDecision) => {
         const latest = aiDecisionCache.get(cacheKey) || existing;
-        aiDecisionQueue.delete(cacheKey);
+        // B2.15: delete only if the currently-queued entry is the one the pump
+        // started on. If a newer entry was added since (different queuedAt),
+        // leave the queue alone so the next pump can process it.
+        const stillSameEnqueue = aiDecisionQueue.get(cacheKey)?.queuedAt === queuedAtPumpStart;
+        if (stillSameEnqueue) aiDecisionQueue.delete(cacheKey);
         aiDecisionCache.set(cacheKey, {
           ...latest,
           decision: aiDecision || latest.decision || null,
@@ -195,7 +245,9 @@ function createAiDecisionQueue(deps) {
       })
       .catch((error) => {
         const latest = aiDecisionCache.get(cacheKey) || existing;
-        aiDecisionQueue.delete(cacheKey);
+        // B2.15: see .then() — only delete if no newer enqueue arrived.
+        const stillSameEnqueue = aiDecisionQueue.get(cacheKey)?.queuedAt === queuedAtPumpStart;
+        if (stillSameEnqueue) aiDecisionQueue.delete(cacheKey);
         aiDecisionCache.set(cacheKey, {
           ...latest,
           decision: latest.decision || null,
@@ -230,6 +282,13 @@ function createAiDecisionQueue(deps) {
     if (existing.inFlight || hasFreshAiDecision(existing) || !config.anthropic.enabled || Date.now() < aiCircuit.cooldownUntil) {
       return;
     }
+    // B2.16: enforce daily cap. Once exhausted, reject new enqueues until
+    // UTC day rollover. Pre-existing in-flight / fresh-cache decisions still
+    // serve callers; this only stops fresh AI work.
+    if (aiBudgetExhausted()) {
+      logger?.warn?.(`AI daily budget exhausted (${getAiBudgetStatus().callsToday}/${getDailyAiCap()}); deferring ${cacheKey} until tomorrow`);
+      return;
+    }
 
     aiDecisionQueue.set(cacheKey, {
       tokenData: { ...tokenData },
@@ -253,7 +312,9 @@ function createAiDecisionQueue(deps) {
     getCachedAiDecision,
     pumpAiDecisionQueue,
     queueAiDecisionRefresh,
-    _internal: { aiDecisionCache, aiDecisionQueue },
+    // B2.16: budget introspection for dashboards / health endpoints.
+    getAiBudgetStatus,
+    _internal: { aiDecisionCache, aiDecisionQueue, aiBudgetState },
   };
 }
 

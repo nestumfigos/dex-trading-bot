@@ -3199,11 +3199,24 @@ function getPositionValue(position) {
 }
 
 function getOpenPositions() {
+  // B2.19: round-trip fee estimate for unrealized PnL display.
+  // Previously the dashboard showed gross unrealized which inflated the apparent
+  // edge by ~0.2-0.4% per side (40-80 bps round trip). Operators saw a $100 gain
+  // that actually nets to ~$99.20 at close. Apply the per-chain fee profile when
+  // available; otherwise use a conservative 40bps round-trip default.
+  const feeProfileMap = (config.execution?.feeProfile || {});
+  function estimateRoundTripFeeBps(chainKey) {
+    const profile = feeProfileMap[chainKey] || feeProfileMap.default || { entryBps: 10, exitBps: 10 };
+    return Number(profile.entryBps || 10) + Number(profile.exitBps || 10);
+  }
   return Object.entries(portfolio.positions)
     .map(([positionKey, position]) => {
       const currentValue = getPositionValue(position);
       const costBasisUsd = Number(position.costBasisUsd || position.initialSizeUsd || 0);
-      const unrealizedPnl = currentValue - costBasisUsd;
+      const unrealizedPnlGross = currentValue - costBasisUsd;
+      const roundTripFeeBps = estimateRoundTripFeeBps(position.chainKey);
+      const estimatedFeesUsd = costBasisUsd * (roundTripFeeBps / 10000);
+      const unrealizedPnl = unrealizedPnlGross - estimatedFeesUsd;
       const unrealizedPnlPct = costBasisUsd > 0 ? (unrealizedPnl / costBasisUsd) * 100 : 0;
 
       return {
@@ -3221,6 +3234,10 @@ function getOpenPositions() {
         positionValueUsd: round(currentValue),
         unrealizedPnl: round(unrealizedPnl),
         unrealizedPnlPct: round(unrealizedPnlPct),
+        // B2.19: also expose gross (pre-fee) so the dashboard can show both
+        // and operators see exactly how much of the gain fees will consume.
+        unrealizedPnlGross: round(unrealizedPnlGross),
+        estimatedRoundTripFeeUsd: round(estimatedFeesUsd),
         stopLoss: roundPrice(position.stopLoss || 0),
         takeProfit: roundPrice(position.takeProfit || 0),
         openedAt: position.openedAt,
