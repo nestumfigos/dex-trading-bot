@@ -25,9 +25,15 @@ function createPaperExecutionAdapter({ telemetry, entryAdmission = null, mode = 
     if (!Number.isFinite(Number(order.riskPct)) || Number(order.riskPct) <= 0 || Number(order.riskPct) > maxRiskPct) {
       return { accepted: false, reasons: ['risk_pct_above_strategy_cap'] };
     }
+    // B5P.6: enforce isolated margin before sizing. Adapter rejects any order
+    // that doesn't carry marginMode='isolated'. Sizing function repeats the
+    // check defensively; gate repeats it once more. Three layers of refusal.
+    if (order.marginMode && order.marginMode !== 'isolated') {
+      return { accepted: false, reasons: ['isolated_margin_required'] };
+    }
     let sized;
     try {
-      sized = calculatePaperPosition(order);
+      sized = calculatePaperPosition({ ...order, marginMode: order.marginMode || 'isolated' });
     } catch (error) {
       return { accepted: false, reasons: [error.message] };
     }
@@ -171,7 +177,39 @@ function createPaperExecutionAdapter({ telemetry, entryAdmission = null, mode = 
     const originalNotional = Number(position.notionalUsd || closeNotional);
     const closeFraction = originalNotional > 0 ? closeNotional / originalNotional : 1;
     const heldHours = Math.max(0, (Date.parse(now()) - Date.parse(position.openedAt)) / 3600000) || 0;
-    const modeledFundingUsd = closeNotional * Number(position.fundingRatePerEightHours || 0) * (heldHours / 8);
+    // B5P.3: discrete 8h funding accrual.
+    //
+    // Binance funding settles at UTC 00:00, 08:00, 16:00. A position pays one
+    // settlement for each boundary crossed during its hold. Previously this
+    // used a linear `heldHours/8` pro-rata which underestimated funding for
+    // positions opened just before a settlement boundary and overestimated for
+    // positions held a long time across few boundaries.
+    //
+    // Algorithm: count the number of UTC funding boundaries strictly between
+    // openedAt and `closedAt`. A boundary occurring exactly at openedAt is
+    // counted only if open precedes it by any positive epsilon.
+    const settlementsCrossed = (function countFundingSettlements(openedAtMs, closedAtMs) {
+      const openMs = Number(openedAtMs);
+      const closeMs = Number(closedAtMs);
+      if (!Number.isFinite(openMs) || !Number.isFinite(closeMs) || closeMs <= openMs) return 0;
+      const FUNDING_HOURS = [0, 8, 16];
+      // Iterate UTC days touched by the interval.
+      const startUtc = new Date(openMs);
+      const endUtc = new Date(closeMs);
+      let count = 0;
+      const cursor = new Date(Date.UTC(startUtc.getUTCFullYear(), startUtc.getUTCMonth(), startUtc.getUTCDate()));
+      const sentinel = new Date(Date.UTC(endUtc.getUTCFullYear(), endUtc.getUTCMonth(), endUtc.getUTCDate() + 1));
+      while (cursor < sentinel) {
+        for (const hour of FUNDING_HOURS) {
+          const boundary = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate(), hour, 0, 0)).getTime();
+          if (boundary > openMs && boundary <= closeMs) count += 1;
+        }
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      return count;
+    })(Date.parse(position.openedAt), Date.parse(now()));
+    const fundingRatePerEpoch = Number(position.fundingRatePerEightHours || 0);
+    const modeledFundingUsd = closeNotional * fundingRatePerEpoch * settlementsCrossed;
     // B2P.14: exit fee follows order-type tier. Exits via reduce-only at market
     // (default) pay taker; resting limit reduce-only pays maker. Use stored
     // takerFeeRate/makerFeeRate on the position so live + paper agree on rates
