@@ -14,6 +14,10 @@ function createPaperMarketScanner({
   leverage = 3,
   now = () => Date.now(),
   entryAdmission = null,
+  // B6P.ws-wire: optional. When provided, scanner asks for the latest mark
+  // price per symbol and passes it into the order so calculatePaperPosition
+  // can anchor stopDistance + liquidationPrice on mark instead of entry.
+  getLatestMarkPrice = null,
 } = {}) {
   if (!processor || !telemetry || !feed) throw new Error('processor, telemetry, and feed are required');
   const status = { enabled: true, active: false, lastScanAt: null, lastError: null, lastResults: [] };
@@ -101,6 +105,20 @@ function createPaperMarketScanner({
     const variantGate = evaluateVariantEntry({ intent, regime, variant: admitted.variant });
     if (!variantGate.allow) return { symbol: normalizedSymbol, action: 'HOLD', reasons: [variantGate.reason] };
     const positionId = `native-perps:${normalizedSymbol}`;
+    // B6P.ws-wire: enrich order with markPrice + symbol so sizing can use them
+    // for MM tier lookup (B5P.4) and mark-anchored stop math (B5P.5).
+    const markPrice = (typeof getLatestMarkPrice === 'function')
+      ? getLatestMarkPrice(normalizedSymbol)
+      : null;
+    const orderWithMeta = {
+      ...intent.order,
+      variantId: admitted.variant.id,
+      openedMarketAt: latest.openTime,
+      symbol: normalizedSymbol,
+    };
+    if (Number.isFinite(Number(markPrice)) && Number(markPrice) > 0) {
+      orderWithMeta.markPrice = Number(markPrice);
+    }
     const result = processor.processSignal({
       id: `native-open:${normalizedSymbol}:${latest.openTime}:${intent.setup}:${intent.side}`,
       paperOnly: true,
@@ -110,7 +128,7 @@ function createPaperMarketScanner({
       action: intent.side === 'long' ? 'OPEN_LONG' : 'OPEN_SHORT',
       positionId,
       setup: intent.setup,
-      order: { ...intent.order, variantId: admitted.variant.id, openedMarketAt: latest.openTime },
+      order: orderWithMeta,
     });
     return { symbol: normalizedSymbol, action: result.accepted ? 'OPEN' : 'REJECTED', intent, result };
   }

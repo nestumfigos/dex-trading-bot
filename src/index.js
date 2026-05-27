@@ -4,6 +4,7 @@ const { createPaperTelemetry } = require('./telemetry/perps-stats');
 const { createPaperExecutionAdapter } = require('./paper/paper-perps-adapter');
 const { createPaperSignalProcessor } = require('./paper/paper-signal-processor');
 const { createBinancePublicPerpsFeed } = require('./market/binance-public-perps');
+const { createBinancePerpsWsConsumer } = require('./market/binance-perps-ws');
 const { createPaperMarketScanner } = require('./paper/paper-market-scanner');
 const { createPublicReplayService } = require('./backtest/public-replay-service');
 const { createPaperApiServer } = require('./server');
@@ -22,6 +23,24 @@ const symbols = String(process.env.PERPS_PAPER_SYMBOLS || 'BTCUSDT,ETHUSDT,SOLUS
   .map((symbol) => symbol.trim().toUpperCase())
   .filter(Boolean);
 const publicFeed = scannerEnabled ? createBinancePublicPerpsFeed() : null;
+// B6P.ws-wire: subscribe to binance markPrice@1s for each scanned symbol so
+// the scanner can pull live mark prices for sizing + liq-buffer tracking.
+// Opt-out via PERPS_PAPER_MARKPRICE_WS_ENABLED=false. Requires a WebSocket
+// implementation; Node 18+ provides global WebSocket. Falls back to no-WS
+// (sizing uses entryPrice) if construction fails.
+let markPriceWs = null;
+if (scannerEnabled && process.env.PERPS_PAPER_MARKPRICE_WS_ENABLED !== 'false') {
+  try {
+    // eslint-disable-next-line global-require
+    const WebSocketCtor = (typeof WebSocket === 'function') ? WebSocket : require('ws');
+    markPriceWs = createBinancePerpsWsConsumer({ WebSocketCtor });
+    markPriceWs.subscribe(symbols);
+    console.log(`Perps PAPER markPrice WS subscribed: ${symbols.join(', ')}`);
+  } catch (err) {
+    console.warn(`Perps PAPER markPrice WS unavailable: ${err.message}`);
+    markPriceWs = null;
+  }
+}
 // B1P.4: admission required by default. To disable, MUST set
 // PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED=false (explicit opt-out). Any other value
 // — unset, 'true', 'yes', etc — leaves admission active. Mirror the value into a
@@ -46,6 +65,9 @@ const scanner = scannerEnabled ? createPaperMarketScanner({
   equityUsd: Number(process.env.PERPS_PAPER_EQUITY_USD || 10000),
   leverage: Number(process.env.PERPS_PAPER_LEVERAGE || 3),
   entryAdmission: admission,
+  // B6P.ws-wire: scanner uses this to fetch fresh markPrice per scan tick.
+  // Null when WS unavailable; scanner falls back to entryPrice-based sizing.
+  getLatestMarkPrice: markPriceWs ? (sym) => markPriceWs.getLatestMarkPrice(sym) : null,
 }) : null;
 const replayService = scannerEnabled ? createPublicReplayService({
   feed: publicFeed,
@@ -61,6 +83,10 @@ const server = createPaperApiServer({
   admission,
   observationDays,
 });
+// B6P.ws-wire: graceful shutdown for WS consumer.
+process.on('SIGINT', () => { if (markPriceWs) markPriceWs.close(); process.exit(0); });
+process.on('SIGTERM', () => { if (markPriceWs) markPriceWs.close(); process.exit(0); });
+
 server.listen(port, '127.0.0.1', () => {
   console.log(`Perps PAPER telemetry API listening on http://127.0.0.1:${port}; live execution disabled`);
   if (scanner) {
