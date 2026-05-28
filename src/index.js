@@ -2,6 +2,21 @@
 
 const BOOT_TIME_MS = Date.now();
 require('dotenv').config();
+
+// Crash visibility: surface unhandled rejections + uncaught exceptions to
+// stderr before exit. Default Node 18+ behavior is silent exit (especially
+// for unhandledRejection on older runtimes) which masks root cause in logs.
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error(`[live] uncaughtException: ${err?.stack || err?.message || err}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error(`[live] unhandledRejection: ${reason?.stack || reason?.message || reason}`);
+  process.exit(1);
+});
+
 const cron = require('node-cron');
 const { ethers } = require('ethers');
 const config = require('../config');
