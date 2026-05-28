@@ -1,0 +1,14 @@
+node_modules/
+.env
+logs/
+*.log
+.DS_Store
+
+# Simulated execution output read by the paper dashboard.
+data/*.json
+
+# Generated caches and local tools.
+scripts/__pycache__/
+*.pyc
+ruvector.db
+.swarm/
