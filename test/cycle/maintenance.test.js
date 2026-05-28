@@ -225,3 +225,9 @@ test('runSqlAutoPrune: returns undefined when SQL pool unavailable', async () =>
   // Either returns undefined (no pool) or a number (if test env has SQL)
   assert.ok(result === undefined || typeof result === 'number');
 });
+
+test('runSqlAutoPrune: preserves permanent signals and uses health check timestamp', () => {
+  const policies = m._testInternals.SQL_PRUNE_POLICIES;
+  assert.equal(policies.find(([table]) => table === 'dbo.signals')[3], "retention_tier <> 'permanent'");
+  assert.equal(policies.find(([table]) => table === 'dbo.health_checks')[2], 'checked_at');
+});

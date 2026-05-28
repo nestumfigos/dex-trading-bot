@@ -92,7 +92,7 @@ const config = {
 
   bsc: {
     privateKey: process.env.BSC_PRIVATE_KEY,
-    rpcUrl: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+    rpcUrl: process.env.BSC_RPC_URL || 'https://bsc-rpc.publicnode.com',
     wsUrl: process.env.BSC_WS_URL || '',
     chainId: 56,
     pancakeRouterV2: '0x10ED43C718714eb63d5aA57B78B54704E256024E',
@@ -103,7 +103,7 @@ const config = {
 
   base: {
     privateKey: process.env.BASE_PRIVATE_KEY,
-    rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+    rpcUrl: process.env.BASE_RPC_URL || 'https://base-rpc.publicnode.com',
     wsUrl: process.env.BASE_WS_URL || '',
     alchemyKey: process.env.ALCHEMY_API_KEY,
     chainId: 8453,
@@ -717,7 +717,7 @@ const config = {
       minNetBuyFlowUsd: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_MIN_NET_BUY_FLOW_USD || '3500'),
       minPriceChange24hPctAll: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_MIN_PRICE_CHANGE_24H_PCT_ALL || '2'),
       maxPriceChange24hPctAll: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_MAX_PRICE_CHANGE_24H_PCT_ALL || '90'),
-      minLiquidityUsd: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_MIN_LIQUIDITY_USD || '100000'),
+      minLiquidityUsd: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_MIN_LIQUIDITY_USD || '1000000'),
       min24hVolumeUsd: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_MIN_24H_VOLUME_USD || '250000'),
       stopLossPct: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_STOP_LOSS_PCT || '10'),
       takeProfitPct: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_TAKE_PROFIT_PCT || '30'),
@@ -1032,8 +1032,8 @@ const config = {
     autoRestart: process.env.SELF_EVOLUTION_AUTO_RESTART !== 'false',
     aiPlanningEnabled: process.env.SELF_EVOLUTION_AI_PLANNING_ENABLED === 'true',
     // Paper-only: after applying changes, automatically promote them to the main bot.
-    // Set SELF_EVOLUTION_AUTO_PROMOTE=false to disable and keep promotion manual.
-    autoPromote: process.env.SELF_EVOLUTION_AUTO_PROMOTE !== 'false',
+    // Promotion is manual unless explicitly enabled after validation evidence is reviewed.
+    autoPromote: process.env.SELF_EVOLUTION_AUTO_PROMOTE === 'true',
     intervalMinutes: parseInt(process.env.SELF_EVOLUTION_INTERVAL_MINUTES || '60', 10),
     minClosedTrades: parseInt(process.env.SELF_EVOLUTION_MIN_CLOSED_TRADES || '12', 10),
     // Holdout window in hours before a patch's outcome is validated and recorded.

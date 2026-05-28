@@ -142,7 +142,7 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
-    const sizeUsd = applyPositionJitter(calculatedSizeUsd, 15);
+    const sizeUsd = Math.min(calculatedSizeUsd, applyPositionJitter(calculatedSizeUsd, 15));
 
     try {
       const { getPool } = require('../utils/sqlServer');
@@ -171,7 +171,8 @@ function createExecutionOrchestrator(deps) {
         return;
       }
     } catch (e) {
-      logger.debug(`[pre-trade-contract] BUY check threw: ${e?.message || e} — proceeding (degraded open)`);
+      logger.error(`[pre-trade-contract] BUY check failed closed: ${e?.message || e}`);
+      return;
     }
 
     const lockTtlMs = Math.max(5000, Number(process.env.SQL_LOCK_TTL_MS || 30000));

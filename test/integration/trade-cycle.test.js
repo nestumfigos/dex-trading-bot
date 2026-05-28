@@ -194,7 +194,7 @@ test('trade-cycle: SELL side skips BUY-only gates (size/budget/streak/AI)', () =
   assert.equal(res.pass, true);
 });
 
-test('trade-cycle: SELL still respects symbol_block + duplicate_order', () => {
+test('trade-cycle: SELL bypasses symbol block so a blocked asset can be exited', () => {
   const ctx = healthyBuy({
     side: 'SELL',
     trade: { symbol: 'BTC', chain: 'kucoin', address: '0xabc' },
@@ -203,8 +203,8 @@ test('trade-cycle: SELL still respects symbol_block + duplicate_order', () => {
     action: 'block', symbol: 'BTC', chain: 'kucoin', scope: 'global', active: true, reason: 'sell-side block',
   }];
   const res = check(ctx);
-  assert.equal(res.pass, false);
-  assert.equal(res.blocked[0].gate, 'symbol_block');
+  assert.equal(res.pass, true);
+  assert.deepEqual(res.blocked, []);
 });
 
 // ─── Multiple simultaneous failures ─────────────────────────────────────────

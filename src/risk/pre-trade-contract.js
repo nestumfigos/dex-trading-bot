@@ -133,7 +133,7 @@ function checkAiCircuit({ aiCircuitOpen, aiOverride }) {
 const GATE_CATALOG = Object.freeze([
   { name: 'tier_feasibility',        sides: ['BUY'],          description: 'Smallest sell tier must exceed exchange min notional' },
   { name: 'position_size',           sides: ['BUY'],          description: 'Size in [MIN_POSITION_SIZE_USD, MAX_POSITION_PCT × wallet]' },
-  { name: 'symbol_block',            sides: ['BUY', 'SELL'],  description: 'symbol_overrides action=block respected' },
+  { name: 'symbol_block',            sides: ['BUY'],          description: 'Blocked symbols cannot create new exposure' },
   { name: 'duplicate_order',         sides: ['BUY', 'SELL'],  description: 'No in-flight order for same symbol+side+chain' },
   { name: 'daily_loss_budget',       sides: ['BUY'],          description: "Today's PnL above -DAILY_DRAWDOWN_LIMIT_USD" },
   { name: 'consecutive_loss_streak', sides: ['BUY'],          description: 'Current losing streak under MAX_CONSECUTIVE_LOSSES' },
@@ -243,7 +243,7 @@ function check(ctx = {}) {
  * Convenience: persist a check() result to dbo.trade_rejections.
  * Best-effort; never throws.
  */
-async function recordRejections({ sql, scope, strategy, trade, side, result, botVersion, logger }) {
+async function recordRejections({ sql, scope, strategy, trade, state = {}, side, result, botVersion, logger }) {
   if (!result) return;
   const rows = [...(result.blocked || []), ...(result.warned || []), ...(result.logged || [])];
   if (rows.length === 0) return;

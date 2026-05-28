@@ -105,11 +105,23 @@ function createBullFlagEvaluator({ logger, fetchOhlcv, detectBullFlag }) {
 
     // Net-edge gate: measured move must exceed estimated fees+slippage by minNetEdgePct
     const expectedFeesBps = Number(tokenData.expectedFeesBps || 30); // ~0.3% round-trip default
-    const expectedSlippageBps = Number(tokenData.expectedSlippageBps || 20);
+    const expectedSlippageBps = Number(tokenData.expectedSlippageBps ?? 100);
     const totalCostPct = (expectedFeesBps + expectedSlippageBps) / 100;
     const netEdgePct = Number(detection.measuredMovePct || 0) - totalCostPct;
     if (cfg.minNetEdgePct && netEdgePct < Number(cfg.minNetEdgePct)) {
       return holdResult([`net_edge_too_thin:${netEdgePct.toFixed(2)}<${cfg.minNetEdgePct}`], { detection, netEdgePct, totalCostPct });
+    }
+
+    // C3 (Phase C): minimum reward-to-risk gate. plan/day-trade.txt explicitly
+    // requires net win average at least 2x net loss; combined with the +5% pole
+    // floor that implies a minimum RR ~2. Without this gate, a marginal flag
+    // with a wide flag-low could pass net-edge but ship a 1.2R trade —
+    // exhausting the daily-loss budget on three flat losses. Default 2.0;
+    // override via cfg.minRR.
+    const minRR = Number(cfg.minRR || 2.0);
+    const rrValue = Number(detection.rr);
+    if (Number.isFinite(rrValue) && rrValue < minRR) {
+      return holdResult([`reward_risk_below_min:${rrValue.toFixed(2)}<${minRR}`], { detection, rr: rrValue });
     }
 
     // Determine A+ grade

@@ -161,6 +161,18 @@ code { font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; ba
   font-weight: 600; margin-left: 6px;
 }
 .count-pill.alert-pill { background: #2a1418; color: #fca5a5; }
+.paper-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #28210f;
+  color: #fbbf24;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+}
 
 .panel-foot-link {
   display: inline-block; margin-top: 10px;
@@ -309,6 +321,34 @@ code { font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; ba
   color: #e7ecf3;
 }
 .bull-flag-reasons { max-height: 180px; }
+
+.research-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.research-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #6b7785;
+  font-size: 11px;
+}
+.research-controls select {
+  min-width: 128px;
+  background: #131820;
+  border: 1px solid #1c232c;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #d8dee9;
+  font: inherit;
+}
+.research-controls .bot-config { margin: 0; }
+.research-message { min-height: 16px; margin-bottom: 12px; }
+.research-table-head { margin-top: 14px; }
+#view-perp-backtests > .panel + .panel { margin-top: 14px; }
 
 .kpi-mini-card { padding: 14px 18px; }
 .kpi-mini-card strong { font-size: 20px; color: #e7ecf3; font-weight: 700; }

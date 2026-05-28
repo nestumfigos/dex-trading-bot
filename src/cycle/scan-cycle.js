@@ -93,6 +93,17 @@ function create({
   if (!loopLocks) throw new Error('scan-cycle.create: loopLocks required');
   if (typeof isWithinTradingWindow !== 'function') throw new Error('scan-cycle.create: isWithinTradingWindow required');
   if (typeof scanChain !== 'function') throw new Error('scan-cycle.create: scanChain required');
+  let postScanSaveInFlight = null;
+
+  async function saveAfterScan() {
+    if (typeof saveState !== 'function') return;
+    if (!postScanSaveInFlight) {
+      postScanSaveInFlight = Promise.resolve()
+        .then(() => saveState())
+        .finally(() => { postScanSaveInFlight = null; });
+    }
+    return postScanSaveInFlight;
+  }
 
   async function runStrategyScanCycle(strategyName) {
     strategyName = normalizeStrategyName(strategyName);
@@ -124,7 +135,7 @@ function create({
 
       await Promise.allSettled(
         chainScans.map(([chainName, exchange]) => withTimeout(
-          scanChain(chainName, exchange, strategyName, { cycleStats }),
+          scanChain(chainName, exchange, strategyName, { cycleStats, forceStrategyPerScan: true }),
           chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs,
           `${chainName} ${strategyName} scan timed out after ${chainDiscoveryTimeoutMs[chainName] || discoveryTimeoutMs}ms`
         ))
@@ -142,7 +153,7 @@ function create({
       if (typeof recordPortfolioSnapshot === 'function') recordPortfolioSnapshot(`scan_${strategyName}`);
       if (typeof saveState === 'function') {
         await withTimeout(
-          saveState(),
+          saveAfterScan(),
           stateSaveTimeoutMs,
           `saveState timed out after ${stateSaveTimeoutMs}ms`
         );
@@ -189,7 +200,12 @@ function create({
     loopLocks.kucoinMomentumScan = true;
     if (typeof refreshScanInFlightFlag === 'function') refreshScanInFlightFlag();
     try {
-      await scanChain('kucoin', exchanges.kucoin, 'momentum', { cycleStats });
+      const detachedTimeoutMs = Math.max(15_000, Number(config.bot?.kucoinScanDiscoveryTimeoutMs || config.bot?.scanDiscoveryTimeoutMs || 120_000));
+      await withTimeout(
+        scanChain('kucoin', exchanges.kucoin, 'momentum', { cycleStats }),
+        detachedTimeoutMs,
+        `kucoin detached momentum scan timed out after ${detachedTimeoutMs}ms`,
+      );
     } finally {
       loopLocks.kucoinMomentumScan = false;
       if (typeof refreshScanInFlightFlag === 'function') refreshScanInFlightFlag();

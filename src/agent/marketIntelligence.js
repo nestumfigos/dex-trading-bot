@@ -567,6 +567,10 @@ class MarketIntelligenceAgent {
     this.marketState = marketState;
     this.locked = false;
     this.lastRunAt = 0;
+    // C6 (Phase C): documented previously-silent clamp. Floor of 15min
+    // prevents rate-limit churn against RSS+LLM providers; values below 15
+    // are deliberately rounded up. Set INTELLIGENCE_INTERVAL_MINUTES=15 (or
+    // higher) explicitly to avoid surprise on operator-shorter envs.
     this.intervalMs = Math.max(15 * 60_000, Number(process.env.INTELLIGENCE_INTERVAL_MINUTES || 30) * 60_000);
   }
 

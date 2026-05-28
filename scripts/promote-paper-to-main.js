@@ -3,9 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { validatePromotionCandidate, hashText } = require('../src/utils/promotion-governance');
 
-const MAIN_ROOT = path.resolve(__dirname, '..');
-const PAPER_ROOT = process.env.PAPER_WORKTREE_PATH || path.resolve(MAIN_ROOT, '..', 'dex-trading-bot-paper');
+const PAPER_ROOT = path.resolve(__dirname, '..');
+const MAIN_ROOT = path.resolve(process.env.LIVE_WORKTREE_PATH || path.resolve(PAPER_ROOT, '..', 'dex-trading-bot'));
 const PAPER_APP = process.env.PAPER_APP_NAME || 'dex-bot-paper';
 const MAIN_APP = process.env.MAIN_APP_NAME || 'dex-bot';
 const PAPER_PORT = Number(process.env.PAPER_PORT || 3003);
@@ -105,20 +106,15 @@ async function assertPaperHealth() {
   } catch (err) {
     throw new Error(`Paper health endpoint unreachable at ${endpoint}: ${err.message}`);
   }
-  // 200 = healthy, 503 = degraded (e.g. AI provider down) but process is alive — both are acceptable.
-  // Only hard-fail on unexpected status codes that indicate the server itself is broken.
-  if (res.status !== 200 && res.status !== 503) {
-    throw new Error(`Paper health endpoint returned unexpected status ${res.status}`);
-  }
   let body;
   try {
     body = await res.json();
   } catch {
     throw new Error(`Paper health endpoint did not return valid JSON`);
   }
-  if (res.status === 503) {
-    const reasons = body.unhealthyReasons || body.degradedReasons || [];
-    console.log(`[promote] Paper bot is degraded (will still promote): ${reasons.join(', ') || 'unknown reasons'}`);
+  const reasons = [...(body.unhealthyReasons || []), ...(body.degradedReasons || [])];
+  if (res.status !== 200 || body.ok !== true || body.degraded === true || reasons.length > 0) {
+    throw new Error(`Promotion denied: paper health is not clean (${reasons.join(', ') || `status_${res.status}`})`);
   }
 }
 
@@ -193,6 +189,7 @@ function copyFilesToMain(relPaths) {
     fileRecords.push({
       targetPath: rel.replace(/\\/g, '/'),
       backupPath: path.relative(MAIN_ROOT, backupPath).replace(/\\/g, '/'),
+      existed: fs.existsSync(dst),
     });
 
     if (DRY_RUN) {
@@ -208,16 +205,30 @@ function copyFilesToMain(relPaths) {
   };
 }
 
+function rollbackCopiedFiles(liveBackup) {
+  for (const record of [...(liveBackup?.files || [])].reverse()) {
+    const targetPath = path.join(MAIN_ROOT, record.targetPath);
+    const backupPath = path.join(MAIN_ROOT, record.backupPath);
+    if (record.existed) {
+      fs.copyFileSync(backupPath, targetPath);
+    } else if (fs.existsSync(targetPath)) {
+      fs.unlinkSync(targetPath);
+    }
+  }
+}
+
 async function main() {
   console.log(`[promote] paper root : ${PAPER_ROOT}`);
   console.log(`[promote] main root  : ${MAIN_ROOT}`);
-  candidateManifest = loadCandidateManifest();
-  if (candidateManifest) {
-    console.log(`[promote] candidate  : ${candidateManifest.id || 'unknown'} (${CANDIDATE_PATH})`);
-    if (candidateManifest.promotion?.eligible !== true && candidateManifest.promotion?.approved !== true) {
-      throw new Error(`Candidate ${candidateManifest.id || 'unknown'} is not marked promotion-eligible`);
-    }
+  if (MAIN_ROOT === PAPER_ROOT) {
+    throw new Error('Promotion denied: live and paper project roots must be different');
   }
+  candidateManifest = loadCandidateManifest();
+  const candidateGate = validatePromotionCandidate(candidateManifest);
+  if (!candidateGate.allow) {
+    throw new Error(`Promotion denied: ${candidateGate.reason}`);
+  }
+  console.log(`[promote] candidate  : ${candidateManifest.id || 'unknown'} (${CANDIDATE_PATH})`);
   if (DRY_RUN) console.log('[promote] DRY RUN mode — no files will be modified');
 
   // 1. Sanity checks
@@ -260,7 +271,7 @@ async function main() {
       console.log(`[promote] Policy gate PASS: ${JSON.stringify(policy.evidence)}`);
     } catch (e) {
       if (/Policy gate DENIED/.test(e.message)) throw e;
-      console.warn(`[promote] Policy gate skipped: ${e.message}`);
+      throw new Error(`Promotion denied: policy validation unavailable: ${e.message}`);
     }
   } else {
     console.warn('[promote] POLICY_OVERRIDE in effect — gate BYPASSED');
@@ -283,6 +294,14 @@ async function main() {
 
   console.log(`[promote] ${changed.length} file(s) changed:`);
   for (const f of changed) console.log(`  • ${f}`);
+  for (const rel of changed) {
+    const normalized = String(rel).replace(/\\/g, '/');
+    const expectedHash = candidateManifest.fileHashes?.[normalized];
+    const actualHash = hashText(fs.readFileSync(path.join(PAPER_ROOT, rel), 'utf8'));
+    if (!expectedHash || expectedHash !== actualHash) {
+      throw new Error(`Candidate content hash missing or mismatched for ${normalized}`);
+    }
+  }
 
   // 3. Syntax-check all changed files from paper
   console.log('[promote] Running syntax checks on changed files...');
@@ -304,23 +323,39 @@ async function main() {
     strategyVersionHash: candidateManifest?.versioning?.strategyVersionHash || null,
     candidatePath: candidateManifest ? CANDIDATE_PATH : null,
     promotedAt: new Date().toISOString(),
-    stage: candidateManifest?.rollout?.stage || 'canary_live',
+    stage: 'canary_live',
+    regimeFamily: candidateManifest.rollout?.regimeFamily || null,
+    canaryLiveSizePct: Number(candidateManifest.rollout?.canaryLiveSizePct || 10),
     backupRoot: liveBackup.backupRoot,
     files: liveBackup.files,
     baseline: candidateManifest?.baseline || null,
     validation: candidateManifest?.validation || null,
     promotion: candidateManifest?.promotion || null,
   };
+  // 5. Restart main bot before recording a successful rollout. Restore copied
+  // files if the new process cannot be started.
+  console.log('[promote] Restarting main bot...');
+  try {
+    runInherit(MAIN_ROOT, `pm2 restart ${MAIN_APP} --update-env`);
+  } catch (error) {
+    rollbackCopiedFiles(liveBackup);
+    try {
+      runInherit(MAIN_ROOT, `pm2 restart ${MAIN_APP} --update-env`);
+    } catch (_) {
+      // Preserve the original restart failure as the promotion result.
+    }
+    throw new Error(`Promotion restart failed; restored previous live files: ${error.message}`);
+  }
   fs.mkdirSync(path.dirname(LIVE_ROLLOUT_PATH), { recursive: true });
   fs.writeFileSync(LIVE_ROLLOUT_PATH, `${JSON.stringify(rollout, null, 2)}\n`, 'utf8');
-
-  // 5. Restart main bot
-  console.log('[promote] Restarting main bot...');
-  runInherit(MAIN_ROOT, `pm2 restart ${MAIN_APP} --update-env`);
   console.log('[promote] Promotion complete. Main bot restarted with paper changes.');
 }
 
-main().catch((err) => {
-  console.error(`[promote] Failed: ${err.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(`[promote] Failed: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = { loadCandidateManifest, getChangedFiles, syntaxCheckFiles, assertPaperHealth, rollbackCopiedFiles, main };

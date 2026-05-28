@@ -26,7 +26,7 @@
  *   - restartLoopSchedulers({state, deps}) — clear + (re)create all timers + boot cycles
  *   - clearLoopSchedulers({state, deps})  — stop all + dispose ml-scheduler hook
  *   - setLoopLocks({loopLocks, enabled, refreshScanInFlightFlag})
- *   - stopSchedulersForSafeMode({state, loopLocks, deps, ...}) — clear + set all locks true
+ *   - stopSchedulersForSafeMode({state, loopLocks, deps, ...}) — stop exposure-increasing loops and retain emergency stops
  *
  * Safe-mode awareness: restartLoopSchedulers checks portfolio.safeMode and
  * falls through to stopSchedulersForSafeMode if set, then logs + returns.
@@ -97,6 +97,14 @@ function setLoopLocks({ loopLocks, enabled, refreshScanInFlightFlag }) {
 function stopSchedulersForSafeMode({ state, deps, loopLocks, refreshScanInFlightFlag }) {
   clearLoopSchedulers({ state, deps });
   setLoopLocks({ loopLocks, enabled: true, refreshScanInFlightFlag });
+  if (deps.config?.risk?.realtimeStopLossEnabled !== false && typeof deps.runRealtimeRiskStopCycle === 'function') {
+    const realtimeStopMs = Math.max(2_000, Number(deps.config.risk?.realtimeStopCheckSeconds || 8) * 1000);
+    loopLocks.realtimeStop = false;
+    state.realtimeStopTimer = setInterval(() => {
+      deps.runRealtimeRiskStopCycle().catch((error) => deps.logger.error(`Realtime stop loop error: ${error.message}`));
+    }, realtimeStopMs);
+    deps.runRealtimeRiskStopCycle().catch((error) => deps.logger.error(`Initial realtime stop check failed: ${error.message}`));
+  }
 }
 
 function normalizeStrategyName(strategyName) {
@@ -165,7 +173,7 @@ function restartLoopSchedulers({ state, deps, loopLocks, refreshScanInFlightFlag
 
   if (portfolio.safeMode) {
     stopSchedulersForSafeMode({ state, deps, loopLocks, refreshScanInFlightFlag });
-    logger.warn('Loop schedulers paused: safe mode is active');
+    logger.warn('Entry loop schedulers paused: safe mode is active; realtime stop monitor retained');
     return;
   }
 

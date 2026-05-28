@@ -7,7 +7,6 @@ const { ethers } = require('ethers');
 const config = require('../config');
 const logger = require('./utils/logger');
 const RiskGuardian = require('./risk/guardian');
-const MarketAnalyst = require('./agent/marketAnalyst');
 const { applyPositionJitter, getRandomEntryDelay, shouldSplitSolanaTrade, generateSplitTradeSchedule, sleep } = require('./utils/anti-pattern');
 const JupiterExchange = require('./exchanges/jupiter');
 const PancakeSwapExchange = require('./exchanges/pancakeswap');
@@ -1903,14 +1902,9 @@ const agentMemory = _memoryFacade.create({ logger, config });
 selfEvolution.bindDependencies({ agentMemory, portfolio });
 const modelRegistry = new ModelRegistry({ logger, botProfile: BOT_PROFILE });
 const intelligenceAgent = new MarketIntelligenceAgent({ portfolio, config, agentMemory, marketState });
-const agent = new MarketAnalyst({
-  portfolio,
-  exchanges,
-  config,
-  logger,
-  risk,
-  marketState,
-});
+// C1 (Phase C): removed dead `MarketAnalyst` instantiation. See spot repo for
+// rationale — class was a placeholder with inverted RSI logic and zero method
+// calls ever made on the resulting `agent` var.
 const walletMonitor = new WalletMonitor(portfolio);
 const wsDiscovery = new WebSocketDiscovery();
 
@@ -2668,7 +2662,6 @@ function ensureStatsShape() { return _metricsCompute.ensureStatsShape(portfolio)
 function refreshPerformanceMetrics() { return _metricsCompute.refreshPerformanceMetrics(portfolio); }
 
 const recordSlippageSample = createSlippageRecorder({ portfolio, logger, ensureStatsShape });
-
 const executionFlow = createExecutionFlow({
   config,
   logger,
@@ -3191,10 +3184,11 @@ function getPositionValue(position) {
 function getOpenPositions() {
   return Object.entries(portfolio.positions)
     .map(([positionKey, position]) => {
+      const markAvailable = Number.isFinite(Number(position.currentPrice)) && Number(position.currentPrice) > 0;
       const currentValue = getPositionValue(position);
       const costBasisUsd = Number(position.costBasisUsd || position.initialSizeUsd || 0);
-      const unrealizedPnl = currentValue - costBasisUsd;
-      const unrealizedPnlPct = costBasisUsd > 0 ? (unrealizedPnl / costBasisUsd) * 100 : 0;
+      const unrealizedPnl = markAvailable ? currentValue - costBasisUsd : null;
+      const unrealizedPnlPct = markAvailable && costBasisUsd > 0 ? (unrealizedPnl / costBasisUsd) * 100 : null;
 
       return {
         address: position.address || positionKey,
@@ -3204,13 +3198,15 @@ function getOpenPositions() {
         triggerTimeframe: position.triggerTimeframe || null,
         symbol: position.symbol,
         entryPrice: roundPrice(position.entryPrice),
-        currentPrice: roundPrice(position.currentPrice || position.entryPrice),
+        currentPrice: markAvailable ? roundPrice(position.currentPrice) : null,
+        markStatus: markAvailable ? 'available' : 'unavailable',
+        valuationEstimatedAtCost: !markAvailable,
         quantity: round(position.quantity || 0, 6),
         initialSizeUsd: round(position.initialSizeUsd || 0),
         costBasisUsd: round(costBasisUsd),
         positionValueUsd: round(currentValue),
-        unrealizedPnl: round(unrealizedPnl),
-        unrealizedPnlPct: round(unrealizedPnlPct),
+        unrealizedPnl: markAvailable ? round(unrealizedPnl) : null,
+        unrealizedPnlPct: markAvailable ? round(unrealizedPnlPct) : null,
         stopLoss: roundPrice(position.stopLoss || 0),
         takeProfit: roundPrice(position.takeProfit || 0),
         openedAt: position.openedAt,
@@ -4048,6 +4044,7 @@ const _momentumScanner = createMomentumScanner({
   recordExchangeSuccess,
   recordExchangeFailure,
   processToken: (...args) => processToken(...args), // late-binding ref (forward declaration)
+  withTimeout,
   sleep,
 });
 const scanChain = _momentumScanner.scanChain;
@@ -4210,6 +4207,18 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     finalSignal = catalystGate.finalSignal;
     if (catalystGate.blocked) {
       aiBlockedThisToken = true;
+    }
+    const evaluationDeadlineAtMs = Number(options.deadlineAtMs || 0);
+    if (finalSignal === 'BUY' && evaluationDeadlineAtMs > 0 && Date.now() > evaluationDeadlineAtMs) {
+      finalSignal = 'HOLD';
+      signalSource = 'latency_guard';
+      evaluation.details.aiReason = 'evaluation_deadline_exceeded';
+      evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'evaluation_deadline_exceeded'])];
+      if (cycleStats) {
+        cycleStats.riskBlocked += 1;
+        incrementRejectReason(cycleStats, 'evaluationDeadline');
+      }
+      logger.warn(`Skipping delayed BUY for ${tokenData.symbol} (${chainName}, ${strategyName}): evaluation exceeded deadline`);
     }
 
     updateTrackedToken(chainName, tokenData, {

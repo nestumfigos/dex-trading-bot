@@ -95,7 +95,7 @@ function createStatePersistence(deps = {}) {
     const learning = portfolio.learning && typeof portfolio.learning === 'object'
       ? {
           badTokenMemory: limitObjectEntries(portfolio.learning.badTokenMemory || {}, 120, (entry) => Date.parse(entry?.lastSeen || entry?.updatedAt || 0) || 0),
-          adaptiveSleeves: portfolio.learning.adaptiveSleeves || {},
+          sleevePerformance: portfolio.learning.sleevePerformance || portfolio.learning.adaptiveSleeves || {},
           brainProfiles: limitObjectEntries(portfolio.learning.brainProfiles || {}, 120, (entry) => Number(entry?.samples || 0)),
           strategyBrain: {
             profiles: limitObjectEntries(portfolio.learning.strategyBrain?.profiles || {}, 120, (entry) => Number(entry?.samples || 0)),
@@ -502,7 +502,8 @@ function createStatePersistence(deps = {}) {
               portfolio.learning = portfolio.learning || {};
               const ql = queryable.learning;
               if (ql.badTokenMemory && Object.keys(ql.badTokenMemory).length) portfolio.learning.badTokenMemory = { ...(portfolio.learning.badTokenMemory || {}), ...ql.badTokenMemory };
-              if (ql.sleevePerformance && Object.keys(ql.sleevePerformance).length) portfolio.learning.sleevePerformance = { ...(portfolio.learning.sleevePerformance || {}), ...ql.sleevePerformance };
+              const persistedSleeves = ql.sleevePerformance || ql.adaptiveSleeves;
+              if (persistedSleeves && Object.keys(persistedSleeves).length) portfolio.learning.sleevePerformance = { ...(portfolio.learning.sleevePerformance || {}), ...persistedSleeves };
               if (ql.brainProfiles && Object.keys(ql.brainProfiles).length) portfolio.learning.brainProfiles = { ...(portfolio.learning.brainProfiles || {}), ...ql.brainProfiles };
               if (ql.strategyBrain) {
                 portfolio.learning.strategyBrain = portfolio.learning.strategyBrain || {};

@@ -250,6 +250,16 @@ function createExecutionFlow(deps = {}) {
     const quantity = filledBaseQty;
     const tokenKey = buildTokenKey(chainName, tokenData.address);
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQuoteUsd, filledQuoteUsd);
+    const entryFeeProfile = (config.execution?.feeProfile || {})[chainName]
+      || (config.execution?.feeProfile || {}).default
+      || { entryBps: 10 };
+    const entryFeePaidUsd = filledQuoteUsd * (Number(entryFeeProfile.entryBps ?? 10) / 10000);
+    const totalEntryDebitUsd = filledQuoteUsd + entryFeePaidUsd;
+    if (config.paperTrading && Number(portfolio.balance) < totalEntryDebitUsd) {
+      const reason = `Insufficient paper cash for BUY ${tokenData.symbol}: balance=${Number(portfolio.balance).toFixed(2)}, cost=${totalEntryDebitUsd.toFixed(2)}`;
+      logger.warn(reason);
+      return { aborted: true, reason: 'insufficient_paper_cash' };
+    }
 
     const ebStopLossPct = tokenData?.isEarlyBreakout && Number.isFinite(Number(tokenData?._earlyBreakoutStopLossPct))
       ? Number(tokenData._earlyBreakoutStopLossPct)
@@ -286,6 +296,7 @@ function createExecutionFlow(deps = {}) {
       costBasisUsd: filledQuoteUsd,
       requestedEntryUsd: requestedQuoteUsd,
       filledEntryUsd: filledQuoteUsd,
+      entryFeePaidUsd,
       requestedEntryQuantity: realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity,
       filledEntryQuantity: quantity,
       entryFillDiscrepancyPct: fillDiscrepancyPct,
@@ -359,15 +370,15 @@ function createExecutionFlow(deps = {}) {
     };
 
     portfolio.strategies[strategyName].positions[tokenKey] = portfolio.positions[tokenKey];
-    if (portfolio.balance < filledQuoteUsd) {
-      const reason = `Balance would go negative after BUY for ${tokenData.symbol}: balance=${portfolio.balance.toFixed(2)}, cost=${filledQuoteUsd.toFixed(2)}`;
+    if (portfolio.balance < totalEntryDebitUsd) {
+      const reason = `Balance would go negative after BUY for ${tokenData.symbol}: balance=${portfolio.balance.toFixed(2)}, cost=${totalEntryDebitUsd.toFixed(2)}`;
       logger.error(reason);
       if (!portfolio.safeMode && !config.paperTrading) {
         await sendErrorAlert(reason);
         await enterSafeMode(reason);
       }
     }
-    portfolio.balance -= filledQuoteUsd;
+    portfolio.balance -= totalEntryDebitUsd;
     ensureLiquiditySentinel(chainName, tokenData.pairAddress);
 
     {
@@ -423,7 +434,6 @@ function createExecutionFlow(deps = {}) {
       setupTargetPrice: tokenData.measuredMoveTargetPrice || null,
       setupIsAPlus: tokenData._bullFlagIsAPlus === true ? true : undefined,
     }, strategyName);
-
     telemetry.logFill({
       fill_id: telemetryUuid(),
       order_id: orderId,
@@ -619,13 +629,13 @@ function createExecutionFlow(deps = {}) {
     const feeProfile = (config.execution?.feeProfile || {})[chainName]
       || (config.execution?.feeProfile || {}).default
       || { entryBps: 10, exitBps: 10 };
-    const entryFeeUsd = costBasisPortion * (Number(feeProfile.entryBps || 10) / 10000);
-    const exitFeeUsd = proceedsUsd * (Number(feeProfile.exitBps || 10) / 10000);
+    const entryFeeUsd = costBasisPortion * (Number(feeProfile.entryBps ?? 10) / 10000);
+    const exitFeeUsd = proceedsUsd * (Number(feeProfile.exitBps ?? 10) / 10000);
     const totalFeesUsd = entryFeeUsd + exitFeeUsd;
     const pnl = proceedsUsd - costBasisPortion - totalFeesUsd;
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQty, filledBaseQty);
 
-    portfolio.balance += proceedsUsd;
+    portfolio.balance += proceedsUsd - exitFeeUsd;
 
     position.quantity = Math.max(0, Number(position.quantity || 0) - filledBaseQty);
     position.costBasisUsd = Math.max(0, Number(position.costBasisUsd || 0) - costBasisPortion);
@@ -838,7 +848,6 @@ function createExecutionFlow(deps = {}) {
       closedTradePnl,
       exitCategory: position.exitClassification || undefined,
     }, strategyName);
-
     // Record trade outcome to symbol memory and RL updater for learning
     if (fullyClosed && symbolPnLMemory && rlOnlineUpdater) {
       const openedAtMs = Date.parse(position.openedAt || position.entryAt || 0);

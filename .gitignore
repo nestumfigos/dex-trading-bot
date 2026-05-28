@@ -3,3 +3,26 @@ node_modules/
 logs/
 *.log
 .DS_Store
+
+# Runtime state and learning/evolution output.
+data/*.lock
+data/agent-memory.json
+data/backtest-walkforward.json
+data/marketState*.json
+data/state*.json
+data/state*.bak
+data/*tmp*
+data/learning-backup.json
+data/evolution-candidates/
+data/self-evolution-backups/
+data/self-evolution-history.jsonl
+data/self-evolution-pending-validations.json
+data/self-evolution-proposals/
+data/strategy-lab/
+data/config-unknown-env-vars.txt
+
+# Generated caches and local tools.
+scripts/__pycache__/
+*.pyc
+ruvector.db
+.swarm/

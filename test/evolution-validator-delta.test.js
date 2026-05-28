@@ -2,6 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const EvolutionValidator = require('../src/evolution-validator');
 
@@ -147,4 +150,14 @@ test('back-compat: `failed` array contains only blocking (NEW) failures in delta
   // Old callers reading r.failed should only see the NEW regressions
   assert.equal(r.failed.length, 1);
   assert.equal(r.failed[0].target, 'test/good.js');
+});
+
+test('validator discovery includes nested test suites used by trading risk paths', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-tests-'));
+  fs.mkdirSync(path.join(root, 'test', 'risk'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'test', 'root.test.js'), '', 'utf8');
+  fs.writeFileSync(path.join(root, 'test', 'risk', 'gates.test.js'), '', 'utf8');
+  const discovered = await EvolutionValidator._testInternals.listJsTestsRecursively(path.join(root, 'test'));
+
+  assert.deepEqual(discovered.map((file) => file.replace(/\\/g, '/')), ['test/risk/gates.test.js', 'test/root.test.js']);
 });

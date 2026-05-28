@@ -157,6 +157,7 @@ test('BSC safety normalizers extract honeypot and DexScreener data', () => {
   assert.equal(extractHoneypotSafety({ isHoneypot: true }).isHoneypot, true);
   assert.equal(pickBscPair({ pairs: [{ chainId: 'eth' }, bscPair()] })?.chainId, 'bsc');
   assert.equal(extractDexSafety(bscPair()).liquidityUsd, 90_000);
+  assert.equal(extractDexSafety(bscPair()).liquidityLockedUsd, null);
 });
 
 const safetyCases = [
@@ -184,12 +185,22 @@ for (const [name, tokenOverrides, expectedOk, expectedReasons, hpOverride = {}, 
   });
 }
 
+test('BSC safety blocks unavailable required honeypot/tax evidence', async () => {
+  const result = await checkBscFlowSafety(bscToken(), {
+    config: bscCfg(),
+    checkHoneypot: async () => null,
+    fetchDexScreener: async () => ({ pairs: [bscPair()] }),
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.reasons.includes('required_tax_data_unavailable'));
+});
+
 test('BSC evaluator reuses safety clients before detector execution', async () => {
   const evaluator = createBscFlowEvaluator({
     checkHoneypot: async () => ({ simulationResult: { buyTax: 3, sellTax: 4 } }),
     fetchDexScreener: async () => ({ pairs: [bscPair()] }),
   });
-  const result = await evaluator.evaluate(bscToken({ liquidityUsd: undefined, liquidityLockedUsd: undefined }), { config: bscCfg() });
+  const result = await evaluator.evaluate(bscToken({ liquidityUsd: undefined, liquidityLockedUsd: 70_000 }), { config: bscCfg() });
   assert.equal(result.signal, 'BUY');
   assert.deepEqual(result.details.scannerReasons, []);
   assert.ok(result.details.metrics.safety.sources.includes('dexscreener-client'));

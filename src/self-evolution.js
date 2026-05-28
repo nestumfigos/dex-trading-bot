@@ -8,6 +8,7 @@ const os = require('os');
 const { redactSecretsInText } = require('./utils/redaction');
 const MutationEngine = require('./mutation-engine');
 const { canPromoteEvolutionPatch, loadThresholds } = require('./policy/preconditions');
+const { validateGeneratedBehaviorApplication } = require('./utils/promotion-governance');
 
 class SelfEvolutionEngine {
   constructor({ config, logger, projectRoot, agentMemory = null, portfolio = null }) {
@@ -37,7 +38,7 @@ class SelfEvolutionEngine {
   // holdout window expires. Returns a small structured object.
   capturePerformanceSnapshot() {
     if (!this.portfolio || !this.portfolio.stats) {
-      return { profitFactor: 0, winRate: 0, sampleSize: 0, capturedAt: Date.now() };
+      return { profitFactor: 0, winRate: 0, pnlUsd: 0, sampleSize: 0, capturedAt: Date.now() };
     }
     const stats = this.portfolio.stats || {};
     const wins = Number(stats.wins || 0);
@@ -46,6 +47,7 @@ class SelfEvolutionEngine {
     return {
       profitFactor: Number(stats.profitFactor || 0),
       winRate: closed > 0 ? (wins / closed) * 100 : 0,
+      pnlUsd: Number(stats.totalPnl ?? stats.pnlUsd ?? stats.realizedPnlUsd ?? 0),
       sampleSize: closed,
       capturedAt: Date.now(),
     };
@@ -57,14 +59,14 @@ class SelfEvolutionEngine {
       raw = await fs.readFile(this.pendingValidationsPath, 'utf8');
     } catch (err) {
       if (err && err.code === 'ENOENT') return [];
-      log.warn(`[SelfEvolution] pending-validations read failed: ${err.message}`);
+      this.logger.warn(`[SelfEvolution] pending-validations read failed: ${err.message}`);
       return [];
     }
     try {
       const arr = JSON.parse(raw);
       return Array.isArray(arr) ? arr : [];
     } catch (err) {
-      log.error(`[SelfEvolution] pending-validations CORRUPT JSON at ${this.pendingValidationsPath}: ${err.message}. Returning empty list — manual recovery required.`);
+      this.logger.error(`[SelfEvolution] pending-validations CORRUPT JSON at ${this.pendingValidationsPath}: ${err.message}. Returning empty list — manual recovery required.`);
       return [];
     }
   }
@@ -397,6 +399,19 @@ class SelfEvolutionEngine {
         return { applied: false, blocked: 'live_mode', proposalPath, plan };
       }
 
+      const applyGate = validateGeneratedBehaviorApplication(plan);
+      if (!applyGate.allow) {
+        this.logger.warn(`Self-evolution blocked before apply: ${applyGate.reason}`);
+        await this.recordHistory({
+          status: 'blocked_pre_apply_validation',
+          summary: plan.summary,
+          reason: applyGate.reason,
+          proposalPath,
+          changes: plan.changes,
+        });
+        return { applied: false, blocked: applyGate.reason, proposalPath, plan };
+      }
+
       const applyResult = await this.applyPlan(plan);
       await this.recordHistory({
         status: applyResult.ok ? 'applied' : 'failed',
@@ -444,25 +459,10 @@ class SelfEvolutionEngine {
 
     // ── OPERATIONAL ISSUES (bypass closed-trades gate) ──────────────────────
 
-    // 1. Slot starvation: too many buys blocked by position cap
+    // 1. A full position book is a functioning exposure cap, not a mutation signal.
     if (ops.slotBlockedCount >= 10) {
-      const current = Number(ops.maxConcurrentPositions || 5);
-      const proposed = Math.min(current + 3, 15);
-      plan.reason = `Slot starvation: ${ops.slotBlockedCount} buy attempts blocked by position cap (current: ${current})`;
-      plan.summary = `Increase MAX_CONCURRENT_POSITIONS from ${current} to ${proposed} to allow more trades`;
-      plan.changes.push({
-        type: 'env_set',
-        key: 'MAX_CONCURRENT_POSITIONS',
-        value: String(proposed),
-        rationale: plan.reason,
-      });
-      // Also raise per-strategy limits
-      plan.changes.push({
-        type: 'env_set',
-        key: 'MOMENTUM_MAX_CONCURRENT_POSITIONS',
-        value: String(Math.min(proposed - 2, 12)),
-        rationale: 'Raise momentum strategy cap alongside global cap',
-      });
+      plan.reason = `Exposure cap: ${ops.slotBlockedCount} buy attempts blocked by position capacity`;
+      plan.summary = 'Position cap reached; preserve exposure protection and evaluate opportunity quality offline';
       return plan;
     }
 
@@ -492,34 +492,17 @@ class SelfEvolutionEngine {
       }
     }
 
-    // 3. Native price aborts: BSC buys consistently fail due to stale price cache
+    // 3. Stale or missing native prices must be fixed at the data source, not tolerated longer.
     if (ops.nativePriceAbortCount >= 5) {
       plan.reason = `Native price stale: ${ops.nativePriceAbortCount} BSC/Base buys aborted due to missing BNB/ETH price cache`;
-      plan.summary = 'Increase native price max age to reduce spurious aborts';
-      plan.changes.push({
-        type: 'regex_replace_once',
-        file: 'config/index.js',
-        pattern: "maxNativePriceAgeMs: parseInt\\(process\\.env\\.MAX_NATIVE_PRICE_AGE_MS \\|\\| '[0-9]+'\\)",
-        replacement: "maxNativePriceAgeMs: parseInt(process.env.MAX_NATIVE_PRICE_AGE_MS || '300000')",
-        rationale: plan.reason,
-      });
+      plan.summary = 'Price freshness gate reached; preserve quote-age protection and repair the data feed offline';
       return plan;
     }
 
-    // 4. Per-chain daily loss limit repeatedly blocking buys
+    // 4. A repeatedly triggered loss gate is evidence to stop, not expand risk.
     if (ops.dailyLossBlockCount >= 8) {
-      const currentLimits = ops.maxDailyLossPctByChain || {};
-      const currentBsc = Number(currentLimits.bsc || 10);
-      const proposedBsc = Math.min(currentBsc + 10, 40);
       plan.reason = `Daily loss gate: ${ops.dailyLossBlockCount} buys blocked by per-chain daily loss limits`;
-      plan.summary = `Widen BSC daily loss limit from ${currentBsc}% to ${proposedBsc}%`;
-      const newLimits = { ...currentLimits, bsc: proposedBsc };
-      plan.changes.push({
-        type: 'env_set',
-        key: 'MAX_DAILY_LOSS_PCT_BY_CHAIN',
-        value: JSON.stringify(newLimits),
-        rationale: plan.reason,
-      });
+      plan.summary = 'Daily loss limit reached; preserve the protective halt and require offline review';
       return plan;
     }
 
@@ -629,6 +612,13 @@ class SelfEvolutionEngine {
   }
 
   async applyPlan(plan) {
+    if (!this.config.paperTrading) {
+      return { ok: false, reason: 'Direct live self-evolution apply is prohibited; use validated paper promotion' };
+    }
+    const applyGate = validateGeneratedBehaviorApplication(plan);
+    if (!applyGate.allow) {
+      return { ok: false, reason: applyGate.reason };
+    }
     const backupStamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupRoot = path.join(this.backupDir, backupStamp);
     await fs.mkdir(backupRoot, { recursive: true });
@@ -642,7 +632,7 @@ class SelfEvolutionEngine {
           // Write or update a key=value line in .env
           const envPath = path.join(this.projectRoot, '.env');
           if (!this.isAllowedEnvKey(change.key)) {
-            return { ok: false, reason: `Blocked unsafe .env key: ${change.key}` };
+            throw new Error(`Blocked unsafe .env key: ${change.key}`);
           }
           const before = await fs.readFile(envPath, 'utf8').catch(() => '');
           const backupPath = path.join(backupRoot, '__env');
@@ -668,13 +658,13 @@ class SelfEvolutionEngine {
         if (!['regex_replace_once', 'exact_line_replace', 'template_replace'].includes(change.type)) continue;
         const targetPath = path.join(this.projectRoot, change.file);
         if (!this.isAllowedTarget(targetPath)) {
-          return { ok: false, reason: `Blocked unsafe target: ${change.file}` };
+          throw new Error(`Blocked unsafe target: ${change.file}`);
         }
 
         const before = await fs.readFile(targetPath, 'utf8');
         const replaceResult = this.applyStructuredChange(before, change);
         if (!replaceResult.ok) {
-          return { ok: false, reason: replaceResult.reason };
+          throw new Error(replaceResult.reason);
         }
         const after = replaceResult.nextSource;
 
@@ -689,7 +679,7 @@ class SelfEvolutionEngine {
           });
           await fs.unlink(tmpCheckPath).catch(() => {});
           if (!syntaxResult.ok) {
-            return { ok: false, reason: `Syntax check failed for ${change.file}: ${syntaxResult.stderr.slice(0, 500)}` };
+            throw new Error(`Syntax check failed for ${change.file}: ${syntaxResult.stderr.slice(0, 500)}`);
           }
         }
 
@@ -760,12 +750,8 @@ class SelfEvolutionEngine {
     if (!key || typeof key !== 'string') return false;
     // Whitelist of env keys self-evolution is allowed to set
     const allowed = new Set([
-      'MAX_CONCURRENT_POSITIONS',
-      'MOMENTUM_MAX_CONCURRENT_POSITIONS',
-      'SWING_MAX_CONCURRENT_POSITIONS',
       'KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT',
       'KUCOIN_SWING_HEAT_ALLOWANCE_PCT',
-      'MAX_DAILY_LOSS_PCT_BY_CHAIN',
       'MIN_LIQUIDITY_USD_BY_CHAIN',
       'STRATEGY_MOMENTUM_RSI_BUY_MIN',
       'STRATEGY_MOMENTUM_RSI_BUY_MAX',
@@ -852,8 +838,8 @@ ${JSON.stringify({
   maxDailyLossPctByChain: ops?.maxDailyLossPctByChain || {},
   uptimeHours: ((ops?.uptimeMs || 0) / 3600000).toFixed(1),
 }, null, 2)}
-NOTE: To fix operational issues you may also use "env_set" change type: { "type": "env_set", "key": "MAX_CONCURRENT_POSITIONS", "value": "12", "rationale": "..." }
-Allowed env keys: MAX_CONCURRENT_POSITIONS, MOMENTUM_MAX_CONCURRENT_POSITIONS, SWING_MAX_CONCURRENT_POSITIONS, KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT, KUCOIN_SWING_HEAT_ALLOWANCE_PCT, MAX_DAILY_LOSS_PCT_BY_CHAIN, MIN_LIQUIDITY_USD_BY_CHAIN, STRATEGY_MOMENTUM_RSI_BUY_MIN, STRATEGY_MOMENTUM_RSI_BUY_MAX, STRATEGY_SWING_RSI_BUY_MIN, STRATEGY_SWING_RSI_BUY_MAX, STRATEGY_MOMENTUM_VOLUME_SPIKE, STRATEGY_SWING_VOLUME_SPIKE, MAX_CONSECUTIVE_LOSSES.
+NOTE: Repeated operational safety blocks require offline investigation; generated changes must not widen capital or exposure protections.
+Allowed env keys: KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT, KUCOIN_SWING_HEAT_ALLOWANCE_PCT, MIN_LIQUIDITY_USD_BY_CHAIN, STRATEGY_MOMENTUM_RSI_BUY_MIN, STRATEGY_MOMENTUM_RSI_BUY_MAX, STRATEGY_SWING_RSI_BUY_MIN, STRATEGY_SWING_RSI_BUY_MAX, STRATEGY_MOMENTUM_VOLUME_SPIKE, STRATEGY_SWING_VOLUME_SPIKE, MAX_CONSECUTIVE_LOSSES.
 
 LATEST FILTER CYCLES (for gate diagnostics):
 ${JSON.stringify((context.latestFilterCycles || []).slice(0, 6).map((c) => ({
@@ -891,6 +877,7 @@ Rules for patches:
 - Apply lessons from memory: if a pattern of losses is identified, tighten that specific filter
 - Apply discoveries: if intelligence suggests a hot sector, consider boosting relevant thresholds
 - If latest cycles show passed=0 with dominant technicalBlocked, prioritize unblocking entries by adapting momentum/swing thresholds in config/index.js.
+- Never relax daily-loss, drawdown, leverage, liquidity, freshness, slippage, or exposure protections because they blocked trades; treat repeated safety blocks as evidence for offline investigation.
 - Ensure diagnostics are rich: if src/index.js lacks per-gate percentages, add/keep gateRejectPct logging.
 - Prevent secret leakage: if any debug output logs full provider config objects, patch to use src/utils/redaction.js and avoid raw apiKey output.
 - Prefer defensive changes when PF < 0.5, aggressive when PF > 1.5

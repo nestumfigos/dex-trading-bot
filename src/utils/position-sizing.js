@@ -181,8 +181,12 @@ class PositionSizingEngine {
    * Calculate current drawdown
    */
   calculateDrawdown(portfolio) {
-    const peakBalance = portfolio.peakBalance || portfolio.balance || 10000;
-    const currentBalance = portfolio.balance || 10000;
+    const parsedPeak = Number(portfolio.peakBalance);
+    const parsedCurrent = Number(portfolio.balance);
+    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
+      ? parsedPeak
+      : (currentBalance > 0 ? currentBalance : 10000);
 
     if (peakBalance <= 0) return 0;
     return ((peakBalance - currentBalance) / peakBalance) * 100;
@@ -197,7 +201,8 @@ class PositionSizingEngine {
    * Only the explicit safety reserve is withheld.
    */
   getAvailableBalance(portfolio) {
-    const totalBalance = portfolio.balance || 10000;
+    const parsedBalance = Number(portfolio.balance);
+    const totalBalance = Number.isFinite(parsedBalance) ? parsedBalance : 10000;
     const reservePercent = Number(this.config.risk?.minBalanceCoverage ?? 0.5);
     const reservedAmount = (totalBalance * reservePercent) / 100;
     return Math.max(0, totalBalance - reservedAmount);
@@ -208,7 +213,9 @@ class PositionSizingEngine {
    */
   getMinPositionSize(portfolio) {
     const minSizeUsd = this.config.risk?.minPositionSizeUsd || 5;
-    return Math.max(minSizeUsd, (portfolio.balance || 10000) * 0.001); // At least 0.1% of balance
+    const parsedBalance = Number(portfolio.balance);
+    const totalBalance = Number.isFinite(parsedBalance) ? parsedBalance : 10000;
+    return Math.max(minSizeUsd, totalBalance * 0.001); // At least 0.1% of balance
   }
 
   /**

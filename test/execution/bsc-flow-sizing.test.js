@@ -101,6 +101,18 @@ test('bsc flow sizing caps requested position at max risk size percent', async (
   assert.equal(args.sizeUsd, 300);
 });
 
+test('positive execution jitter cannot exceed the approved position cap', async () => {
+  const harness = makeDeps({ deps: { applyPositionJitter: (value) => value * 1.15 } });
+  const args = await runBuy(harness, token({ structuralStopPrice: 0.99 }));
+  assert.equal(args.sizeUsd, 300);
+});
+
+test('paper buy fails closed when final pre-trade validation throws', async () => {
+  const harness = makeDeps({ deps: { runPreTradeContract: async () => { throw new Error('risk unavailable'); } } });
+  await runBuy(harness);
+  assert.equal(harness.captured.buyArgs.length, 0);
+});
+
 test('bsc flow sizing passes 3 percent slippage cap and Merkle jitter to venue', async () => {
   const harness = makeDeps();
   const tokenData = token({ _strategyMaxSlippagePct: 10 });

@@ -15,7 +15,7 @@ test('SQL snapshot JSON is never stored as invalid truncated JSON', () => {
   assert.equal(parseSqlJson(nonStrict, 'state_json', { warn() {} }).ok, false);
 });
 
-test('SQL telemetry flush requeues an unwritten batch after write failure', async () => {
+test('SQL telemetry flush requeues only the failed item and unwritten suffix after partial batch success', async () => {
   const telemetry = new SqlTelemetry({ logger: { warn() {}, info() {}, error() {} }, botProfile: 'live' });
   telemetry.isEnabled = () => true;
   telemetry.maxBatch = 3;
@@ -32,8 +32,17 @@ test('SQL telemetry flush requeues an unwritten batch after write failure', asyn
   await telemetry.flushWithPool({});
 
   assert.equal(writes, 2);
-  assert.equal(telemetry._queue.length, 3);
-  assert.deepEqual(telemetry._queue.map((item) => item.kind), ['order', 'fill', 'ops']);
+  assert.equal(telemetry._queue.length, 2);
+  assert.deepEqual(telemetry._queue.map((item) => item.kind), ['fill', 'ops']);
+});
+
+test('economic-event IDs are assigned before retryable SQL queue writes', () => {
+  const telemetry = new SqlTelemetry({ logger: { warn() {}, info() {}, error() {} }, botProfile: 'paper' });
+  telemetry.isEnabled = () => true;
+  telemetry.logTradeLedger({ type: 'SELL' });
+  telemetry.logPnlPoint({ totalPnl: 1 });
+  assert.match(telemetry._queue[0].payload.trade_id, /^[0-9a-f-]{36}$/i);
+  assert.match(telemetry._queue[1].payload.pnl_point_id, /^[0-9a-f-]{36}$/i);
 });
 
 test('trade ledger telemetry writes first-class setup_type', async () => {

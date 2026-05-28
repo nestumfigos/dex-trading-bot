@@ -2,8 +2,12 @@
 // Uses real endpoints: /api/status, /api/tracked-tokens, /api/ohlcv,
 // /api/market-indicators, Week 6 observability.
 
+const portBot = window.location.port === '3001' ? 'paper' : 'live';
+const savedBot = localStorage.getItem('dt.bot');
+const hasExplicitBotSelection = localStorage.getItem('dt.botExplicit') === 'true';
+
 const STATE = {
-  bot: localStorage.getItem('dt.bot') || 'live',
+  bot: hasExplicitBotSelection && savedBot ? savedBot : portBot,
   refreshMs: 5000,
   chartSymbol: localStorage.getItem('dt.chartSymbol') || 'BTCUSDT',
   chartInterval: localStorage.getItem('dt.chartInterval') || '5m',
@@ -37,7 +41,9 @@ function getBaseUrl() {
 async function api(path) {
   const t0 = performance.now();
   try {
-    const res = await fetch(getBaseUrl() + path, { cache: 'no-store', mode: 'cors' });
+    const token = localStorage.getItem('dt.adminToken') || '';
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(getBaseUrl() + path, { cache: 'no-store', mode: 'cors', headers });
     const ms = Math.round(performance.now() - t0);
     el('sb-latency').textContent = `${ms} ms`;
     if (!res.ok) return null;
@@ -49,6 +55,44 @@ async function api(path) {
   }
 }
 
+async function paperApi(path) {
+  const t0 = performance.now();
+  try {
+    const url = `${window.location.protocol}//${window.location.hostname}:3001${path}`;
+    const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
+    const ms = Math.round(performance.now() - t0);
+    el('sb-latency').textContent = `${ms} ms`;
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function paperPost(path, body) {
+  const t0 = performance.now();
+  try {
+    const url = `${window.location.protocol}//${window.location.hostname}:3001${path}`;
+    const token = localStorage.getItem('dt.adminToken') || '';
+    const res = await fetch(url, {
+      method: 'POST',
+      cache: 'no-store',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body || {}),
+    });
+    const ms = Math.round(performance.now() - t0);
+    el('sb-latency').textContent = `${ms} ms`;
+    const payload = await res.json().catch(() => null);
+    return res.ok ? payload : { error: payload?.error || `request_failed_${res.status}` };
+  } catch (_) {
+    return { error: 'perps_research_unavailable' };
+  }
+}
+
 // ─── Renderers ─────────────────────────────────────────────────────────────
 
 function renderTopbarAndBrand(status) {
@@ -57,7 +101,9 @@ function renderTopbarAndBrand(status) {
   el('sidebar-profile').textContent = mode;
   el('sidebar-uptime').textContent = `Uptime ${fmtUptime(status.uptimeSeconds)}`;
   el('sb-version').textContent = status.brain?.bot_version || status.version || 'v1';
-  el('sb-status').textContent = status.health?.safeMode ? 'Safe Mode' : 'System Operational';
+  el('sb-status').textContent = status.health?.safeMode
+    ? 'Safe Mode'
+    : (status.health?.ok === false || status.health?.incident?.active ? 'Attention Required' : 'System Operational');
   // Settings card
   if (el('settings-mode')) el('settings-mode').textContent = mode;
   if (el('settings-uptime')) el('settings-uptime').textContent = fmtUptime(status.uptimeSeconds);
@@ -105,7 +151,7 @@ function renderBalancesAndPnl(portfolio) {
     : `Cash $${cash.toFixed(2)}`;
 
   // 24h PnL (best-effort from pnlHistory)
-  const pnl24h = compute24hPnl(portfolio.pnlHistory) ?? unrealizedPnl;
+  const pnl24h = compute24hPnl(portfolio.pnlHistory);
   setPnl('kpi-pnl-24h', 'kpi-pnl-24h-pct', pnl24h, equity);
   setPnl('kpi-pnl-total', 'kpi-pnl-total-pct', totalPnl, equity);
   // Override total-pct with totalReturnPct if available
@@ -144,21 +190,30 @@ function renderPositions(positions) {
   el('positions-full-count').textContent = arr.length;
 
   const dashRows = arr.slice(0, 6).map((p) => {
-    const pnl = Number(p.unrealizedPnl || 0);
+    const pnl = p.unrealizedPnl == null ? null : Number(p.unrealizedPnl);
+    const pnlCell = Number.isFinite(pnl)
+      ? `<td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>`
+      : '<td class="muted">Unavailable</td>';
     return `<tr>
       <td><strong>${esc(p.symbol)}</strong></td>
       <td class="side-buy">Long</td>
       <td>${fmtUSD(p.initialSizeUsd)}</td>
       <td>${fmt(p.entryPrice, 6)}</td>
       <td>${fmt(p.currentPrice, 6)}</td>
-      <td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>
+      ${pnlCell}
     </tr>`;
   }).join('');
   el('orders-body').innerHTML = dashRows || '<tr><td colspan="6" class="muted small">No open positions.</td></tr>';
 
   const fullRows = arr.map((p) => {
-    const pnl = Number(p.unrealizedPnl || 0);
-    const pnlPct = Number(p.unrealizedPnlPct || 0);
+    const pnl = p.unrealizedPnl == null ? null : Number(p.unrealizedPnl);
+    const pnlPct = p.unrealizedPnlPct == null ? null : Number(p.unrealizedPnlPct);
+    const pnlCell = Number.isFinite(pnl)
+      ? `<td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>`
+      : '<td class="muted">Unavailable</td>';
+    const pnlPctCell = Number.isFinite(pnlPct)
+      ? `<td class="${pnlPct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${fmtPct(pnlPct)}</td>`
+      : '<td class="muted">Unavailable</td>';
     const key = `${(p.chainKey || p.chain || '').toLowerCase()}:${String(p.address || p.symbol || '').toLowerCase()}`;
     return `<tr>
       <td><strong>${esc(p.symbol)}</strong></td>
@@ -167,8 +222,8 @@ function renderPositions(positions) {
       <td>${fmtUSD(p.initialSizeUsd)}</td>
       <td>${fmt(p.entryPrice, 6)}</td>
       <td>${fmt(p.currentPrice, 6)}</td>
-      <td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>
-      <td class="${pnlPct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${fmtPct(pnlPct)}</td>
+      ${pnlCell}
+      ${pnlPctCell}
       <td>${fmtDateTime(p.openedAt)}</td>
       <td><button class="btn-row-action" data-sell-key="${esc(key)}" data-symbol="${esc(p.symbol)}">Force Sell</button></td>
     </tr>`;
@@ -183,9 +238,13 @@ function renderPositions(positions) {
       btn.disabled = true;
       btn.textContent = 'Selling...';
       try {
+        const token = localStorage.getItem('dt.adminToken') || '';
         const res = await fetch(getBaseUrl() + '/api/admin/sell-position', {
           method: 'POST', mode: 'cors',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({ key }),
         });
         const j = await res.json().catch(() => null);
@@ -208,7 +267,11 @@ function renderTrades(trades) {
   });
 
   const dashRows = sorted.slice(0, 6).map((t) => {
-    const pnl = Number(t.pnl || t.realizedPnl || 0);
+    const rawPnl = t.pnl ?? t.realizedPnl;
+    const pnl = rawPnl == null ? null : Number(rawPnl);
+    const pnlCell = Number.isFinite(pnl)
+      ? `<td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>`
+      : '<td class="muted">-</td>';
     const side = (t.type || t.side || 'SELL').toUpperCase();
     const value = Number(t.valueUsd || t.filledValueUsd || 0);
     return `<tr>
@@ -216,13 +279,17 @@ function renderTrades(trades) {
       <td><strong>${esc(t.symbol)}</strong></td>
       <td class="${side === 'BUY' ? 'side-buy' : 'side-sell'}">${esc(side)}</td>
       <td>${fmtUSD(value)}</td>
-      <td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>
+      ${pnlCell}
     </tr>`;
   }).join('');
   el('trades-body').innerHTML = dashRows || '<tr><td colspan="5" class="muted small">No recent trades.</td></tr>';
 
   el('trades-full-body').innerHTML = sorted.slice(0, 100).map((t) => {
-    const pnl = Number(t.pnl || t.realizedPnl || 0);
+    const rawPnl = t.pnl ?? t.realizedPnl;
+    const pnl = rawPnl == null ? null : Number(rawPnl);
+    const pnlCell = Number.isFinite(pnl)
+      ? `<td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>`
+      : '<td class="muted">-</td>';
     const side = (t.type || t.side || 'SELL').toUpperCase();
     const value = Number(t.valueUsd || t.filledValueUsd || 0);
     return `<tr>
@@ -231,10 +298,239 @@ function renderTrades(trades) {
       <td>${esc(t.chain)}</td>
       <td class="${side === 'BUY' ? 'side-buy' : 'side-sell'}">${esc(side)}</td>
       <td>${fmtUSD(value)}</td>
-      <td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>
+      ${pnlCell}
       <td class="muted small">${esc(t.reason || t.exitReason || '')}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" class="muted small">No trades yet.</td></tr>';
+}
+
+function renderPerpTrades(data) {
+  const trades = Array.isArray(data?.trades) ? data.trades : [];
+  const stats = data?.stats || {};
+  el('perps-closed').textContent = String(Number(stats.closed || 0));
+  el('perps-winrate').textContent = `${Number(stats.winRatePct || 0).toFixed(1)}%`;
+  const pnl = Number(stats.pnlUsd || 0);
+  el('perps-pnl').textContent = `${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}`;
+  el('perps-pnl').className = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+  el('perps-pf').textContent = stats.profitFactor == null ? '—' : Number(stats.profitFactor).toFixed(2);
+  if (data?.historyStatus === 'unavailable' || data?.historyStatus === 'invalid') {
+    el('perps-trades-body').innerHTML = `<tr><td colspan="10" class="pnl-neg small">${esc(data.historyError || 'Paper perp history is unavailable.')}</td></tr>`;
+    return;
+  }
+  el('perps-trades-body').innerHTML = trades.slice(0, 200).map((trade) => {
+    const tradePnl = Number(trade.pnlUsd || 0);
+    const costs = Number(trade.fundingUsd || 0) + Number(trade.feeUsd || 0) + Number(trade.slippageUsd || 0);
+    const side = String(trade.side || '').toUpperCase();
+    return `<tr>
+      <td>${esc(fmtDateTime(trade.closedAt || trade.timestamp))}</td>
+      <td><strong>${esc(trade.symbol || '—')}</strong></td>
+      <td class="${side === 'LONG' ? 'side-buy' : 'side-sell'}">${esc(side || '—')}</td>
+      <td>${fmtUSD(trade.notionalUsd)}</td>
+      <td>${fmt(trade.entryPrice, 4)}</td>
+      <td>${fmt(trade.exitPrice, 4)}</td>
+      <td>${fmtUSD(costs)}</td>
+      <td class="${tradePnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${tradePnl >= 0 ? '+' : ''}${fmtUSD(tradePnl)}</td>
+      <td>${trade.reduceOnly ? 'Reduce only' : '—'}</td>
+      <td class="muted small">${esc(trade.reason || '')}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10" class="muted small">No paper perp exits recorded yet. This page will populate after reduce-only paper closes.</td></tr>';
+}
+
+async function refreshPerpTrades() {
+  const data = await paperApi('/api/perps/trades');
+  renderPerpTrades(data);
+}
+
+function setResearchMessage(message, failed = false) {
+  el('perps-bt-message').textContent = message;
+  el('perps-bt-message').className = failed ? 'research-message pnl-neg small' : 'research-message muted small';
+}
+
+function renderReplayKpis(result) {
+  const summary = result?.summary || {};
+  const pnl = Number(summary.pnlUsd || 0);
+  const expectancy = Number(summary.expectancyUsd || 0);
+  el('perps-bt-trades').textContent = String(Number(summary.completedTrades || 0));
+  el('perps-bt-pnl').textContent = `${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}`;
+  el('perps-bt-pnl').className = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+  el('perps-bt-expectancy').textContent = `${expectancy >= 0 ? '+' : ''}${fmtUSD(expectancy)}`;
+  el('perps-bt-expectancy').className = expectancy >= 0 ? 'pnl-pos' : 'pnl-neg';
+  el('perps-bt-pf').textContent = summary.profitFactor == null ? '-' : fmt(summary.profitFactor, 2);
+  el('perps-bt-dd').textContent = `${fmt(summary.maxDrawdownPct || 0, 2)}%`;
+  el('perps-bt-dd').className = Number(summary.maxDrawdownPct || 0) > 6 ? 'pnl-neg' : '';
+  const rejections = Object.entries(summary.rejectReasons || {}).sort((a, b) => b[1] - a[1]);
+  el('perps-bt-reject-body').innerHTML = rejections.map(([reason, count]) => (
+    `<tr><td>${esc(reason)}</td><td>${Number(count)}</td></tr>`
+  )).join('') || '<tr><td colspan="2" class="muted small">No rejected setup counts available.</td></tr>';
+  const regimes = Object.entries(summary.byRegime || {});
+  el('perps-bt-regime-body').innerHTML = regimes.map(([regime, row]) => {
+    const regimePnl = Number(row.pnlUsd || 0);
+    return `<tr>
+      <td>${esc(regime)}</td>
+      <td>${Number(row.trades || 0)}</td>
+      <td class="${regimePnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${regimePnl >= 0 ? '+' : ''}${fmtUSD(regimePnl)}</td>
+      <td>${fmtUSD(row.expectancyUsd)}</td>
+      <td>${fmt(row.winRatePct, 1)}%</td>
+      <td>${row.profitFactor == null ? '-' : fmt(row.profitFactor, 2)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="muted small">No completed trades to classify.</td></tr>';
+  const attributionRows = (groups, fallback) => Object.entries(groups || {}).map(([label, row]) => {
+    const rowPnl = Number(row.pnlUsd || 0);
+    return `<tr>
+      <td>${esc(label)}</td>
+      <td>${Number(row.trades || 0)}</td>
+      <td class="${rowPnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${rowPnl >= 0 ? '+' : ''}${fmtUSD(rowPnl)}</td>
+      <td>${fmtUSD(row.expectancyUsd)}</td>
+      <td>${fmt(row.winRatePct, 1)}%</td>
+    </tr>`;
+  }).join('') || fallback;
+  el('perps-bt-exit-body').innerHTML = attributionRows(
+    summary.byExitReason,
+    '<tr><td colspan="5" class="muted small">No completed exits to attribute.</td></tr>',
+  );
+  el('perps-bt-side-body').innerHTML = attributionRows(
+    summary.bySide,
+    '<tr><td colspan="5" class="muted small">No completed trades by side.</td></tr>',
+  );
+}
+
+function comparisonRow(result, days = result?.days) {
+  const summary = result?.summary || result || {};
+  const pnl = Number(summary.pnlUsd || 0);
+  const stressedPnl = Number(summary.stressedPnlUsd || 0);
+  return `<tr>
+    <td><strong>${esc(result?.symbol || summary.symbol || '-')}</strong></td>
+    <td>${Number(days || 0)}</td>
+    <td>${Number(summary.completedTrades || 0)}</td>
+    <td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>
+    <td>${fmtUSD(summary.expectancyUsd)}</td>
+    <td>${summary.profitFactor == null ? '-' : fmt(summary.profitFactor, 2)}</td>
+    <td>${fmt(summary.maxDrawdownPct || 0, 2)}%</td>
+    <td class="${stressedPnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${stressedPnl >= 0 ? '+' : ''}${fmtUSD(stressedPnl)}</td>
+  </tr>`;
+}
+
+function renderReplayResult(result) {
+  if (!result) return;
+  renderReplayKpis(result);
+  el('perps-bt-comparison-body').innerHTML = comparisonRow(result);
+}
+
+function renderReplayStudy(study) {
+  const results = Array.isArray(study?.results) ? study.results : [];
+  el('perps-bt-comparison-body').innerHTML = results.map((result) => comparisonRow(result, study.days)).join('')
+    || '<tr><td colspan="8" class="muted small">No comparison results available.</td></tr>';
+  const selectedSymbol = el('perps-bt-symbol').value;
+  renderReplayKpis(results.find((result) => result.symbol === selectedSymbol) || results[0]);
+}
+
+function renderWalkForward(result) {
+  const passed = Boolean(result?.passed);
+  el('perps-wf-verdict').textContent = passed ? 'PASS' : 'BLOCKED';
+  el('perps-wf-verdict').className = passed ? 'st-PASS' : 'st-FAIL';
+  el('perps-wf-detail').textContent = passed
+    ? 'Validation gates passed with unchanged parameters. Live perps remain disabled.'
+    : `Promotion blocked: ${(result?.reasons || ['no result']).join(', ')}.`;
+  const rows = [
+    ['Training', result?.training?.summary],
+    ['Validation', result?.validation?.summary],
+  ];
+  el('perps-wf-body').innerHTML = rows.map(([label, summary]) => `<tr>
+    <td>${label}</td>
+    <td>${Number(summary?.completedTrades || 0)}</td>
+    <td>${fmtUSD(summary?.pnlUsd)}</td>
+    <td>${fmtUSD(summary?.expectancyUsd)}</td>
+    <td>${summary?.profitFactor == null ? '-' : fmt(summary.profitFactor, 2)}</td>
+    <td>${fmt(summary?.maxDrawdownPct || 0, 2)}%</td>
+  </tr>`).join('');
+}
+
+function renderBenchmark(result) {
+  const passed = Boolean(result?.passed);
+  const selected = result?.selectedVariant || {};
+  el('perps-admission-verdict').textContent = passed ? 'PAPER ENABLED' : 'BLOCKED';
+  el('perps-admission-verdict').className = passed ? 'st-PASS' : 'st-FAIL';
+  el('perps-admission-detail').textContent = passed
+    ? `${selected.label || selected.id} passed frozen validation. Live perps remain disabled.`
+    : `New paper entries blocked. Selected training candidate: ${selected.label || selected.id || 'none'}. Reasons: ${(result?.reasons || ['not run']).join(', ')}.`;
+  el('perps-admission-candidates-body').innerHTML = (result?.candidateTraining || []).map((candidate) => {
+    const summary = candidate.summary || {};
+    return `<tr>
+      <td>${esc(candidate.variant?.label || candidate.variant?.id || '-')}</td>
+      <td>${Number(summary.completedTrades || 0)}</td>
+      <td>${fmtUSD(summary.expectancyUsd)}</td>
+      <td>${fmtUSD(summary.stressedPnlUsd)}</td>
+      <td>${candidate.variant?.id === selected.id ? 'YES' : ''}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="muted small">No candidate benchmark has been run.</td></tr>';
+  if (result?.validationResults?.length) {
+    renderReplayStudy({ results: result.validationResults, days: result.validationDays });
+  }
+}
+
+async function refreshPerpBacktests() {
+  const [latest, study, walkForward, benchmark] = await Promise.all([
+    paperApi('/api/perps/backtests/traderxo/latest'),
+    paperApi('/api/perps/backtests/traderxo/study/latest'),
+    paperApi('/api/perps/backtests/traderxo/walk-forward/latest'),
+    paperApi('/api/perps/backtests/traderxo/benchmark/latest'),
+  ]);
+  const singleTime = Date.parse(latest?.result?.requestedAt || 0);
+  const studyTime = Date.parse(study?.result?.requestedAt || 0);
+  if (study?.result && studyTime >= singleTime) renderReplayStudy(study.result);
+  else if (latest?.result) renderReplayResult(latest.result);
+  if (walkForward?.result) renderWalkForward(walkForward.result);
+  if (benchmark?.result) renderBenchmark(benchmark.result);
+}
+
+async function runPerpReplay() {
+  setResearchMessage('Running completed-candle replay...');
+  const result = await paperPost('/api/perps/backtests/traderxo', {
+    symbol: el('perps-bt-symbol').value,
+    days: Number(el('perps-bt-days').value),
+  });
+  if (result?.error) return setResearchMessage(`Replay unavailable: ${result.error}`, true);
+  renderReplayResult(result.result);
+  setResearchMessage(`${result.result.symbol} replay complete. Research only; no paper orders were created.`);
+}
+
+async function runPerpStudy() {
+  setResearchMessage('Comparing BTCUSDT, ETHUSDT, and SOLUSDT...');
+  const result = await paperPost('/api/perps/backtests/traderxo/study', {
+    symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    days: Number(el('perps-bt-days').value),
+  });
+  if (result?.error) return setResearchMessage(`Study unavailable: ${result.error}`, true);
+  renderReplayStudy(result.result);
+  setResearchMessage('Comparison complete. Select a contract above to focus its diagnostics on the next run.');
+}
+
+async function runPerpWalkForward() {
+  const days = Math.min(90, Number(el('perps-bt-days').value));
+  setResearchMessage(`Running ${days}-day training and ${days}-day validation windows...`);
+  const result = await paperPost('/api/perps/backtests/traderxo/walk-forward', {
+    symbol: el('perps-bt-symbol').value,
+    trainingDays: days,
+    validationDays: days,
+  });
+  if (result?.error) return setResearchMessage(`Walk-forward unavailable: ${result.error}`, true);
+  renderWalkForward(result.result);
+  renderReplayKpis(result.result.validation);
+  setResearchMessage('Walk-forward complete. Parameters were frozen between periods.');
+}
+
+async function runPerpBenchmark() {
+  setResearchMessage('Testing fixed strategy candidates on training data, then validating the selected candidate...');
+  const result = await paperPost('/api/perps/backtests/traderxo/benchmark', {
+    symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    trainingDays: 90,
+    validationDays: 30,
+  });
+  if (result?.error) return setResearchMessage(`Admission benchmark unavailable: ${result.error}`, true);
+  renderBenchmark(result.result);
+  setResearchMessage(result.result.passed
+    ? 'Paper entry admission passed. Live perps remain disabled.'
+    : 'Paper entry admission blocked: no candidate passed unseen validation evidence.', true);
 }
 
 function renderTracked(data) {
@@ -744,7 +1040,6 @@ async function refreshObservability() {
 
 // ─── Logs view ────────────────────────────────────────────────────────────
 
-let LOGS_TIMER = null;
 async function refreshLogs() {
   if (el('view-logs').classList.contains('hidden')) return;
   const lines = Number(el('logs-lines')?.value) || 200;
@@ -807,6 +1102,10 @@ async function refreshAll() {
   if (!status) {
     switcher.classList.add('bot-down');
     el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3001'}`;
+    renderPositions([]);
+    renderTrades([]);
+    renderSignals([]);
+    renderTracked([]);
     return;
   }
   switcher.classList.remove('bot-down');
@@ -829,22 +1128,28 @@ async function refreshAll() {
   refreshObservability();
   refreshChart();
   refreshMarketIndicators();
-  refreshLogs();
+  if (el('logs-autorefresh')?.checked) refreshLogs();
+  if (!el('view-perp-trades').classList.contains('hidden')) refreshPerpTrades();
 }
 
 function switchBot(newBot) {
   STATE.bot = newBot;
   localStorage.setItem('dt.bot', newBot);
+  localStorage.setItem('dt.botExplicit', 'true');
   el('bot-select').value = newBot;
   refreshAll();
 }
 
-function switchView(view) {
+function switchView(view, updateHash = true) {
+  const resolvedView = el(`view-${view}`) ? view : 'dashboard';
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
-  el(`view-${view}`)?.classList.remove('hidden');
-  document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
-  if (view === 'observability') refreshObservability();
-  if (view === 'logs') refreshLogs();
+  el(`view-${resolvedView}`)?.classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === resolvedView));
+  if (updateHash) window.history.replaceState(null, '', `#${resolvedView}`);
+  if (resolvedView === 'observability') refreshObservability();
+  if (resolvedView === 'logs') refreshLogs();
+  if (resolvedView === 'perp-trades') refreshPerpTrades();
+  if (resolvedView === 'perp-backtests') refreshPerpBacktests();
 }
 
 function startClock() {
@@ -907,9 +1212,12 @@ document.addEventListener('DOMContentLoaded', () => {
   el('logs-refresh')?.addEventListener('click', refreshLogs);
   el('logs-lines')?.addEventListener('change', refreshLogs);
   el('logs-autorefresh')?.addEventListener('change', (e) => {
-    if (LOGS_TIMER) { clearInterval(LOGS_TIMER); LOGS_TIMER = null; }
-    if (e.target.checked) LOGS_TIMER = setInterval(refreshLogs, 5000);
+    if (e.target.checked) refreshLogs();
   });
+  el('perps-bt-run')?.addEventListener('click', runPerpReplay);
+  el('perps-bt-study')?.addEventListener('click', runPerpStudy);
+  el('perps-bt-walk')?.addEventListener('click', runPerpWalkForward);
+  el('perps-bt-benchmark')?.addEventListener('click', runPerpBenchmark);
 
   document.querySelectorAll('.pair-tab').forEach((t) => {
     t.addEventListener('click', () => {
@@ -934,6 +1242,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   startClock();
+  switchView(window.location.hash.slice(1) || 'dashboard', false);
+  window.addEventListener('hashchange', () => switchView(window.location.hash.slice(1) || 'dashboard', false));
   const safeRefresh = async () => {
     try { await refreshAll(); }
     catch (e) {

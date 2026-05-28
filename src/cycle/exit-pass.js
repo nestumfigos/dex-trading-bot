@@ -223,7 +223,7 @@ function create({
 
     loopLocks.realtimeStop = true;
     try {
-      if (portfolio.safeMode || config.risk?.realtimeStopLossEnabled === false) {
+      if (config.risk?.realtimeStopLossEnabled === false) {
         return;
       }
 

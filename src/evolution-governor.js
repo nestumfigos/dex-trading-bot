@@ -6,6 +6,7 @@ const {
   computeDiscrepancyScore,
   classifyPromotionImpact,
   classifyRegimeFamily,
+  hashText,
 } = require('./utils/promotion-governance');
 
 class EvolutionGovernor {
@@ -40,6 +41,7 @@ class EvolutionGovernor {
       requireManualApprovalForHighImpact: raw.requireManualApprovalForHighImpact !== false,
       shadowModeRequired: raw.shadowModeRequired !== false,
       canaryLiveSizePct: Math.max(1, Number(raw.canaryLiveSizePct || 10)),
+      minLiveCanaryClosedTrades: Math.max(1, Number(raw.minLiveCanaryClosedTrades || 3)),
     };
   }
 
@@ -76,6 +78,12 @@ class EvolutionGovernor {
     const ts = new Date().toISOString();
     const id = `evo-${Date.now()}`;
     const changedFiles = Array.isArray(applyResult?.changedFiles) ? applyResult.changedFiles : [];
+    const fileHashes = {};
+    for (const rel of changedFiles) {
+      const normalized = String(rel).replace(/\\/g, '/');
+      const source = await fs.readFile(path.join(this.projectRoot, rel), 'utf8');
+      fileHashes[normalized] = hashText(source);
+    }
     const manifest = {
       id,
       createdAt: ts,
@@ -85,6 +93,7 @@ class EvolutionGovernor {
       reason: String(plan?.reason || ''),
       source: String(plan?._source || 'rule_based'),
       changedFiles,
+      fileHashes,
       changedEnvKeys: Array.isArray(applyResult?.changedEnvKeys) ? applyResult.changedEnvKeys : [],
       versioning: {
         versionId: String(context.strategyVersionId || id),

@@ -242,12 +242,13 @@ test('realtime stop: returns early when lock held', async () => {
   assert.equal(calls.sells.length, 0);
 });
 
-test('realtime stop: returns early when safeMode', async () => {
+test('realtime stop: continues monitoring positions when safeMode', async () => {
   const { calls, deps } = baseDeps();
   deps.portfolio.safeMode = true;
   const ep = create(deps);
   await ep.runRealtimeRiskStopCycle();
   assert.equal(calls.sells.length, 0);
+  assert.equal(typeof deps.loopLastCompletedAt.realtimeStop, 'number');
 });
 
 test('realtime stop: returns early when realtimeStopLossEnabled=false', async () => {

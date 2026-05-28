@@ -1753,7 +1753,7 @@
       const groupedPnl = pnlHistory.reduce((acc, row) => {
         const key = String(row.bot_profile || 'unknown').toLowerCase();
         if (!acc[key]) acc[key] = [];
-        acc[key].push({ ts: row.ts, value: Number(row.equity || row.total_pnl || 0) });
+        acc[key].push({ ts: row.ts, value: Number(row.equity ?? row.total_pnl ?? 0) });
         return acc;
       }, {});
       const groupedDecisions = decisionTimeline.reduce((acc, row) => {

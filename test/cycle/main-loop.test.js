@@ -163,18 +163,24 @@ test('setLoopLocks: refreshScanInFlightFlag missing -> no throw', () => {
 
 // ── stopSchedulersForSafeMode ──────────────────────────────────────────────
 
-test('stopSchedulersForSafeMode: clears timers + sets all locks true', () => {
+test('stopSchedulersForSafeMode: pauses entry timers but retains realtime stops', () => {
   const state = makeState();
   state.momentumScanTimer = setInterval(() => {}, 60000);
   const locks = makeLoopLocks();
-  ml.stopSchedulersForSafeMode({ state, deps: baseDeps(), loopLocks: locks });
+  const deps = baseDeps();
+  ml.stopSchedulersForSafeMode({ state, deps, loopLocks: locks });
   assert.equal(state.momentumScanTimer, null);
-  for (const v of Object.values(locks)) assert.equal(v, true);
+  assert.ok(state.realtimeStopTimer);
+  assert.equal(locks.realtimeStop, false);
+  for (const [name, value] of Object.entries(locks)) {
+    if (name !== 'realtimeStop') assert.equal(value, true);
+  }
+  ml.clearLoopSchedulers({ state, deps });
 });
 
 // ── restartLoopSchedulers ──────────────────────────────────────────────────
 
-test('restartLoopSchedulers: safeMode=true -> stops + warns + returns', () => {
+test('restartLoopSchedulers: safeMode=true -> pauses entries but retains realtime stops', () => {
   const state = makeState();
   const locks = makeLoopLocks();
   const warns = [];
@@ -183,10 +189,14 @@ test('restartLoopSchedulers: safeMode=true -> stops + warns + returns', () => {
     logger: { ...silentLogger(), warn: (m) => warns.push(m) },
   });
   ml.restartLoopSchedulers({ state, deps, loopLocks: locks });
-  for (const v of Object.values(locks)) assert.equal(v, true, 'all locks set');
+  assert.equal(locks.realtimeStop, false);
+  for (const [name, value] of Object.entries(locks)) {
+    if (name !== 'realtimeStop') assert.equal(value, true, `${name} locked`);
+  }
   assert.ok(warns.some((w) => w.includes('safe mode')));
-  // No timers created
   assert.equal(state.momentumScanTimer, null);
+  assert.ok(state.realtimeStopTimer);
+  ml.clearLoopSchedulers({ state, deps });
 });
 
 test('restartLoopSchedulers: creates momentum scan + exit + core refresh timers', () => {

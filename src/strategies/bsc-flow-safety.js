@@ -42,7 +42,7 @@ function extractDexSafety(pair = null) {
   const netBuyFlowUsd10m = num(pair?.volume?.m5, 0) * ((buys5m - sells5m) / Math.max(1, buys5m + sells5m));
   return {
     liquidityUsd,
-    liquidityLockedUsd: liquidityUsd,
+    liquidityLockedUsd: null,
     price: num(pair?.priceUsd, null),
     priceChange60mPct: num(pair?.priceChange?.h1, null),
     volume24hUsd: num(pair?.volume?.h24, null),
@@ -57,6 +57,7 @@ async function checkBscFlowSafety(tokenData = {}, options = {}) {
   const maxTaxPct = num(cfg.maxTaxPct, 5);
   const minLiquidityUsd = num(cfg.minLiquidityUsd, 50_000);
   const minLockedLiquidityUsd = num(cfg.minLockedLiquidityUsd, minLiquidityUsd);
+  const requireRemoteTaxData = cfg.requireRemoteTaxData !== false;
   const reasons = [];
 
   const checkHoneypotFn = options.checkHoneypot || checkHoneypot;
@@ -79,10 +80,10 @@ async function checkBscFlowSafety(tokenData = {}, options = {}) {
     ...tokenData,
     isHoneypot: Boolean(tokenData.isHoneypot || tokenData.honeypot || hpSafety.isHoneypot),
     honeypot: Boolean(tokenData.honeypot || tokenData.isHoneypot || hpSafety.isHoneypot),
-    buyTaxPct: num(tokenData.buyTaxPct ?? tokenData.buyTax, hpSafety.buyTaxPct ?? 0),
-    sellTaxPct: num(tokenData.sellTaxPct ?? tokenData.sellTax, hpSafety.sellTaxPct ?? 0),
+    buyTaxPct: num(tokenData.buyTaxPct ?? tokenData.buyTax, hpSafety.buyTaxPct),
+    sellTaxPct: num(tokenData.sellTaxPct ?? tokenData.sellTax, hpSafety.sellTaxPct),
     liquidityUsd: num(tokenData.liquidityUsd, dexSafety.liquidityUsd ?? 0),
-    liquidityLockedUsd: num(tokenData.liquidityLockedUsd ?? tokenData.lockedLiquidityUsd, dexSafety.liquidityLockedUsd ?? tokenData.liquidityUsd ?? 0),
+    liquidityLockedUsd: num(tokenData.liquidityLockedUsd ?? tokenData.lockedLiquidityUsd, null),
     price: num(tokenData.price, dexSafety.price ?? 0),
     priceChange60mPct: num(tokenData.priceChange60mPct ?? tokenData.priceChange1hPct, dexSafety.priceChange60mPct ?? 0),
     volume24hUsd: num(tokenData.volume24hUsd ?? tokenData.volume24h, dexSafety.volume24hUsd ?? 0),
@@ -91,6 +92,7 @@ async function checkBscFlowSafety(tokenData = {}, options = {}) {
   };
 
   if (!address) reasons.push('missing_bsc_token_address');
+  if (requireRemoteTaxData && (!hpSafety.source || hpSafety.buyTaxPct == null || hpSafety.sellTaxPct == null)) reasons.push('required_tax_data_unavailable');
   if (enriched.isHoneypot) reasons.push('honeypot_detected');
   if (enriched.buyTaxPct >= maxTaxPct || enriched.sellTaxPct >= maxTaxPct) reasons.push('tax_above_max');
   if (enriched.liquidityUsd < minLiquidityUsd) reasons.push('liquidity_below_min');

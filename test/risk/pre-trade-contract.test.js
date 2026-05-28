@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   check,
+  recordRejections,
   GATE_CATALOG,
   checkTierFeasibility,
   checkPositionSize,
@@ -244,7 +245,7 @@ test('check(): disabled rule is skipped entirely', () => {
   assert.equal(res.pass, true);
 });
 
-test('check(): SELL side runs only SELL-applicable gates', () => {
+test('check(): SELL bypasses entry blacklist so risk-reducing exits remain possible', () => {
   const res = check({
     side: 'SELL',
     trade: { symbol: 'KCS', chain: 'kucoin', address: 'KCS' },
@@ -256,10 +257,8 @@ test('check(): SELL side runs only SELL-applicable gates', () => {
       inFlightKeys: new Set(),
     },
   });
-  // tier_feasibility & position_size & daily_loss_budget & streak & ai_circuit all skip SELL.
-  // symbol_block + duplicate_order run; symbol_block fires.
-  assert.equal(res.pass, false);
-  assert.equal(res.blocked[0].gate, 'symbol_block');
+  assert.equal(res.pass, true);
+  assert.deepEqual(res.blocked, []);
 });
 
 test('check(): gate exception → recorded as log severity, never blocks', () => {
@@ -281,4 +280,25 @@ test('check(): all defaults / minimal ctx → does not throw', () => {
   // No trade data → some gates bail to pass, others may block (size NaN). Important: no throw.
   assert.ok(typeof res === 'object');
   assert.ok(Array.isArray(res.blocked));
+});
+
+test('recordRejections(): persists wallet context supplied in state', async () => {
+  const inputs = {};
+  const sql = {
+    request() {
+      return {
+        input(name, value) { inputs[name] = value; return this; },
+        async query() {},
+      };
+    },
+  };
+  await recordRejections({
+    sql,
+    scope: 'paper',
+    side: 'BUY',
+    trade: { symbol: 'KCS', chain: 'kucoin', sizeUsd: 3 },
+    state: { walletUsd: 1000 },
+    result: { blocked: [{ gate: 'position_size', severity: 'block', reason: 'small' }], warned: [], logged: [] },
+  });
+  assert.equal(inputs.wallet_usd, 1000);
 });

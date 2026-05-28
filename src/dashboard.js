@@ -15,6 +15,83 @@ const { getPool, ensureSchema, sql } = require('./utils/sqlServer');
 const { runRegimeAwareMonteCarlo } = require('./utils/backtest-utils');
 const { getImplementedStrategyNames } = require('./strategies/deployment');
 
+const DEFAULT_PERPS_PAPER_HISTORY_PATH = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'dex-trading-bot-perps',
+  'data',
+  'perps-paper-trades.json',
+);
+const DEFAULT_PERPS_PAPER_STATE_PATH = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'dex-trading-bot-perps',
+  'data',
+  'perps-paper-state.json',
+);
+
+function readPerpsPaperHistory(historyPath = process.env.PERPS_PAPER_HISTORY_PATH || DEFAULT_PERPS_PAPER_HISTORY_PATH) {
+  return readPerpsPaperHistorySnapshot(historyPath).trades;
+}
+
+function isApprovedPerpsTrade(trade) {
+  return trade?.market === 'perps'
+    && trade?.strategy === 'traderxo_perps'
+    && !String(trade.positionId || '').startsWith('paper-spot:')
+    && !String(trade.signalId || '').startsWith('spot-');
+}
+
+function readPerpsPaperHistorySnapshot(
+  historyPath = process.env.PERPS_PAPER_HISTORY_PATH || DEFAULT_PERPS_PAPER_HISTORY_PATH,
+  statePath = process.env.PERPS_PAPER_STATE_PATH
+    || (historyPath === DEFAULT_PERPS_PAPER_HISTORY_PATH ? DEFAULT_PERPS_PAPER_STATE_PATH : null),
+) {
+  try {
+    const authoritative = statePath && fs.existsSync(statePath);
+    const parsed = JSON.parse(fs.readFileSync(authoritative ? statePath : historyPath, 'utf8'));
+    const rows = authoritative ? parsed?.trades : parsed;
+    if (!Array.isArray(rows)) return { trades: [], historyStatus: 'invalid', historyError: 'Paper perp history is not an array.' };
+    const trades = rows.filter(isApprovedPerpsTrade);
+    return {
+      trades: trades.slice().sort((left, right) => (
+        Date.parse(right.closedAt || right.timestamp || 0) - Date.parse(left.closedAt || left.timestamp || 0)
+      )),
+      historyStatus: 'available',
+      historyError: null,
+      excludedNonPerpsTrades: rows.length - trades.length,
+    };
+  } catch (error) {
+    if (error.code === 'ENOENT') return { trades: [], historyStatus: 'not_started', historyError: null };
+    return { trades: [], historyStatus: 'unavailable', historyError: 'Paper perp history could not be read.' };
+  }
+}
+
+function buildPerpsPaperStats(trades = []) {
+  const grouped = new Map();
+  (Array.isArray(trades) ? trades : []).filter((trade) => trade.type === 'EXIT').forEach((trade, index) => {
+    const key = String(trade.positionId || trade.id || `legacy-exit-${index}`);
+    const fills = grouped.get(key) || [];
+    fills.push(trade);
+    grouped.set(key, fills);
+  });
+  const closed = Array.from(grouped.values())
+    .filter((fills) => fills.some((trade) => trade.closed === true) || fills.every((trade) => trade.closed == null))
+    .map((fills) => ({ pnlUsd: fills.reduce((sum, trade) => sum + Number(trade.pnlUsd || 0), 0) }));
+  const pnlUsd = closed.reduce((sum, trade) => sum + Number(trade.pnlUsd || 0), 0);
+  const wins = closed.filter((trade) => Number(trade.pnlUsd || 0) > 0).length;
+  const grossProfit = closed.reduce((sum, trade) => sum + Math.max(0, Number(trade.pnlUsd || 0)), 0);
+  const grossLoss = closed.reduce((sum, trade) => sum + Math.min(0, Number(trade.pnlUsd || 0)), 0);
+  return {
+    closed: closed.length,
+    wins,
+    winRatePct: closed.length ? (wins / closed.length) * 100 : 0,
+    pnlUsd,
+    profitFactor: grossLoss < 0 ? grossProfit / Math.abs(grossLoss) : null,
+  };
+}
+
 function roundMetric(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
 }
@@ -299,6 +376,35 @@ function validateConfigPayloadSchema(payload = {}) {
 
 function startDashboard(portfolio, ctx) {
   app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, res, next) => {
+    const origin = String(req.headers.origin || '').trim();
+    const configuredOrigins = new Set(
+      String(process.env.DASHBOARD_CORS_ORIGINS || process.env.DASHBOARD_CORS_ORIGIN || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value && value !== '*'),
+    );
+    let allowOrigin = configuredOrigins.has(origin);
+    if (!allowOrigin && origin) {
+      try {
+        const parsed = new URL(origin);
+        allowOrigin = parsed.protocol === `${req.protocol}:`
+          && parsed.hostname.toLowerCase() === String(req.hostname || '').toLowerCase()
+          && ['3001', '3002'].includes(parsed.port);
+      } catch (_) {
+        allowOrigin = false;
+      }
+    }
+    if (allowOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token');
+    }
+    if (req.method === 'OPTIONS') return res.sendStatus(allowOrigin ? 204 : 403);
+    next();
+  });
   // Week 6 API extensions (rejections, evolution-history, ai-decisions, symbol-overrides, health-canary, ml-models, backtest-runs).
   try {
     const { mountWeek6Routes } = require('./dashboard-extensions');
@@ -378,8 +484,21 @@ function startDashboard(portfolio, ctx) {
       return ctx.market.recentSignals.length;
     };
   }
+  function requireDiagnosticAccess(req, res, next) {
+    const configuredToken = String(config.dashboard?.adminToken || '').trim();
+    if (configuredToken) {
+      const authHeader = String(req.headers.authorization || '');
+      const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+      const token = String(req.headers['x-admin-token'] || '').trim() || bearer;
+      if (token !== configuredToken) return res.status(401).json({ error: 'Unauthorized' });
+      return next();
+    }
+    const remote = String(req.ip || req.socket?.remoteAddress || '');
+    const local = remote === '127.0.0.1' || remote === '::1' || remote.endsWith('::ffff:127.0.0.1');
+    return local ? next() : res.status(403).json({ error: 'Diagnostics require local access or DASHBOARD_ADMIN_TOKEN' });
+  }
   // Archive search endpoint
-  app.get('/api/signals/archive-search', (req, res) => {
+  app.get('/api/signals/archive-search', requireDiagnosticAccess, (req, res) => {
     const { symbol, from, to, signal } = req.query;
     searchArchive({ symbol, from, to, signal }, (err, results) => {
       if (err) {
@@ -392,7 +511,7 @@ function startDashboard(portfolio, ctx) {
 
   // --- AI Provider Health (B.2) ---
   // Combined per-provider snapshot: enabled, hasKey, backoffUntil, quota, circuit, status text.
-  app.get('/api/ai-health', (req, res) => {
+  app.get('/api/ai-health', requireDiagnosticAccess, (req, res) => {
     try {
       const ensemble = require('./ai/ensemble');
       const stats = ensemble.getQuotaStats ? ensemble.getQuotaStats() : {};
@@ -455,7 +574,7 @@ function startDashboard(portfolio, ctx) {
 
   // --- AI API Quota Endpoint (must be before static serving) ---
   // This must be registered BEFORE app.use(express.static(...))
-  app.get('/api/ai-quota', (req, res) => {
+  app.get('/api/ai-quota', requireDiagnosticAccess, (req, res) => {
     try {
       if (process.env.DEBUG_AI_QUOTA === 'true') {
         logger.debug('[AI-QUOTA DEBUG]', redactObject({
@@ -574,20 +693,6 @@ function startDashboard(portfolio, ctx) {
     return next();
   }
 
-  app.use(express.json({ limit: '1mb' }));
-
-  // CORS for cross-port dashboard fetches (Week 7 sidebar dashboard hits
-  // both 3001 paper + 3002 live from a single UI via bot-switcher dropdown).
-  // Allow any origin since this is LAN-only; tighten via DASHBOARD_CORS_ORIGIN env if needed.
-  const corsOrigin = process.env.DASHBOARD_CORS_ORIGIN || '*';
-  app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
-    next();
-  });
-
   app.use((req, res, next) => {
     if (req.path === '/health' || req.path.startsWith('/api/')) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -613,6 +718,98 @@ function startDashboard(portfolio, ctx) {
   app.get('/api/status', (req, res) => {
     res.json(ctx.getDashboardState({ compact: true }));
   });
+
+  async function proxyPerpsResearch(req, res, upstreamPath, method = 'GET') {
+    const perpsApiBaseUrl = String(process.env.PERPS_PAPER_API_URL || 'http://127.0.0.1:3010').replace(/\/$/, '');
+    try {
+      const response = await fetch(`${perpsApiBaseUrl}${upstreamPath}`, {
+        method,
+        headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+        body: method === 'POST' ? JSON.stringify(req.body || {}) : undefined,
+      });
+      const payload = await response.json().catch(() => ({ error: 'invalid_perps_research_response' }));
+      return res.status(response.status).json(payload);
+    } catch (error) {
+      logger.warn(`Perps paper research API unavailable: ${error.message}`);
+      return res.status(503).json({
+        mode: 'historical-replay',
+        liveExecutionEnabled: false,
+        persistsPaperTrades: false,
+        error: 'perps_research_unavailable',
+      });
+    }
+  }
+
+  app.get('/api/perps/trades', async (req, res) => {
+    const perpsApiBaseUrl = String(process.env.PERPS_PAPER_API_URL || 'http://127.0.0.1:3010').replace(/\/$/, '');
+    try {
+      const [tradesResponse, statsResponse, evidenceResponse] = await Promise.all([
+        fetch(`${perpsApiBaseUrl}/api/trades`),
+        fetch(`${perpsApiBaseUrl}/api/stats`),
+        fetch(`${perpsApiBaseUrl}/api/evidence`),
+      ]);
+      if (tradesResponse.ok && statsResponse.ok && evidenceResponse.ok) {
+        const [tradesPayload, statsPayload, evidence] = await Promise.all([
+          tradesResponse.json(),
+          statsResponse.json(),
+          evidenceResponse.json(),
+        ]);
+        return res.json({
+          mode: 'perps-paper',
+          liveExecutionEnabled: false,
+          paperHistoryEnabled: true,
+          historyStatus: 'available',
+          historySource: 'perps_api',
+          historyError: null,
+          excludedNonPerpsTrades: Number(tradesPayload.excludedNonPerpsTrades || statsPayload.stats?.excludedNonPerpsTrades || 0),
+          trades: Array.isArray(tradesPayload.trades) ? tradesPayload.trades : [],
+          stats: statsPayload.stats || {},
+          evidence,
+          livePromotionEligible: Boolean(statsPayload.livePromotionEligible),
+        });
+      }
+    } catch (error) {
+      logger.warn(`Perps paper API unavailable, using filtered local history: ${error.message}`);
+    }
+    const history = readPerpsPaperHistorySnapshot();
+    const trades = history.trades;
+    res.json({
+      mode: 'perps-paper',
+      liveExecutionEnabled: false,
+      paperHistoryEnabled: true,
+      historySource: 'filtered_local_fallback',
+      historyStatus: history.historyStatus,
+      historyError: history.historyError,
+      excludedNonPerpsTrades: history.excludedNonPerpsTrades || 0,
+      trades,
+      stats: buildPerpsPaperStats(trades),
+    });
+  });
+
+  app.get('/api/perps/backtests/traderxo/latest', (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/latest')
+  ));
+  app.get('/api/perps/backtests/traderxo/study/latest', (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/study/latest')
+  ));
+  app.get('/api/perps/backtests/traderxo/walk-forward/latest', (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/walk-forward/latest')
+  ));
+  app.get('/api/perps/backtests/traderxo/benchmark/latest', (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/benchmark/latest')
+  ));
+  app.post('/api/perps/backtests/traderxo', requireWriteAccess, (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo', 'POST')
+  ));
+  app.post('/api/perps/backtests/traderxo/study', requireWriteAccess, (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/study', 'POST')
+  ));
+  app.post('/api/perps/backtests/traderxo/walk-forward', requireWriteAccess, (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/walk-forward', 'POST')
+  ));
+  app.post('/api/perps/backtests/traderxo/benchmark', requireWriteAccess, (req, res) => (
+    proxyPerpsResearch(req, res, '/api/backtests/traderxo/benchmark', 'POST')
+  ));
 
   app.get('/health', (req, res) => {
     const health = typeof ctx.getHealthStatus === 'function'
@@ -784,7 +981,7 @@ function startDashboard(portfolio, ctx) {
 
   // ─── Force-sell a position from dashboard ────────────────────────────
   // POST /api/admin/sell-position  { key: 'kucoin:abc/usdt' }
-  app.post('/api/admin/sell-position', async (req, res) => {
+  app.post('/api/admin/sell-position', requireAdminToken, async (req, res) => {
     if (typeof ctx.forceSellPosition !== 'function') {
       res.status(503).json({ ok: false, error: 'forceSellPosition not exposed in ctx (needs index.js wire-up)' });
       return;
@@ -1369,6 +1566,9 @@ WHERE version_id = @version_id
       }
 
       const configuredSecret = String(config.webhooks?.tradingViewSecret || '').trim();
+      if (!configuredSecret) {
+        return res.status(503).json({ error: 'TradingView webhook secret is required when enabled' });
+      }
       const providedSecret = String(
         req.headers['x-webhook-secret']
         || req.headers['x-tradingview-secret']
@@ -1376,7 +1576,7 @@ WHERE version_id = @version_id
         || req.body?.secret
         || ''
       ).trim();
-      if (configuredSecret && providedSecret !== configuredSecret) {
+      if (providedSecret !== configuredSecret) {
         return res.status(401).json({ error: 'Unauthorized webhook secret' });
       }
 
@@ -1385,13 +1585,12 @@ WHERE version_id = @version_id
         provider: 'tradingview',
         source: 'tradingview',
         symbol: payload.symbol || payload.ticker,
-        chainKey: payload.chain || payload.chainKey || payload.exchange || null,
+        chain: payload.chain || payload.chainKey || payload.exchange || null,
         strategy: payload.strategy || null,
         signal: payload.signal || payload.action || payload.side,
         confidence: payload.confidence,
         note: payload.note || payload.message || payload.comment,
-        raw: payload,
-        expiresAt: payload.expiresAt || new Date(Date.now() + Number(config.webhooks?.tradingViewMaxAgeMs || 21600000)).toISOString(),
+        ttlMs: Number(config.webhooks?.tradingViewMaxAgeMs || 21600000),
       });
       return res.json({ ok: true, signal });
     } catch (error) {
@@ -1414,7 +1613,7 @@ WHERE version_id = @version_id
   });
 
   // Portfolio correlation matrix endpoint
-  app.get('/api/correlation', (req, res) => {
+  app.get('/api/correlation', requireAdminToken, (req, res) => {
     try {
       const { buildCorrelationMatrix } = require('./utils/correlation');
       let priceHistories = ctx.strategy?.priceHistory || {};
@@ -1598,7 +1797,7 @@ WHERE version_id = @version_id
     }
   });
 
-  app.get('/api/admin/safe-mode/clear', requireAdminToken, (req, res) => {
+  app.post('/api/admin/safe-mode/clear', requireAdminToken, (req, res) => {
     try {
       if (typeof ctx.clearSafeMode !== 'function') {
         return res.status(503).json({ error: 'Safe mode control unavailable' });
@@ -1880,4 +2079,7 @@ WHERE version_id = @version_id
   return { app, server, wss };
 }
 
-module.exports = { startDashboard };
+module.exports = {
+  startDashboard,
+  _testInternals: { readPerpsPaperHistory, readPerpsPaperHistorySnapshot, buildPerpsPaperStats },
+};

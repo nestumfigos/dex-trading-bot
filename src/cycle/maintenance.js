@@ -149,29 +149,28 @@ function createRefreshSwingWatchlists({
   };
 }
 
+const SQL_PRUNE_POLICIES = [
+  ['dbo.signals',                12,        'ts',          "retention_tier <> 'permanent'"],
+  ['dbo.model_predictions',      24,        'ts'],
+  ['dbo.model_feature_store',    24,        'ts'],
+  ['dbo.multi_agent_decisions',  24,        'ts'],
+  ['dbo.sentiment_snapshots',    24,        'ts'],
+  ['dbo.bot_state_snapshots',    48,        'ts'],
+  ['dbo.decision_log',           72,        'ts'],
+  ['dbo.trade_rejections',       720,       'rejected_at'],
+  ['dbo.ai_decisions',           720,       'decided_at'],
+  ['dbo.health_checks',          720,       'checked_at'],
+];
+
 async function runSqlAutoPrune(log) {
   const { getPool } = require('../utils/sqlServer');
   const sql = require('mssql');
   const pool = await getPool(log).catch(() => null);
   if (!pool) return;
-  // Format: [table, hours, tsColumn]
-  const PRUNE = [
-    ['dbo.signals',                12,        'ts'],
-    ['dbo.model_predictions',      24,        'ts'],
-    ['dbo.model_feature_store',    24,        'ts'],
-    ['dbo.multi_agent_decisions',  24,        'ts'],
-    ['dbo.sentiment_snapshots',    24,        'ts'],
-    ['dbo.bot_state_snapshots',    48,        'ts'],
-    ['dbo.decision_log',           72,        'ts'],
-    // Week 11.7a — 30d retention sweeps
-    ['dbo.trade_rejections',       720,       'rejected_at'],   // 30d
-    ['dbo.ai_decisions',           720,       'decided_at'],    // 30d
-    ['dbo.health_checks',          720,       'ts'],            // 30d
-  ];
   const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
   const isSafeIdent = (s) => typeof s === 'string' && s.split('.').every((p) => IDENT_RE.test(p));
   let totalDeleted = 0;
-  for (const [table, hours, tsCol] of PRUNE) {
+  for (const [table, hours, tsCol, additionalPredicate] of SQL_PRUNE_POLICIES) {
     if (!isSafeIdent(table) || !isSafeIdent(tsCol)) {
       log.error(`[SQL prune] refusing unsafe identifier: table=${table} col=${tsCol}`);
       continue;
@@ -182,7 +181,8 @@ async function runSqlAutoPrune(log) {
       do {
         const req = new sql.Request(pool);
         req.input('hours', sql.Int, hours);
-        batch = await req.query(`DELETE TOP (5000) FROM ${table} WHERE ${tsCol} < DATEADD(hour, -@hours, SYSUTCDATETIME())`);
+        const retentionClause = additionalPredicate ? ` AND ${additionalPredicate}` : '';
+        batch = await req.query(`DELETE TOP (5000) FROM ${table} WHERE ${tsCol} < DATEADD(hour, -@hours, SYSUTCDATETIME())${retentionClause}`);
         deleted += batch.rowsAffected[0] || 0;
       } while ((batch.rowsAffected[0] || 0) > 0);
       if (deleted > 0) {
@@ -203,4 +203,5 @@ module.exports = {
   createEvictStuckPositions,
   createRefreshSwingWatchlists,
   runSqlAutoPrune,
+  _testInternals: { SQL_PRUNE_POLICIES },
 };

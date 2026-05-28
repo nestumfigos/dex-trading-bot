@@ -58,20 +58,30 @@ function pickUniverse(args) {
   return DEFAULT_SYMBOLS;
 }
 
+let _kucoinClient = null;
+async function ensureKucoinClient() {
+  if (_kucoinClient) return _kucoinClient;
+  const KucoinExchange = require('../src/exchanges/kucoin');
+  const client = new KucoinExchange();
+  await client.initialize().catch(() => null);
+  const { setKucoinOhlcvProvider } = require('../src/utils/candles');
+  setKucoinOhlcvProvider(client);
+  _kucoinClient = client;
+  return client;
+}
+
 async function fetchHistoricalCandles(symbol, interval, bars) {
-  // Real implementation uses KuCoin REST + pagination. Stub returns null so the
-  // dry-run / validation paths work without network.
   try {
+    await ensureKucoinClient();
     const candles = require('../src/utils/candles');
-    if (typeof candles.getOhlcvSeries === 'function') {
-      const rows = await candles.getOhlcvSeries({
-        chainKey: 'kucoin',
-        symbol: `${symbol}/USDT`,
-        interval,
-        limit: bars,
-      });
-      return Array.isArray(rows) && rows.length ? rows : null;
-    }
+    const result = await candles.getOhlcvSeries({
+      chainKey: 'kucoin',
+      symbol: `${symbol}/USDT`,
+      interval,
+      limit: bars,
+    });
+    if (!result || !Array.isArray(result.candles) || result.candles.length === 0) return null;
+    return result.candles;
   } catch (err) {
     logger.warn(`[walkforward] candles fetch failed for ${symbol}/${interval}: ${err.message}`);
   }

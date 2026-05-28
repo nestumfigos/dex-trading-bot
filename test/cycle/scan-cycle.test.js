@@ -168,6 +168,23 @@ test('strategy scan: calls saveState after scan', async () => {
   assert.equal(calls.saves, 1);
 });
 
+test('overlapping strategy scans coalesce the post-scan state checkpoint', async () => {
+  let releaseSave;
+  const { calls, deps } = baseDeps({
+    saveState: async () => {
+      calls.saves += 1;
+      await new Promise((resolve) => { releaseSave = resolve; });
+    },
+  });
+  const sc = create(deps);
+  const first = sc.runStrategyScanCycle('momentum');
+  const second = sc.runStrategyScanCycle('bsc_flow_breakout');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.saves, 1);
+  releaseSave();
+  await Promise.all([first, second]);
+});
+
 test('strategy scan: updates loopLastCompletedAt[lockKey]', async () => {
   const { deps } = baseDeps();
   const sc = create(deps);
@@ -248,6 +265,18 @@ test('detached kucoin: scans kucoin only', async () => {
   assert.equal(calls.scans.length, 1);
   assert.equal(calls.scans[0].chain, 'kucoin');
   assert.equal(calls.scans[0].strategy, 'momentum');
+});
+
+test('detached kucoin: applies the configured scan timeout', async () => {
+  const { deps } = baseDeps();
+  deps.config.bot.kucoinScanDiscoveryTimeoutMs = 31_000;
+  let observedTimeout = null;
+  deps.withTimeout = async (promise, timeout) => {
+    observedTimeout = timeout;
+    return promise;
+  };
+  await create(deps).runDetachedKucoinMomentumScan();
+  assert.equal(observedTimeout, 31_000);
 });
 
 test('detached kucoin: releases lock even on error', async () => {

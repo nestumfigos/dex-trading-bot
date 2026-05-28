@@ -178,6 +178,18 @@ ORDER BY ts DESC
       const context = getSelfEvolutionContext();
       context.paperLiveComparison = await getPaperLiveComparisonSnapshot();
       const evaluation = evolutionGovernor.evaluateManifest(manifest, context);
+      const versionId = manifest?.versioning?.versionId || strategyVersionId;
+      const manualApprovalGranted = await hasManualApproval(versionId);
+      if (evaluation.decision === 'promote' && !manualApprovalGranted) {
+        evaluation.decision = 'await_manual_approval';
+        evaluation.reasons = [...evaluation.reasons, 'explicit_promotion_approval_required'];
+      } else if (evaluation.decision === 'await_manual_approval' && manualApprovalGranted) {
+        evaluation.decision = 'promote';
+        evaluation.reasons = [
+          ...evaluation.reasons.filter((reason) => reason !== 'manual_approval_required'),
+          'manual_approval_granted',
+        ];
+      }
       const updated = await evolutionGovernor.updateCandidate(experiment.manifestPath, (draft) => ({
         ...draft,
         observation: {
@@ -191,12 +203,15 @@ ORDER BY ts DESC
         rollout: {
           ...(draft.rollout || {}),
           stage: evaluation.decision === 'shadow' ? 'shadow_candidate' : (evaluation.decision === 'promote' ? 'canary_candidate' : (evaluation.decision === 'await_manual_approval' ? 'await_manual_approval' : (draft.rollout?.stage || 'paper_candidate'))),
-          manualApprovalRequired: Boolean(evaluation.impact?.highImpact && config.selfEvolution?.governance?.requireManualApprovalForHighImpact !== false),
+          manualApprovalRequired: evaluation.decision === 'await_manual_approval'
+            || Boolean(evaluation.impact?.highImpact && config.selfEvolution?.governance?.requireManualApprovalForHighImpact !== false),
+          manualApprovalGranted: Boolean(draft.rollout?.manualApprovalGranted || manualApprovalGranted),
           regimeFamily: classifyRegimeFamily(context.marketRegime || 'unknown'),
         },
         promotion: {
           ...(draft.promotion || {}),
           eligible: evaluation.decision === 'promote',
+          approved: Boolean(draft.promotion?.approved || (evaluation.decision === 'promote' && manualApprovalGranted)),
         },
         rollback: {
           ...(draft.rollback || {}),
@@ -266,8 +281,7 @@ ORDER BY ts DESC
         return;
       }
 
-      if (evaluation.decision === 'promote' && config.paperTrading && config.selfEvolution?.autoPromote !== false) {
-        const versionId = manifest?.versioning?.versionId || strategyVersionId;
+      if (evaluation.decision === 'promote' && config.paperTrading && config.selfEvolution?.autoPromote === true) {
         if (updated.rollout?.manualApprovalRequired && !(await hasManualApproval(versionId))) {
           logger.warn(`[Self-evolution] Manual approval required before promoting ${manifest.id}`);
           experiment.status = 'await_manual_approval';
@@ -337,6 +351,10 @@ ORDER BY ts DESC
       const rollout = JSON.parse(raw);
       marketState.evolution.liveRollout = {
         id: rollout.id || null,
+        versionId: rollout.versionId || null,
+        stage: rollout.stage || null,
+        regimeFamily: rollout.regimeFamily || null,
+        canaryLiveSizePct: rollout.canaryLiveSizePct || null,
         promotedAt: rollout.promotedAt || null,
         backupRoot: rollout.backupRoot || null,
         rollback: rollout.rollback || null,
@@ -351,6 +369,7 @@ ORDER BY ts DESC
       const context = getSelfEvolutionContext();
       const baseline = rollout.baseline || {};
       const current = evolutionGovernor.buildCurrentSnapshot(context);
+      const observedLiveClosedTrades = Math.max(0, Number(current.closedTrades || 0) - Number(baseline.closedTrades || 0));
       const profitFactorDelta = Number(current.profitFactor || 0) - Number(baseline.profitFactor || 0);
       const winRateDeltaPct = Number(current.winRatePct || 0) - Number(baseline.winRatePct || 0);
       const falsePositiveDeltaPct = Number(current.falsePositiveRatePct || 0) - Number(baseline.falsePositiveRatePct || 0);
@@ -362,6 +381,10 @@ ORDER BY ts DESC
         || fillSlippageDeltaPct >= Math.abs(settings.maxFillSlippageDeltaPct);
       if (!shouldRollback) {
         if (String(rollout.stage || '').toLowerCase() === 'canary_live') {
+          if (observedLiveClosedTrades < settings.minLiveCanaryClosedTrades) {
+            logger.info(`[Evolution] Live canary observation waiting for closed trades (${observedLiveClosedTrades}/${settings.minLiveCanaryClosedTrades})`);
+            return;
+          }
           rollout.stage = 'scaled_live';
           rollout.scaledAt = new Date().toISOString();
           await fs.writeFile(LIVE_ROLLOUT_PATH, `${JSON.stringify(rollout, null, 2)}\n`, 'utf8');
@@ -386,6 +409,7 @@ ORDER BY ts DESC
             notes: 'Live rollout passed canary observation window and scaled automatically',
             context: {
               liveRollbackObservationMinutes: settings.liveRollbackObservationMinutes,
+              observedLiveClosedTrades,
               profitFactorDelta,
               winRateDeltaPct,
               falsePositiveDeltaPct,

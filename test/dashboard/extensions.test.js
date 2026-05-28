@@ -154,6 +154,17 @@ test('GET /api/ai-decisions/cost aggregates by provider', async () => {
   assert.equal(body.data[0].total_cost_usd, 5.25);
 });
 
+test('GET /api/risk-rules uses the configured SQL pool provider', async () => {
+  const app = makeFakeApp();
+  const mockPool = makeFakePool([{ name: 'max_size', scope: 'paper', enabled: true }]);
+  mountWeek6Routes(app, { getPool: async () => mockPool });
+  const route = app._routes.find((r) => r.method === 'GET' && r.path === '/api/risk-rules');
+  let body;
+  await route.handlers[0]({ query: {} }, { status() { return this; }, json(b) { body = b; return this; } });
+  assert.equal(body.ok, true);
+  assert.equal(body.data[0].name, 'max_size');
+});
+
 test('POST /api/symbol-overrides without auth → 503', async () => {
   delete process.env.DASHBOARD_ADMIN_TOKEN;
   const app = makeFakeApp();

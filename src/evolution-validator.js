@@ -51,6 +51,24 @@ function buildSyntheticSeries(length = 180, drift = 0.003, noiseScale = 0.01) {
   return { prices, volumes };
 }
 
+async function listJsTestsRecursively(directory, relativeDirectory = 'test') {
+  let entries = [];
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (_) {
+    return [];
+  }
+  const results = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      results.push(...await listJsTestsRecursively(path.join(directory, entry.name), path.join(relativeDirectory, entry.name)));
+    } else if (entry.isFile() && entry.name.endsWith('.test.js')) {
+      results.push(path.join(relativeDirectory, entry.name));
+    }
+  }
+  return results.sort();
+}
+
 class EvolutionValidator {
   constructor({ config, logger, projectRoot }) {
     this.config = config;
@@ -89,15 +107,7 @@ class EvolutionValidator {
 
   async runScriptedTests() {
     const testDir = path.join(this.projectRoot, 'test');
-    let entries = [];
-    try {
-      entries = await fs.readdir(testDir, { withFileTypes: true });
-    } catch (_) {
-      return [];
-    }
-    const jsTests = entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
-      .map((entry) => path.join('test', entry.name));
+    const jsTests = await listJsTestsRecursively(testDir);
     const results = [];
     // Day 7 follow-up: prefer Docker-sandboxed execution when available.
     const sandbox = require('./utils/sandbox-runner');
@@ -274,3 +284,4 @@ class EvolutionValidator {
 }
 
 module.exports = EvolutionValidator;
+module.exports._testInternals = { listJsTestsRecursively };

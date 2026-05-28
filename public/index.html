@@ -47,6 +47,12 @@
         <a class="nav-item" data-view="trades" href="#trades">
           <span class="nav-ico">⇄</span> Trades
         </a>
+        <a class="nav-item" data-view="perp-trades" href="#perp-trades">
+          <span class="nav-ico">⇅</span> Perp Trades <span class="paper-pill">PAPER</span>
+        </a>
+        <a class="nav-item" data-view="perp-backtests" href="#perp-backtests">
+          <span class="nav-ico">▤</span> Perp Backtests <span class="paper-pill">RESEARCH</span>
+        </a>
         <a class="nav-item" data-view="signals" href="#signals">
           <span class="nav-ico">⊳</span> Signals
         </a>
@@ -259,7 +265,7 @@
           <article class="panel risk-alerts">
             <div class="panel-head"><h3>Risk Alerts <span class="count-pill alert-pill" id="risk-count">0</span></h3></div>
             <div id="risk-list"><div class="muted small">No active alerts.</div></div>
-            <a class="panel-foot-link" href="#alerts">Manage alerts →</a>
+            <a class="panel-foot-link" href="#observability" data-view="observability">Manage alerts →</a>
           </article>
         </div>
       </section>
@@ -287,6 +293,127 @@
             <table>
               <thead><tr><th>Time</th><th>Pair</th><th>Chain</th><th>Side</th><th>Value USD</th><th>PnL USD</th><th>Reason</th></tr></thead>
               <tbody id="trades-full-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-perp-trades">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Perp Trades <span class="paper-pill">PAPER ONLY</span></h2>
+            <span class="muted small">Live perps execution is disabled.</span>
+          </div>
+          <div class="bull-flag-kpis">
+            <div><span class="muted">Closed</span><strong id="perps-closed">0</strong></div>
+            <div><span class="muted">Win Rate</span><strong id="perps-winrate">0.0%</strong></div>
+            <div><span class="muted">PnL</span><strong id="perps-pnl">$0.00</strong></div>
+            <div><span class="muted">Profit Factor</span><strong id="perps-pf">—</strong></div>
+            <div><span class="muted">Execution</span><strong class="st-SKIPPED">SIMULATED</strong></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Closed</th><th>Contract</th><th>Side</th><th>Notional</th><th>Entry</th><th>Exit</th><th>Costs</th><th>PnL</th><th>Exit</th><th>Reason</th></tr></thead>
+              <tbody id="perps-trades-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" id="view-perp-backtests">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Perp Backtest Results <span class="paper-pill">RESEARCH ONLY</span></h2>
+            <span class="muted small">Historical replay never creates paper trades or enables live perps.</span>
+          </div>
+          <div class="research-controls">
+            <label><span>Contract</span>
+              <select id="perps-bt-symbol">
+                <option value="BTCUSDT">BTCUSDT</option>
+                <option value="ETHUSDT">ETHUSDT</option>
+                <option value="SOLUSDT">SOLUSDT</option>
+              </select>
+            </label>
+            <label><span>Window</span>
+              <select id="perps-bt-days">
+                <option value="7">7 days</option>
+                <option value="30" selected>30 days</option>
+                <option value="90">90 days</option>
+                <option value="180">180 days</option>
+              </select>
+            </label>
+            <button id="perps-bt-run" class="bot-config" type="button">Run Replay</button>
+            <button id="perps-bt-study" class="bot-config" type="button">Compare All</button>
+            <button id="perps-bt-walk" class="bot-config" type="button">Walk-Forward</button>
+            <button id="perps-bt-benchmark" class="bot-config" type="button">Run Admission Gate</button>
+          </div>
+          <div id="perps-bt-message" class="research-message muted small">Select a contract and window to run completed-candle evidence.</div>
+          <div class="bull-flag-kpis">
+            <div><span class="muted">Trades</span><strong id="perps-bt-trades">0</strong></div>
+            <div><span class="muted">PnL</span><strong id="perps-bt-pnl">$0.00</strong></div>
+            <div><span class="muted">Expectancy</span><strong id="perps-bt-expectancy">$0.00</strong></div>
+            <div><span class="muted">Profit Factor</span><strong id="perps-bt-pf">-</strong></div>
+            <div><span class="muted">Max Drawdown</span><strong id="perps-bt-dd">0.00%</strong></div>
+          </div>
+          <div class="panel-head research-table-head"><h3>Symbol Comparison</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Contract</th><th>Days</th><th>Trades</th><th>PnL</th><th>Expectancy</th><th>Profit Factor</th><th>Drawdown</th><th>Stressed PnL</th></tr></thead>
+              <tbody id="perps-bt-comparison-body"></tbody>
+            </table>
+          </div>
+          <div class="panel-head research-table-head"><h3>Market Regimes</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Regime</th><th>Trades</th><th>PnL</th><th>Expectancy</th><th>Win Rate</th><th>Profit Factor</th></tr></thead>
+              <tbody id="perps-bt-regime-body"></tbody>
+            </table>
+          </div>
+          <div class="panel-head research-table-head"><h3>Rejected Setups</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Reason</th><th>Count</th></tr></thead>
+              <tbody id="perps-bt-reject-body"></tbody>
+            </table>
+          </div>
+          <div class="panel-head research-table-head"><h3>Loss Attribution by Exit</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Exit Reason</th><th>Trades</th><th>PnL</th><th>Expectancy</th><th>Win Rate</th></tr></thead>
+              <tbody id="perps-bt-exit-body"></tbody>
+            </table>
+          </div>
+          <div class="panel-head research-table-head"><h3>Loss Attribution by Side</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Side</th><th>Trades</th><th>PnL</th><th>Expectancy</th><th>Win Rate</th></tr></thead>
+              <tbody id="perps-bt-side-body"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Walk-Forward Validation</h3>
+            <strong id="perps-wf-verdict" class="st-SKIPPED">NOT RUN</strong>
+          </div>
+          <p id="perps-wf-detail" class="muted small">Rules are held unchanged between the earlier training window and later validation window.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Period</th><th>Trades</th><th>PnL</th><th>Expectancy</th><th>Profit Factor</th><th>Drawdown</th></tr></thead>
+              <tbody id="perps-wf-body"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Paper Entry Admission</h3>
+            <strong id="perps-admission-verdict" class="st-SKIPPED">NOT RUN</strong>
+          </div>
+          <p id="perps-admission-detail" class="muted small">New paper entries remain blocked until a predefined variant passes unseen validation evidence.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Candidate</th><th>Training Trades</th><th>Training Expectancy</th><th>Training Stressed PnL</th><th>Selected</th></tr></thead>
+              <tbody id="perps-admission-candidates-body"></tbody>
             </table>
           </div>
         </article>
@@ -406,8 +533,9 @@
             <div class="settings-card">
               <h3>Configuration Files</h3>
               <div class="muted small">Edit env in worktree root then restart bot:</div>
-              <div><code>start.bat</code> (live: BOT_PROFILE=live, PORT=3002)</div>
               <div><code>start-paper.bat</code> (paper: BOT_PROFILE=paper, PORT=3001)</div>
+              <div><code>Desktop\Restart All Bots.bat</code> (live + paper supervisor)</div>
+              <div><code>/api/perps/trades</code> (paper perp exit history)</div>
               <div class="muted small" style="margin-top:8px;">Hot-reloadable knobs: <code>dbo.strategy_config</code> SQL table (60s poll).</div>
             </div>
             <div class="settings-card">

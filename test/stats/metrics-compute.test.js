@@ -106,13 +106,13 @@ test('refreshPerformanceMetrics: per-strategy stats computed independently', () 
   const p = {
     strategies: {
       momentum: { stats: { closedTrades: 2, wins: 2, losses: 0, grossProfit: 20, grossLoss: 0 }, trades: [] },
-      swing:    { stats: { closedTrades: 4, wins: 1, losses: 3, grossProfit: 5,  grossLoss: 15 }, trades: [] },
+      backes_swing: { stats: { closedTrades: 4, wins: 1, losses: 3, grossProfit: 5, grossLoss: 15 }, trades: [] },
     },
   };
   mc.refreshPerformanceMetrics(p);
   assert.equal(p.strategies.momentum.stats.avgWinUsd, 10);
-  assert.equal(p.strategies.swing.stats.avgWinUsd, 5);
-  assert.equal(p.strategies.swing.stats.profitFactor, 5 / 15);
+  assert.equal(p.strategies.backes_swing.stats.avgWinUsd, 5);
+  assert.equal(p.strategies.backes_swing.stats.profitFactor, 5 / 15);
 });
 
 // ── recordPortfolioSnapshot ────────────────────────────────────────────────

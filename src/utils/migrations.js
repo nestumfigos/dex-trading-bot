@@ -15,6 +15,7 @@ const { getPool, isSqlEnabled, sql } = require('./sqlServer');
 const MIGRATIONS_DIR = path.resolve(__dirname, '..', '..', 'db', 'migrations');
 const ROLLBACKS_DIR = path.resolve(__dirname, '..', '..', 'db', 'rollbacks');
 const FILE_RE = /^(\d{4,})_([a-z0-9_\-]+)\.sql$/i;
+const REQUIRED_SESSION_OPTIONS = 'SET ANSI_NULLS ON;\nSET QUOTED_IDENTIFIER ON;\n';
 
 function listMigrationFiles(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -56,6 +57,46 @@ function splitBatches(sqlText) {
   return batches;
 }
 
+async function executeBatch(pool, batch) {
+  return pool.request().batch(`${REQUIRED_SESSION_OPTIONS}${batch}`);
+}
+
+async function ensureMigrationPrerequisites(pool, logger) {
+  const probe = await pool.request().query(`
+    SELECT CAST(COUNT(*) AS INT) AS cnt
+    FROM sys.tables
+    WHERE name = 'signals' AND schema_id = SCHEMA_ID('dbo');
+  `);
+  if (probe.recordset[0].cnt > 0) return;
+
+  logger.info('[migrations] prerequisite: creating legacy dbo.signals baseline');
+  await executeBatch(pool, `
+    CREATE TABLE dbo.signals (
+      signal_id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+      run_id UNIQUEIDENTIFIER NULL,
+      ts DATETIME2(3) NOT NULL,
+      bot_profile NVARCHAR(20) NOT NULL,
+      chain NVARCHAR(30) NULL,
+      chain_key NVARCHAR(30) NULL,
+      symbol NVARCHAR(40) NULL,
+      address NVARCHAR(120) NULL,
+      strategy NVARCHAR(30) NULL,
+      final_signal NVARCHAR(30) NULL,
+      technical_signal NVARCHAR(30) NULL,
+      signal_source NVARCHAR(80) NULL,
+      confidence FLOAT NULL,
+      ai_confidence FLOAT NULL,
+      ai_reason NVARCHAR(400) NULL,
+      risk_flags_json NVARCHAR(MAX) NULL,
+      features_json NVARCHAR(MAX) NULL,
+      gate_json NVARCHAR(MAX) NULL,
+      reject_reasons_json NVARCHAR(MAX) NULL
+    );
+    CREATE INDEX IX_signals_ts ON dbo.signals(ts DESC);
+    CREATE INDEX IX_signals_chain_strategy_signal ON dbo.signals(chain_key, strategy, final_signal, ts DESC);
+  `);
+}
+
 async function ensureMigrationsTable(pool, logger) {
   // Bootstrap: if schema_migrations doesn't exist, apply 0000 directly so we
   // can record itself as the first applied migration.
@@ -74,7 +115,7 @@ async function ensureMigrationsTable(pool, logger) {
   logger.info('[migrations] bootstrap: creating dbo.schema_migrations');
   const sqlText = fs.readFileSync(bootstrapFile, 'utf8');
   for (const batch of splitBatches(sqlText)) {
-    await pool.request().batch(batch);
+    await executeBatch(pool, batch);
   }
 }
 
@@ -106,6 +147,15 @@ async function removeMigrationRecord(pool, version) {
 }
 
 async function migrate({ logger = console, dryRun = false } = {}) {
+  if (dryRun) {
+    const parsed = listMigrationFiles(MIGRATIONS_DIR).map((mig) => {
+      const batches = splitBatches(fs.readFileSync(mig.fullPath, 'utf8'));
+      logger.info(`[migrations] DRY-RUN parse ${mig.version}_${mig.name}: ${batches.length} batch(es)`);
+      return { version: mig.version, name: mig.name, durationMs: 0, dryRun: true };
+    });
+    logger.info('[migrations] parse-only dry run; no database was modified.');
+    return { applied: parsed, skipped: [], dryRun: true, offline: !isSqlEnabled() };
+  }
   if (!isSqlEnabled()) {
     logger.warn('[migrations] SQL_ENABLED=false — nothing to do.');
     return { applied: [], skipped: [], dryRun };
@@ -114,6 +164,7 @@ async function migrate({ logger = console, dryRun = false } = {}) {
   if (!pool) throw new Error('SQL pool unavailable. Check SQL_CONNECTION_STRING.');
 
   await ensureMigrationsTable(pool, logger);
+  await ensureMigrationPrerequisites(pool, logger);
 
   const files = listMigrationFiles(MIGRATIONS_DIR);
   const applied = await getAppliedVersions(pool);
@@ -163,7 +214,7 @@ async function migrate({ logger = console, dryRun = false } = {}) {
     }
     try {
       for (const batch of splitBatches(mig.text)) {
-        await pool.request().batch(batch);
+        await executeBatch(pool, batch);
       }
       const durationMs = Date.now() - t0;
       await recordMigration(pool, mig, mig.checksum, durationMs);
@@ -210,7 +261,7 @@ async function rollback({ logger = console, version = null } = {}) {
   logger.info(`[migrations] rolling back ${rb.version}_${rb.name}`);
   const text = fs.readFileSync(rb.fullPath, 'utf8');
   for (const batch of splitBatches(text)) {
-    await pool.request().batch(batch);
+    await executeBatch(pool, batch);
   }
 
   // schema_migrations is a special case: if we just dropped it (M001 rollback),
@@ -263,6 +314,7 @@ module.exports = {
   sha256,
   MIGRATIONS_DIR,
   ROLLBACKS_DIR,
+  _testInternals: { executeBatch, ensureMigrationPrerequisites, REQUIRED_SESSION_OPTIONS },
 };
 
 // CLI entry point: `node src/utils/migrations.js <up|down|status> [version]`

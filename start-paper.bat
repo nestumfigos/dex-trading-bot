@@ -8,7 +8,7 @@ set SQL_ENABLED=false
 set SQL_CONNECTION_STRING=
 set SQL_STATE_RESTORE_ENABLED=false
 set MOMENTUM_ENABLED=true
-set MOMENTUM_ENABLED_CHAINS=solana,bsc,kucoin
+set MOMENTUM_ENABLED_CHAINS=kucoin
 set SWING_ENABLED=false
 set BSC_FLOW_BREAKOUT_ENABLED=true
 set BSC_FLOW_BREAKOUT_ENABLED_CHAINS=bsc
@@ -88,17 +88,5 @@ set HYBRID_AGENT_ALLOW_DIRECT_ENTRY=false
 set PYTHON_SIDECAR_MAX_CONCURRENT=1
 set PYTHON_SIDECAR_MAX_QUEUE=10
 
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue | ForEach-Object { try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction Stop } catch {} }"
-
-:restart
 call npm run paper
-set EXIT_CODE=%ERRORLEVEL%
-
-if "%EXIT_CODE%"=="222" (
-  echo Duplicate paper runtime detected. Exiting launcher without restart.
-  exit /b 0
-)
-
-echo Paper bot exited with code %EXIT_CODE%. Restarting in 5 seconds...
-timeout /t 5 /nobreak >nul
-goto restart
+exit /b %ERRORLEVEL%

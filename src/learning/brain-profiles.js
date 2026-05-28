@@ -85,7 +85,7 @@ function createLearningBrain(deps) {
       lastUpdated: null,
     };
 
-    const isWin = Number(finalTradePnl || 0) >= 0;
+    const isWin = Number(finalTradePnl || 0) > 0;
     profile.samples = Number(profile.samples || 0) + 1;
     if (isWin) profile.wins = Number(profile.wins || 0) + 1;
     else profile.losses = Number(profile.losses || 0) + 1;
@@ -197,7 +197,7 @@ function createLearningBrain(deps) {
       lastUpdated: null,
     };
 
-    const win = Number(finalTradePnl || 0) >= 0 ? 1 : 0;
+    const win = Number(finalTradePnl || 0) > 0 ? 1 : 0;
     sleeve.outcomes = [...(Array.isArray(sleeve.outcomes) ? sleeve.outcomes : []), win].slice(-windowTrades);
     sleeve.totalClosed = Number(sleeve.totalClosed || 0) + 1;
     if (win) sleeve.wins = Number(sleeve.wins || 0) + 1;

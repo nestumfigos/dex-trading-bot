@@ -30,7 +30,7 @@ test('state persistence saves sql-primary and writes disk backups', async (t) =>
     else process.env.SQL_ENABLED = previousSqlEnabled;
   });
 
-  const portfolio = { saveFailureCount: 0, statePersistenceError: false, learning: {}, runtime: {} };
+  const portfolio = { saveFailureCount: 0, statePersistenceError: false, learning: { sleevePerformance: { 'kucoin:momentum': { wins: 1 } } }, runtime: {} };
   const risk = { dailyStartBalance: 100, dailyResetDate: '2026-05-03', haltedToday: false };
   const strategy = { priceHistory: { a: [1] }, volumeHistory: { a: [2] } };
   const marketState = { trackedTokens: {} };
@@ -78,6 +78,7 @@ test('state persistence saves sql-primary and writes disk backups', async (t) =>
   assert.equal(runtimeDeltaCalls, 1);
   assert.equal(flushed, 1);
   assert.equal(telemetryCalls.length, 1);
+  assert.deepEqual(telemetryCalls[0].state.portfolio.learning.sleevePerformance, { 'kucoin:momentum': { wins: 1 } });
   assert.equal(portfolio.saveFailureCount, 0);
   assert.equal(persistenceError, false);
   assert.ok(fs.existsSync(tmp.STATE_PATH));

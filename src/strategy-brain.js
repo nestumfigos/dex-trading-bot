@@ -99,7 +99,7 @@ class StrategyBrain {
     const minSamples = Math.max(6, Number(this.config.risk?.brainMinSamples || 8));
     const chainProfile = brain.profiles[profileKey];
     const chainSamples = Number(chainProfile?.samples || 0);
-    if (chainSamples < minSamples * 2) {
+    if (chainSamples > 0 && chainSamples < minSamples * 2) {
       const globalAdjKey = this.getAdjustmentKey('global', strategyName);
       const globalAdj = brain.adjustments[globalAdjKey];
       if (globalAdj) {
@@ -163,6 +163,9 @@ class StrategyBrain {
     );
 
     if (source === 'insufficient') return { allowed: true, profileKey };
+    if (source === 'global_fallback') {
+      return { allowed: true, profileKey, localEvidenceRequired: true };
+    }
     if (winRate >= blockWinRatePct) return { allowed: true, profileKey };
 
     const roll = Math.random() * 100;
@@ -206,7 +209,7 @@ class StrategyBrain {
     const archetype = String(position.brainArchetype || 'canonical_momentum_baseline').toLowerCase();
     if (!chainKey) return;
 
-    const win = Number(finalTradePnl || 0) >= 0;
+    const win = Number(finalTradePnl || 0) > 0;
     const window = Math.max(10, Number(this.config.risk?.brainWindowTrades || 40));
 
     const profileKey = this.getProfileKey(chainKey, strategyName, archetype);

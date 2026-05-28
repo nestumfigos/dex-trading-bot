@@ -192,11 +192,11 @@ async function loadSharedAgentMemory(pool) {
   }
 
   logTradeLedger(trade) {
-    this.enqueue('trade_ledger', trade);
+    this.enqueue('trade_ledger', { ...trade, trade_id: trade?.trade_id || uuid() });
   }
 
   logPnlPoint(point) {
-    this.enqueue('pnl_point', point);
+    this.enqueue('pnl_point', { ...point, pnl_point_id: point?.pnl_point_id || uuid() });
   }
 
   logDecision(decision) {
@@ -232,22 +232,23 @@ async function loadSharedAgentMemory(pool) {
      if (!pool) return;
      if (this._flushInFlight) return;
      this._flushInFlight = true;
-     let batch = [];
      try {
        while (this._queue.length) {
-         batch = this._queue.splice(0, this.maxBatch);
+         const batch = this._queue.splice(0, this.maxBatch);
+         let nextUnwrittenIndex = 0;
          // Best-effort sequential inserts; schema is append-heavy and batches are small.
-         for (const item of batch) {
-           // eslint-disable-next-line no-await-in-loop
-           await this._writeOne(pool, item);
+         try {
+           for (; nextUnwrittenIndex < batch.length; nextUnwrittenIndex += 1) {
+             // eslint-disable-next-line no-await-in-loop
+             await this._writeOne(pool, batch[nextUnwrittenIndex]);
+           }
+         } catch (e) {
+           const unwritten = batch.slice(nextUnwrittenIndex);
+           this._queue.unshift(...unwritten);
+           this.logger.warn(`[SQL] flush failed (requeued ${unwritten.length} unwritten): ${e.message}`);
+           return;
          }
-         batch = [];
        }
-     } catch (e) {
-       if (batch.length) {
-         this._queue.unshift(...batch);
-       }
-       this.logger.warn(`[SQL] flush failed: ${e.message}`);
      } finally {
        this._flushInFlight = false;
      }

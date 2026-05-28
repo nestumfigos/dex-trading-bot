@@ -302,7 +302,7 @@ function mountWeek6Routes(app, { getPool, logger }) {
 
   // ─── /api/risk-rules — Week 11.7b CRUD ─────────────────────────────────
   app.get('/api/risk-rules', async (req, res) => {
-    await withPool(async (pool) => {
+    return withPool(getPool, async (pool) => {
       const scope = String(req.query.scope || '').toLowerCase();
       const r = pool.request();
       let q = `SELECT name, scope, severity, enabled, notes, updated_at FROM dbo.risk_rules`;
@@ -314,7 +314,7 @@ function mountWeek6Routes(app, { getPool, logger }) {
   });
 
   app.patch('/api/risk-rules/:name', requireAdmin, async (req, res) => {
-    await withPool(async (pool) => {
+    return withPool(getPool, async (pool) => {
       const name = String(req.params.name || '').trim();
       const scope = String(req.body?.scope || 'live').toLowerCase();
       const enabled = req.body?.enabled != null ? Boolean(req.body.enabled) : null;

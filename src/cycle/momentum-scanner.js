@@ -24,6 +24,7 @@ function createMomentumScanner(deps = {}) {
     recordExchangeSuccess,
     recordExchangeFailure,
     processToken,
+    withTimeout,
     sleep,
   } = deps;
 
@@ -119,6 +120,9 @@ function createMomentumScanner(deps = {}) {
       const batchDelayMs = chainName === 'kucoin'
         ? Math.max(200, Number(config?.bot?.kucoinBatchDelayMs || 700))
         : 500;
+      const tokenProcessTimeoutMs = chainName === 'kucoin'
+        ? Math.max(1000, Number(config?.bot?.kucoinTokenProcessTimeoutMs || 60_000))
+        : null;
 
       if (chainName === 'kucoin' && strategyName === 'momentum') {
         logger.info(`KuCoin momentum scan window: ${scanTokens.length}/${candidateTokens.length} this cycle (rotating full universe)`);
@@ -138,10 +142,20 @@ function createMomentumScanner(deps = {}) {
           syncChainScanStatus(chainName);
 
           try {
-            await processToken(chainName, exchange, tokenAddress, {
+            const processPromise = processToken(chainName, exchange, tokenAddress, {
               forcedStrategies: options.forceStrategyPerScan === true ? [strategyName] : null,
               scanStrategy: strategyName,
+              deadlineAtMs: tokenProcessTimeoutMs ? Date.now() + tokenProcessTimeoutMs : null,
             });
+            if (tokenProcessTimeoutMs && typeof withTimeout === 'function') {
+              await withTimeout(
+                processPromise,
+                tokenProcessTimeoutMs,
+                `KuCoin token evaluation timed out for ${tokenAddress} after ${tokenProcessTimeoutMs}ms`,
+              );
+            } else {
+              await processPromise;
+            }
           } catch (error) {
             logger.error(`Error processing ${tokenAddress} on ${chainName}/${strategyName}: ${error.message}`);
           }
