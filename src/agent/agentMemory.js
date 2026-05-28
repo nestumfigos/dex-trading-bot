@@ -34,10 +34,13 @@ const MAX_KNOWLEDGE = 200;
 const MAX_EVOLUTION_LOG = 50;
 
 function stableKnowledgeId(item = {}) {
+  // C7 (Phase C): bumped sha1 → sha256 for collision safety at growing
+  // knowledgeBase sizes. 16-char prefix of sha256 keeps id-length unchanged
+  // for backward-compat with the existing knowledgeBase rows.
   const category = String(item.category || 'general').trim().toLowerCase();
   const source = String(item.source || '').trim().toLowerCase();
   const insight = String(item.insight || '').trim().toLowerCase();
-  return `knowledge:${crypto.createHash('sha1').update(`${category}|${source}|${insight}`).digest('hex').slice(0, 16)}`;
+  return `knowledge:${crypto.createHash('sha256').update(`${category}|${source}|${insight}`).digest('hex').slice(0, 16)}`;
 }
 
 class AgentMemory {

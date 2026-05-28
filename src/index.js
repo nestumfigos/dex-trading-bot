@@ -7,7 +7,6 @@ const { ethers } = require('ethers');
 const config = require('../config');
 const logger = require('./utils/logger');
 const RiskGuardian = require('./risk/guardian');
-const MarketAnalyst = require('./agent/marketAnalyst');
 const { applyPositionJitter, getRandomEntryDelay, shouldSplitSolanaTrade, generateSplitTradeSchedule, sleep } = require('./utils/anti-pattern');
 const JupiterExchange = require('./exchanges/jupiter');
 const PancakeSwapExchange = require('./exchanges/pancakeswap');
@@ -1911,14 +1910,10 @@ const agentMemory = _memoryFacade.create({ logger, config });
 selfEvolution.bindDependencies({ agentMemory, portfolio });
 const modelRegistry = new ModelRegistry({ logger, botProfile: BOT_PROFILE });
 const intelligenceAgent = new MarketIntelligenceAgent({ portfolio, config, agentMemory, marketState });
-const agent = new MarketAnalyst({
-  portfolio,
-  exchanges,
-  config,
-  logger,
-  risk,
-  marketState,
-});
+// C1 (Phase C): removed dead `MarketAnalyst` instantiation. Class was a
+// placeholder with inverted RSI logic (BUY at RSI>70 with 5% capital) and zero
+// method calls ever made on the resulting `agent` var. Strategy flow goes
+// strategy/evaluators → risk → orchestrator; this never participated.
 const walletMonitor = new WalletMonitor(portfolio);
 const wsDiscovery = new WebSocketDiscovery();
 

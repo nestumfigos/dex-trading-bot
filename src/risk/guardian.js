@@ -316,11 +316,23 @@ class RiskGuardian {
       return chainWalletBalance;
     }
     // Paper-trading fallback (no-op on live): per-chain wallets don't exist in paper mode,
-    // so allocate from total portfolio balance. Day 4 paper-side fix subtracts known balances first.
+    // so allocate from total portfolio balance.
+    //
+    // C5 (Phase C): previous hardcode `/ 4` (chains-count assumption) caused
+    // over-allocation when fewer than 4 chains were actively enabled (paper
+    // running 2 chains saw double the intended per-chain wallet). Derive
+    // divisor from config.chains.enabled when available; fall back to 4 only
+    // if config shape unknown. Floor of 1 prevents divide-by-zero.
     if (config.paperTrading) {
       const totalBalance = Number(this.portfolio?.balance || 0);
       if (totalBalance > 0) {
-        return totalBalance / 4;
+        const enabledChains = Array.isArray(config?.chains?.enabled)
+          ? config.chains.enabled.filter(Boolean)
+          : null;
+        const divisor = enabledChains && enabledChains.length > 0
+          ? enabledChains.length
+          : Math.max(1, Number(config?.chains?.activeChainCount) || 4);
+        return totalBalance / divisor;
       }
     }
     return 0;

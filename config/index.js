@@ -71,7 +71,10 @@ const config = {
 
   bsc: {
     privateKey: process.env.BSC_PRIVATE_KEY,
-    rpcUrl: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+    // RPC default: publicnode (low-latency, healthy). bsc-dataseed.binance.org
+    // started timing out in 2026-05; left as override via env if operator
+    // wants to point at a paid endpoint.
+    rpcUrl: process.env.BSC_RPC_URL || 'https://bsc-rpc.publicnode.com',
     wsUrl: process.env.BSC_WS_URL || '',
     chainId: 56,
     pancakeRouterV2: '0x10ED43C718714eb63d5aA57B78B54704E256024E',
@@ -82,7 +85,8 @@ const config = {
 
   base: {
     privateKey: process.env.BASE_PRIVATE_KEY,
-    rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+    // RPC default: publicnode (mainnet.base.org started timing out in 2026-05).
+    rpcUrl: process.env.BASE_RPC_URL || 'https://base-rpc.publicnode.com',
     wsUrl: process.env.BASE_WS_URL || '',
     alchemyKey: process.env.ALCHEMY_API_KEY,
     chainId: 8453,
