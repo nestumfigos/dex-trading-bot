@@ -50,8 +50,43 @@ const TIERS = {
   ],
 };
 
+// K5: KuCoin per-symbol maintainMargin lookup (loaded at boot via
+// setKucoinUniverse). KuCoin tier semantics differ from Binance — the operator
+// chooses a riskLimit and the MM increases with that limit. For paper-mode
+// sizing we use the contract's base `maintainMargin` (smallest tier), which is
+// the floor and what a $0-notional position pays. This is a CONSERVATIVE
+// approximation: actual liquidation prices on KuCoin will be slightly closer
+// than paper computes when notional crosses tier boundaries. Acceptable for
+// paper validation; live exec adapter (deferred) must compute true tier MM.
+const KUCOIN_MM = new Map(); // canonical symbol -> maintainMargin (0..1)
+
+function setKucoinUniverse(snapshot) {
+  KUCOIN_MM.clear();
+  if (!snapshot || !Array.isArray(snapshot.contracts)) return 0;
+  let loaded = 0;
+  for (const contract of snapshot.contracts) {
+    const canonical = String(contract.canonical || '').toUpperCase();
+    const mm = Number(contract.maintainMargin);
+    if (!canonical || !Number.isFinite(mm) || mm <= 0 || mm >= 1) continue;
+    KUCOIN_MM.set(canonical, mm);
+    loaded += 1;
+  }
+  return loaded;
+}
+
+function getKucoinMaintenanceMarginPct(canonicalSymbol) {
+  return KUCOIN_MM.get(String(canonicalSymbol || '').toUpperCase()) ?? null;
+}
+
 function resolveMaintenanceMarginPct({ symbol, notionalUsd, leverage } = {}) {
   const sym = String(symbol || '').toUpperCase();
+  // K5: prefer KuCoin per-contract maintainMargin when the universe is loaded.
+  // Falls through to the legacy Binance tier table only if KuCoin map is empty
+  // or this symbol isn't in it (allows mixed-source operation during rollout).
+  const kucoinMm = KUCOIN_MM.get(sym);
+  if (Number.isFinite(kucoinMm) && kucoinMm > 0 && kucoinMm < 1) {
+    return kucoinMm;
+  }
   const notional = Number(notionalUsd);
   const lev = Number(leverage);
   const table = TIERS[sym];
@@ -85,4 +120,12 @@ function getTier({ symbol, notionalUsd } = {}) {
   return null;
 }
 
-module.exports = { resolveMaintenanceMarginPct, getTier, TIERS, DEFAULT_MM };
+module.exports = {
+  resolveMaintenanceMarginPct,
+  getTier,
+  TIERS,
+  DEFAULT_MM,
+  // K5 exports for KuCoin universe injection at boot.
+  setKucoinUniverse,
+  getKucoinMaintenanceMarginPct,
+};
