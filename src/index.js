@@ -2,6 +2,22 @@
 
 const BOOT_TIME_MS = Date.now();
 require('dotenv').config();
+
+// Crash visibility: paper bot was dying silently with an empty stderr.log,
+// which on Node 18+ defaults to exit-on-unhandled. Surface the root cause to
+// stderr before exit so operator can diagnose instead of guessing OOM/timeout.
+// Intentional process.exit(1) preserves the "die-and-be-supervised" pattern;
+// only the cause is logged, no swallowing.
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error(`[paper] uncaughtException: ${err?.stack || err?.message || err}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error(`[paper] unhandledRejection: ${reason?.stack || reason?.message || reason}`);
+  process.exit(1);
+});
 const cron = require('node-cron');
 const { ethers } = require('ethers');
 const config = require('../config');

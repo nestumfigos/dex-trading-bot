@@ -20,6 +20,12 @@ function createTelegramSender({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   const configured = Boolean(token && chatId);
+  // Paper mode: telegram alerts intentionally silenced (paper bot is observation-only,
+  // operator does not need pager-style notifications on simulated trades). Return a
+  // no-op sender that does not log either — keeps logs clean.
+  if (config.paperTrading) {
+    return async function sendMessageNoopPaper() { /* paper: silent */ };
+  }
 
   return async function sendMessage(message, retries = 3) {
     if (!configured) {
