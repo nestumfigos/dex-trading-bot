@@ -88,7 +88,6 @@ function resolveMaintenanceMarginPct({ symbol, notionalUsd, leverage } = {}) {
     return kucoinMm;
   }
   const notional = Number(notionalUsd);
-  const lev = Number(leverage);
   const table = TIERS[sym];
   if (table && Number.isFinite(notional) && notional > 0) {
     for (const tier of table) {
@@ -97,15 +96,11 @@ function resolveMaintenanceMarginPct({ symbol, notionalUsd, leverage } = {}) {
       }
     }
   }
-  // Fallback: pick MM consistent with the requested leverage so the resulting
-  // liquidation buffer math doesn't collapse to negative on high leverage.
-  // For lev > 25 use 0.5%; for lev > 5 use 0.5%; lower lev tolerates higher
-  // MM. Heuristic matches binance's looser tiers on small notional.
-  if (Number.isFinite(lev) && lev >= 1) {
-    if (lev > 25) return 0.005;
-    if (lev > 10) return 0.005;
-    if (lev > 5) return 0.005;
-  }
+  // Fallback: no per-symbol tier table and no KuCoin contract MM for this
+  // symbol. Use the conservative default (0.5%) — it equals binance's looser
+  // small-notional tiers and keeps liquidation-buffer math from collapsing at
+  // high leverage. (A leverage-tiered ladder used to live here but returned
+  // 0.005 on every branch, so it was vestigial — collapsed to the default.)
   return DEFAULT_MM;
 }
 
