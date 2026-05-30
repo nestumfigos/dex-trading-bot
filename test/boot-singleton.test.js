@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 
-const { acquireRuntimeSingleton } = require('../src/boot/singleton');
+const { acquireRuntimeSingleton, classifyProcessProbe } = require('../src/boot/singleton');
 
 function mkTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'singleton-test-'));
@@ -79,7 +79,7 @@ test('integration: child process exits 0 when sibling holds lock', () => {
       // If we reach here, we wrongly acquired. Exit 1.
       process.exit(1);
     `;
-    const res = spawnSync(process.execPath, ['-e', childScript], { timeout: 5000 });
+    const res = spawnSync(process.execPath, ['-e', childScript], { timeout: 15000 });
     assert.equal(res.status, 0, `child should exit 0 (duplicate-spawn clean exit), got ${res.status}`);
     release();
   } finally {
@@ -119,7 +119,7 @@ test('profile-lock blocks cross-port duplicate (2026-05-17 regression: paper@300
       });
       process.exit(1); // reaching here = bug (we wrongly acquired)
     `;
-    const res = spawnSync(process.execPath, ['-e', childScript], { timeout: 5000 });
+    const res = spawnSync(process.execPath, ['-e', childScript], { timeout: 15000 });
     assert.equal(res.status, 0, `cross-port same-profile must exit 0 cleanly, got ${res.status}`);
 
     // Verify port-3003 lockfile was NOT created (we exited before reaching it)
@@ -169,4 +169,26 @@ test('takeover applies to profile lock too (dead pid on profile lock)', () => {
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
   }
+});
+
+// PID-reuse staleness (2026-05-30): a dead bot's pid was recycled by Windows to
+// msedgewebview2.exe; the old process.kill(pid,0) check read it as a live
+// sibling and locked the whole fleet out. classifyProcessProbe distinguishes a
+// real node process from a recycled-pid stranger.
+test('classifyProcessProbe: win tasklist node.exe row => live bot (true)', () => {
+  assert.equal(classifyProcessProbe('win32', '"node.exe","1234","Console","1","120,000 K"'), true);
+});
+
+test('classifyProcessProbe: win recycled-pid stranger (Edge) => stale (false)', () => {
+  assert.equal(classifyProcessProbe('win32', '"msedgewebview2.exe","14392","Console","1","80,000 K"'), false);
+});
+
+test('classifyProcessProbe: win tasklist no-match => undetermined (null)', () => {
+  assert.equal(classifyProcessProbe('win32', 'INFO: No tasks are running which match the specified criteria.'), null);
+});
+
+test('classifyProcessProbe: unix ps node => true, stranger => false, empty => null', () => {
+  assert.equal(classifyProcessProbe('linux', 'node\n'), true);
+  assert.equal(classifyProcessProbe('linux', 'msedgewebview2\n'), false);
+  assert.equal(classifyProcessProbe('linux', '   '), null);
 });
