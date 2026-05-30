@@ -1,12 +1,12 @@
 {
   "source": "kucoin-futures",
-  "refreshedAt": "2026-05-29T07:10:27.875Z",
+  "refreshedAt": "2026-05-30T01:10:25.673Z",
   "baseUrl": "https://api-futures.kucoin.com",
   "filters": {
     "minVol": 0,
     "top": null
   },
-  "count": 600,
+  "count": 602,
   "canonicalSymbols": [
     "BTCUSDT",
     "ETHUSDT",
@@ -180,6 +180,7 @@
     "CYSUSDT",
     "DASHUSDT",
     "DEEPUSDT",
+    "DELLUSDT",
     "DISUSDT",
     "DODOUSDT",
     "DOGSUSDT",
@@ -429,6 +430,7 @@
     "PYTHUSDT",
     "QCOMUSDT",
     "QNTUSDT",
+    "QNTXUSDT",
     "QQQUSDT",
     "QTUMUSDT",
     "QUSDT",
@@ -626,8 +628,8 @@
       "riskStep": 125000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 389607238.8412,
-      "volumeOf24h": 5310.838
+      "turnoverOf24h": 414451437.4998,
+      "volumeOf24h": 5633.972
     },
     {
       "canonical": "ETHUSDT",
@@ -645,8 +647,8 @@
       "riskStep": 250000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 466789579.4412,
-      "volumeOf24h": 232966.6
+      "turnoverOf24h": 396275679.043,
+      "volumeOf24h": 196699.6
     },
     {
       "canonical": "SOLUSDT",
@@ -664,8 +666,8 @@
       "riskStep": 150000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 76792448.4822,
-      "volumeOf24h": 941121.8
+      "turnoverOf24h": 89730636.3244,
+      "volumeOf24h": 1093726
     },
     {
       "canonical": "WIFUSDT",
@@ -683,8 +685,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5673669.366,
-      "volumeOf24h": 31490240
+      "turnoverOf24h": 5960435.008,
+      "volumeOf24h": 31862700
     },
     {
       "canonical": "PEPEUSDT",
@@ -702,8 +704,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 12685351.704688,
-      "volumeOf24h": 3772144480000
+      "turnoverOf24h": 17965529.787816,
+      "volumeOf24h": 5297388720000
     },
     {
       "canonical": "DOGEUSDT",
@@ -721,8 +723,8 @@
       "riskStep": 30000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 14002241.802,
-      "volumeOf24h": 141847800
+      "turnoverOf24h": 11144276.724,
+      "volumeOf24h": 111982600
     },
     {
       "canonical": "XRPUSDT",
@@ -740,8 +742,8 @@
       "riskStep": 25000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 39993499.3322,
-      "volumeOf24h": 30530040
+      "turnoverOf24h": 43052216.9906,
+      "volumeOf24h": 32647380
     },
     {
       "canonical": "0GUSDT",
@@ -759,8 +761,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2745353.42294,
-      "volumeOf24h": 6515742
+      "turnoverOf24h": 2807075.53754,
+      "volumeOf24h": 6592672
     },
     {
       "canonical": "1000000MOGUSDT",
@@ -772,14 +774,14 @@
       "lotSize": 1,
       "tickSize": 0.0001,
       "initialMargin": 0.034,
-      "maintainMargin": 0.017,
-      "maxRiskLimit": 10000,
-      "minRiskLimit": 10000,
-      "riskStep": 5000,
+      "maintainMargin": 0.02,
+      "maxRiskLimit": 7500,
+      "minRiskLimit": 7500,
+      "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 229650.0684,
-      "volumeOf24h": 1799178
+      "turnoverOf24h": 72326.1026,
+      "volumeOf24h": 562126
     },
     {
       "canonical": "10000CATUSDT",
@@ -797,8 +799,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 17954.5436,
-      "volumeOf24h": 1064720
+      "turnoverOf24h": 21544.5674,
+      "volumeOf24h": 1257620
     },
     {
       "canonical": "10000SATSUSDT",
@@ -816,8 +818,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1041615.0212,
-      "volumeOf24h": 9344696000
+      "turnoverOf24h": 866722.9298,
+      "volumeOf24h": 7818040000
     },
     {
       "canonical": "1000BONKUSDT",
@@ -835,8 +837,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4563644.54,
-      "volumeOf24h": 839814000
+      "turnoverOf24h": 1410254.56,
+      "volumeOf24h": 257938000
     },
     {
       "canonical": "1000CHEEMSUSDT",
@@ -854,8 +856,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2279175.5492,
-      "volumeOf24h": 3767718000
+      "turnoverOf24h": 283272.1048,
+      "volumeOf24h": 467140000
     },
     {
       "canonical": "1000RATSUSDT",
@@ -873,8 +875,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 722834.5646,
-      "volumeOf24h": 23575340
+      "turnoverOf24h": 135226.807,
+      "volumeOf24h": 4428820
     },
     {
       "canonical": "1INCHUSDT",
@@ -892,8 +894,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 36424.7282,
-      "volumeOf24h": 429006
+      "turnoverOf24h": 66809.5702,
+      "volumeOf24h": 775060
     },
     {
       "canonical": "1MBABYDOGEUSDT",
@@ -911,8 +913,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1322891.3466,
-      "volumeOf24h": 3487314000
+      "turnoverOf24h": 240442.0914,
+      "volumeOf24h": 627930000
     },
     {
       "canonical": "2ZUSDT",
@@ -930,8 +932,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 100403.09792,
-      "volumeOf24h": 1136240
+      "turnoverOf24h": 126606.0749,
+      "volumeOf24h": 1424960
     },
     {
       "canonical": "4USDT",
@@ -949,8 +951,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 650874.0246,
-      "volumeOf24h": 73285680
+      "turnoverOf24h": 447348.0098,
+      "volumeOf24h": 51073740
     },
     {
       "canonical": "AAOIUSDT",
@@ -968,8 +970,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 921959.2142,
-      "volumeOf24h": 5324.44
+      "turnoverOf24h": 788938.4504,
+      "volumeOf24h": 4779.84
     },
     {
       "canonical": "AAPLUSDT",
@@ -987,8 +989,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 48017.9606,
-      "volumeOf24h": 154.16
+      "turnoverOf24h": 45663.7908,
+      "volumeOf24h": 146.42
     },
     {
       "canonical": "AAVEUSDT",
@@ -1006,8 +1008,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2442488.852,
-      "volumeOf24h": 30465.22
+      "turnoverOf24h": 2917910.4564,
+      "volumeOf24h": 35539.18
     },
     {
       "canonical": "ACEUSDT",
@@ -1025,8 +1027,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 38949.30402,
-      "volumeOf24h": 359234.6
+      "turnoverOf24h": 76250.08144,
+      "volumeOf24h": 683255.2
     },
     {
       "canonical": "ACHUSDT",
@@ -1044,8 +1046,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 32743.5514,
-      "volumeOf24h": 5192000
+      "turnoverOf24h": 12696.6952,
+      "volumeOf24h": 2038800
     },
     {
       "canonical": "ACTSOLUSDT",
@@ -1063,8 +1065,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10676.6711,
-      "volumeOf24h": 905926
+      "turnoverOf24h": 5933.8126,
+      "volumeOf24h": 500552
     },
     {
       "canonical": "ACUUSDT",
@@ -1082,8 +1084,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 14715.5658,
-      "volumeOf24h": 169460
+      "turnoverOf24h": 9615.2792,
+      "volumeOf24h": 113660
     },
     {
       "canonical": "ADAUSDT",
@@ -1101,8 +1103,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7074024.0074,
-      "volumeOf24h": 30325280
+      "turnoverOf24h": 9275783.0806,
+      "volumeOf24h": 39711480
     },
     {
       "canonical": "AERGOUSDT",
@@ -1120,8 +1122,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 610322.7458,
-      "volumeOf24h": 12751480
+      "turnoverOf24h": 31014.9694,
+      "volumeOf24h": 645000
     },
     {
       "canonical": "AEROUSDT",
@@ -1139,8 +1141,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 66043.0902,
-      "volumeOf24h": 160526
+      "turnoverOf24h": 65211.9558,
+      "volumeOf24h": 157212
     },
     {
       "canonical": "AEVOUSDT",
@@ -1158,8 +1160,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 42220.19556,
-      "volumeOf24h": 1823964
+      "turnoverOf24h": 34488.05492,
+      "volumeOf24h": 1475942
     },
     {
       "canonical": "AGIUSDT",
@@ -1177,8 +1179,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 33630.7193,
-      "volumeOf24h": 4472826
+      "turnoverOf24h": 56324.8678,
+      "volumeOf24h": 7291516
     },
     {
       "canonical": "AGLDUSDT",
@@ -1196,8 +1198,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 26253.1674,
-      "volumeOf24h": 122186
+      "turnoverOf24h": 23590.784,
+      "volumeOf24h": 109356
     },
     {
       "canonical": "AGTUSDT",
@@ -1215,8 +1217,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3987298.1112,
-      "volumeOf24h": 279485600
+      "turnoverOf24h": 445251.9648,
+      "volumeOf24h": 30688200
     },
     {
       "canonical": "AIGENSYNUSDT",
@@ -1234,8 +1236,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3818446.006,
-      "volumeOf24h": 129387400
+      "turnoverOf24h": 6509728.282,
+      "volumeOf24h": 204736000
     },
     {
       "canonical": "AINUSDT",
@@ -1253,8 +1255,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 22744305.4464,
-      "volumeOf24h": 277548360
+      "turnoverOf24h": 20863099.7394,
+      "volumeOf24h": 266345820
     },
     {
       "canonical": "AIOTUSDT",
@@ -1272,8 +1274,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2465723.5338,
-      "volumeOf24h": 45222320
+      "turnoverOf24h": 299482.6162,
+      "volumeOf24h": 5621660
     },
     {
       "canonical": "AIOUSDT",
@@ -1291,8 +1293,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 65090.555,
-      "volumeOf24h": 710680
+      "turnoverOf24h": 132852.2578,
+      "volumeOf24h": 1402240
     },
     {
       "canonical": "AIXBTUSDT",
@@ -1310,8 +1312,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2861725.9618,
-      "volumeOf24h": 105055220
+      "turnoverOf24h": 3024834.6406,
+      "volumeOf24h": 107533540
     },
     {
       "canonical": "AKEUSDT",
@@ -1329,8 +1331,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 21123.6134,
-      "volumeOf24h": 62880000
+      "turnoverOf24h": 34252.0214,
+      "volumeOf24h": 100140000
     },
     {
       "canonical": "ALCHUSDT",
@@ -1341,15 +1343,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
-      "maxRiskLimit": 5000,
-      "minRiskLimit": 5000,
-      "riskStep": 2500,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
+      "maxRiskLimit": 10000,
+      "minRiskLimit": 10000,
+      "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4326611.2384,
-      "volumeOf24h": 62423000
+      "turnoverOf24h": 4217365.0152,
+      "volumeOf24h": 59427200
     },
     {
       "canonical": "ALGOUSDT",
@@ -1367,8 +1369,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6865191.84398,
-      "volumeOf24h": 61946888
+      "turnoverOf24h": 6813503.66324,
+      "volumeOf24h": 58016624
     },
     {
       "canonical": "ALICEUSDT",
@@ -1386,8 +1388,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 61429.12074,
-      "volumeOf24h": 512727.8
+      "turnoverOf24h": 77707.12928,
+      "volumeOf24h": 629162.4
     },
     {
       "canonical": "ALLOUSDT",
@@ -1405,8 +1407,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 22266365.2722,
-      "volumeOf24h": 127067234
+      "turnoverOf24h": 80441835.7746,
+      "volumeOf24h": 312136876
     },
     {
       "canonical": "ALPINEUSDT",
@@ -1424,8 +1426,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1034308.9912,
-      "volumeOf24h": 2515442
+      "turnoverOf24h": 775219.6576,
+      "volumeOf24h": 1934526
     },
     {
       "canonical": "ALTUSDT",
@@ -1443,8 +1445,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 199851.9922,
-      "volumeOf24h": 28301440
+      "turnoverOf24h": 200175.6934,
+      "volumeOf24h": 29085340
     },
     {
       "canonical": "AMDUSDT",
@@ -1462,8 +1464,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1502357.7668,
-      "volumeOf24h": 2947.1
+      "turnoverOf24h": 1358132.4752,
+      "volumeOf24h": 2627.92
     },
     {
       "canonical": "AMZNUSDT",
@@ -1481,8 +1483,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 817794.0342,
-      "volumeOf24h": 3015.46
+      "turnoverOf24h": 579150.1076,
+      "volumeOf24h": 2132.86
     },
     {
       "canonical": "ANIMEUSDT",
@@ -1500,8 +1502,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1952260.68516,
-      "volumeOf24h": 505136500
+      "turnoverOf24h": 2225768.96064,
+      "volumeOf24h": 567896660
     },
     {
       "canonical": "ANKRUSDT",
@@ -1519,8 +1521,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 44234.1532,
-      "volumeOf24h": 9928280
+      "turnoverOf24h": 36348.1804,
+      "volumeOf24h": 8024000
     },
     {
       "canonical": "APEUSDT",
@@ -1538,8 +1540,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1706086.50186,
-      "volumeOf24h": 13482113.2
+      "turnoverOf24h": 3317832.55464,
+      "volumeOf24h": 24852679.2
     },
     {
       "canonical": "API3USDT",
@@ -1557,8 +1559,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 11878.87094,
-      "volumeOf24h": 39034.8
+      "turnoverOf24h": 95920.35156,
+      "volumeOf24h": 313034.8
     },
     {
       "canonical": "APLDUSDT",
@@ -1576,8 +1578,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 528132.794,
-      "volumeOf24h": 10673.84
+      "turnoverOf24h": 516286.3506,
+      "volumeOf24h": 10658.58
     },
     {
       "canonical": "APRUSDT",
@@ -1595,8 +1597,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 324392.7144,
-      "volumeOf24h": 1824020
+      "turnoverOf24h": 132023.3218,
+      "volumeOf24h": 712720
     },
     {
       "canonical": "APTUSDT",
@@ -1614,8 +1616,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3607635.4974,
-      "volumeOf24h": 3879417.8
+      "turnoverOf24h": 5287873.20728,
+      "volumeOf24h": 5724833.6
     },
     {
       "canonical": "ARBUSDT",
@@ -1633,8 +1635,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 948561.0146,
-      "volumeOf24h": 9165426
+      "turnoverOf24h": 1181425.7936,
+      "volumeOf24h": 11315552
     },
     {
       "canonical": "ARCUSDT",
@@ -1652,8 +1654,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3890251.24872,
-      "volumeOf24h": 57752680
+      "turnoverOf24h": 4475673.6029,
+      "volumeOf24h": 62975540
     },
     {
       "canonical": "ARIAUSDT",
@@ -1671,8 +1673,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 74150.7714,
-      "volumeOf24h": 1992520
+      "turnoverOf24h": 91310.6774,
+      "volumeOf24h": 2458820
     },
     {
       "canonical": "ARKMUSDT",
@@ -1690,8 +1692,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 801119.812,
-      "volumeOf24h": 5895710
+      "turnoverOf24h": 435152.1958,
+      "volumeOf24h": 3071082
     },
     {
       "canonical": "ARKUSDT",
@@ -1709,8 +1711,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4913.724,
-      "volumeOf24h": 33640
+      "turnoverOf24h": 6513.324,
+      "volumeOf24h": 43680
     },
     {
       "canonical": "ARMUSDT",
@@ -1728,8 +1730,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3575910.7204,
-      "volumeOf24h": 10741.22
+      "turnoverOf24h": 3498946.111,
+      "volumeOf24h": 10037.14
     },
     {
       "canonical": "ARPAUSDT",
@@ -1747,8 +1749,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 100972.30872,
-      "volumeOf24h": 10169260
+      "turnoverOf24h": 66702.24846,
+      "volumeOf24h": 6650960
     },
     {
       "canonical": "ARUSDT",
@@ -1766,8 +1768,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1087266.4086,
-      "volumeOf24h": 481778
+      "turnoverOf24h": 874810.0912,
+      "volumeOf24h": 370336.4
     },
     {
       "canonical": "ASMLUSDT",
@@ -1785,8 +1787,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 360030.66248,
-      "volumeOf24h": 223.2
+      "turnoverOf24h": 347066.41144,
+      "volumeOf24h": 214.128
     },
     {
       "canonical": "ASPUSDT",
@@ -1804,8 +1806,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8737.4192,
-      "volumeOf24h": 310720
+      "turnoverOf24h": 45317.3802,
+      "volumeOf24h": 1613760
     },
     {
       "canonical": "ASRUSDT",
@@ -1823,8 +1825,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 34033.34,
-      "volumeOf24h": 34748
+      "turnoverOf24h": 44686.46,
+      "volumeOf24h": 46058
     },
     {
       "canonical": "ASTERUSDT",
@@ -1842,8 +1844,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5909878.72356,
-      "volumeOf24h": 8803754
+      "turnoverOf24h": 6575438.22354,
+      "volumeOf24h": 9763552
     },
     {
       "canonical": "ASTRUSDT",
@@ -1861,8 +1863,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5737.5762,
-      "volumeOf24h": 793040
+      "turnoverOf24h": 7372.2914,
+      "volumeOf24h": 1008920
     },
     {
       "canonical": "ASTSUSDT",
@@ -1880,8 +1882,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 379149.0228,
-      "volumeOf24h": 3016.52
+      "turnoverOf24h": 361129.1942,
+      "volumeOf24h": 3137.12
     },
     {
       "canonical": "ATHUSDT",
@@ -1899,8 +1901,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 358297.1832,
-      "volumeOf24h": 61132840
+      "turnoverOf24h": 94335.4396,
+      "volumeOf24h": 15830320
     },
     {
       "canonical": "ATOMUSDT",
@@ -1918,8 +1920,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1179895.7224,
-      "volumeOf24h": 577759.8
+      "turnoverOf24h": 991566.4062,
+      "volumeOf24h": 488553.2
     },
     {
       "canonical": "ATUSDT",
@@ -1937,8 +1939,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 57903.592,
-      "volumeOf24h": 487300
+      "turnoverOf24h": 32811.776,
+      "volumeOf24h": 268000
     },
     {
       "canonical": "AUCTIONUSDT",
@@ -1956,8 +1958,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1045705.9564,
-      "volumeOf24h": 236588.8
+      "turnoverOf24h": 221731.44,
+      "volumeOf24h": 49416.2
     },
     {
       "canonical": "AUSDT",
@@ -1975,8 +1977,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3134100.66314,
-      "volumeOf24h": 42638780
+      "turnoverOf24h": 2955456.16666,
+      "volumeOf24h": 39142294
     },
     {
       "canonical": "AVAAIUSDT",
@@ -1994,8 +1996,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 95000.7928,
-      "volumeOf24h": 15910700
+      "turnoverOf24h": 53704.9418,
+      "volumeOf24h": 8762780
     },
     {
       "canonical": "AVAUSDT",
@@ -2013,8 +2015,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1274.6494,
-      "volumeOf24h": 5902
+      "turnoverOf24h": 2614.6316,
+      "volumeOf24h": 12068
     },
     {
       "canonical": "AVAXUSDT",
@@ -2032,8 +2034,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4459191.8568,
-      "volumeOf24h": 501320.2
+      "turnoverOf24h": 5844709.3444,
+      "volumeOf24h": 658793
     },
     {
       "canonical": "AVGOUSDT",
@@ -2051,8 +2053,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1114891.049,
-      "volumeOf24h": 2614.46
+      "turnoverOf24h": 1363811.5684,
+      "volumeOf24h": 3114.06
     },
     {
       "canonical": "AVNTUSDT",
@@ -2070,8 +2072,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2115696.104,
-      "volumeOf24h": 15803100
+      "turnoverOf24h": 2438135.9914,
+      "volumeOf24h": 18051360
     },
     {
       "canonical": "AWEUSDT",
@@ -2089,8 +2091,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 45845.3816,
-      "volumeOf24h": 838000
+      "turnoverOf24h": 62131.4036,
+      "volumeOf24h": 1171060
     },
     {
       "canonical": "AXLUSDT",
@@ -2108,8 +2110,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 25727.45974,
-      "volumeOf24h": 502344
+      "turnoverOf24h": 66174.12844,
+      "volumeOf24h": 1226872
     },
     {
       "canonical": "AXSUSDT",
@@ -2127,8 +2129,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1369098.4732,
-      "volumeOf24h": 1214401.4
+      "turnoverOf24h": 531729.685,
+      "volumeOf24h": 455326.8
     },
     {
       "canonical": "AZTECUSDT",
@@ -2146,8 +2148,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 643483.668,
-      "volumeOf24h": 27301400
+      "turnoverOf24h": 480816.344,
+      "volumeOf24h": 20541600
     },
     {
       "canonical": "B2USDT",
@@ -2165,8 +2167,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 206342.8764,
-      "volumeOf24h": 435584
+      "turnoverOf24h": 24658.0496,
+      "volumeOf24h": 51046
     },
     {
       "canonical": "BABAUSDT",
@@ -2184,8 +2186,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1653929.9902,
-      "volumeOf24h": 13202.06
+      "turnoverOf24h": 1435765.6152,
+      "volumeOf24h": 11522.9
     },
     {
       "canonical": "BABYUSDT",
@@ -2203,8 +2205,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 734297.3222,
-      "volumeOf24h": 49445520
+      "turnoverOf24h": 128607.9536,
+      "volumeOf24h": 8713580
     },
     {
       "canonical": "BANANAS31USDT",
@@ -2222,8 +2224,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 86647.5944,
-      "volumeOf24h": 8193600
+      "turnoverOf24h": 118958.177,
+      "volumeOf24h": 11505000
     },
     {
       "canonical": "BANANAUSDT",
@@ -2241,8 +2243,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 51663.44824,
-      "volumeOf24h": 14442.5
+      "turnoverOf24h": 53346.30658,
+      "volumeOf24h": 14917.22
     },
     {
       "canonical": "BANDUSDT",
@@ -2260,8 +2262,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6058.92006,
-      "volumeOf24h": 31869.4
+      "turnoverOf24h": 21649.91784,
+      "volumeOf24h": 112826.6
     },
     {
       "canonical": "BANKUSDT",
@@ -2279,8 +2281,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7502.009,
-      "volumeOf24h": 224780
+      "turnoverOf24h": 27146.7496,
+      "volumeOf24h": 784160
     },
     {
       "canonical": "BANUSDT",
@@ -2298,8 +2300,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 61379.8398,
-      "volumeOf24h": 820760
+      "turnoverOf24h": 56821.4234,
+      "volumeOf24h": 797200
     },
     {
       "canonical": "BARDUSDT",
@@ -2317,8 +2319,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 115753.83914,
-      "volumeOf24h": 629292
+      "turnoverOf24h": 52818.81808,
+      "volumeOf24h": 277840
     },
     {
       "canonical": "BASEDUSDT",
@@ -2336,8 +2338,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1752501.5442,
-      "volumeOf24h": 28985300
+      "turnoverOf24h": 3015766.1866,
+      "volumeOf24h": 44092720
     },
     {
       "canonical": "BASUSDT",
@@ -2348,15 +2350,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.000001,
-      "initialMargin": 0.05,
-      "maintainMargin": 0.025,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
       "maxRiskLimit": 10000,
       "minRiskLimit": 10000,
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3939343.99434,
-      "volumeOf24h": 135771060
+      "turnoverOf24h": 4615724.09482,
+      "volumeOf24h": 152127740
     },
     {
       "canonical": "BATUSDT",
@@ -2374,8 +2376,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 590007.159,
-      "volumeOf24h": 5244206
+      "turnoverOf24h": 474212.7894,
+      "volumeOf24h": 4085304
     },
     {
       "canonical": "BBUSDT",
@@ -2393,8 +2395,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 236090.9552,
-      "volumeOf24h": 8739860
+      "turnoverOf24h": 73213.4798,
+      "volumeOf24h": 2695100
     },
     {
       "canonical": "BCHUSDT",
@@ -2412,8 +2414,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 16860421.3702,
-      "volumeOf24h": 55516.88
+      "turnoverOf24h": 14186596.5624,
+      "volumeOf24h": 46763.62
     },
     {
       "canonical": "BDXUSDT",
@@ -2431,8 +2433,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 108193.9432,
-      "volumeOf24h": 1393000
+      "turnoverOf24h": 114639.8054,
+      "volumeOf24h": 1470580
     },
     {
       "canonical": "BEATUSDT",
@@ -2443,15 +2445,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.034,
+      "initialMargin": 0.04,
       "maintainMargin": 0.02,
-      "maxRiskLimit": 7500,
-      "minRiskLimit": 7500,
-      "riskStep": 3750,
+      "maxRiskLimit": 3000,
+      "minRiskLimit": 3000,
+      "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7398681.1514,
-      "volumeOf24h": 6471200
+      "turnoverOf24h": 4884281.7574,
+      "volumeOf24h": 4469440
     },
     {
       "canonical": "BELUSDT",
@@ -2469,8 +2471,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6707.1704,
-      "volumeOf24h": 70708
+      "turnoverOf24h": 43818.414,
+      "volumeOf24h": 435986
     },
     {
       "canonical": "BERAUSDT",
@@ -2488,8 +2490,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1087208.07146,
-      "volumeOf24h": 3206407
+      "turnoverOf24h": 316312.52794,
+      "volumeOf24h": 932058.4
     },
     {
       "canonical": "BEUSDT",
@@ -2507,8 +2509,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 662081.8734,
-      "volumeOf24h": 2276.06
+      "turnoverOf24h": 713180.1486,
+      "volumeOf24h": 2535.5
     },
     {
       "canonical": "BIGTIMEUSDT",
@@ -2526,8 +2528,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 276820.4166,
-      "volumeOf24h": 24889120
+      "turnoverOf24h": 136915.091,
+      "volumeOf24h": 12293400
     },
     {
       "canonical": "BILLUSDT",
@@ -2545,8 +2547,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7803499.8668,
-      "volumeOf24h": 100102160
+      "turnoverOf24h": 7929008.53298,
+      "volumeOf24h": 111351140
     },
     {
       "canonical": "BINANCELIFEUSDT",
@@ -2564,8 +2566,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 127407.2006,
-      "volumeOf24h": 294440
+      "turnoverOf24h": 117964.6336,
+      "volumeOf24h": 267840
     },
     {
       "canonical": "BIOUSDT",
@@ -2583,8 +2585,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 998664.68176,
-      "volumeOf24h": 33240954
+      "turnoverOf24h": 885977.36652,
+      "volumeOf24h": 29474702
     },
     {
       "canonical": "BIRBUSDT",
@@ -2602,8 +2604,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 58086.5038,
-      "volumeOf24h": 560260
+      "turnoverOf24h": 56933.6614,
+      "volumeOf24h": 564020
     },
     {
       "canonical": "BLASTUSDT",
@@ -2621,8 +2623,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 246.4067,
-      "volumeOf24h": 597600
+      "turnoverOf24h": 776.21868,
+      "volumeOf24h": 1792200
     },
     {
       "canonical": "BLENDUSDT",
@@ -2640,8 +2642,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2021095.5306,
-      "volumeOf24h": 21623540
+      "turnoverOf24h": 1598568.2182,
+      "volumeOf24h": 17131560
     },
     {
       "canonical": "BLESSUSDT",
@@ -2659,8 +2661,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 81221.786,
-      "volumeOf24h": 17278800
+      "turnoverOf24h": 31912.225,
+      "volumeOf24h": 6768800
     },
     {
       "canonical": "BLUAIUSDT",
@@ -2678,8 +2680,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 32290.32,
-      "volumeOf24h": 2806400
+      "turnoverOf24h": 12392.902,
+      "volumeOf24h": 1069000
     },
     {
       "canonical": "BLURUSDT",
@@ -2697,8 +2699,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 78919.06086,
-      "volumeOf24h": 3829922
+      "turnoverOf24h": 31358.89298,
+      "volumeOf24h": 1507980
     },
     {
       "canonical": "BMNRUSDT",
@@ -2716,8 +2718,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 706139.608,
-      "volumeOf24h": 37858.4
+      "turnoverOf24h": 671392.92,
+      "volumeOf24h": 34992.2
     },
     {
       "canonical": "BMTUSDT",
@@ -2735,8 +2737,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 308779.1864,
-      "volumeOf24h": 20480780
+      "turnoverOf24h": 48987.1846,
+      "volumeOf24h": 3130260
     },
     {
       "canonical": "BNBUSDT",
@@ -2754,8 +2756,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2554866.4174,
-      "volumeOf24h": 4020.4
+      "turnoverOf24h": 3648525.9986,
+      "volumeOf24h": 5702.58
     },
     {
       "canonical": "BNTUSDT",
@@ -2773,8 +2775,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8024.6824,
-      "volumeOf24h": 24832
+      "turnoverOf24h": 21743.1458,
+      "volumeOf24h": 66698
     },
     {
       "canonical": "BOMEUSDT",
@@ -2792,8 +2794,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4336201.5618,
-      "volumeOf24h": 8742392000
+      "turnoverOf24h": 4117660.07046,
+      "volumeOf24h": 8268385400
     },
     {
       "canonical": "BPUSDT",
@@ -2811,8 +2813,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 76215.1496,
-      "volumeOf24h": 519500
+      "turnoverOf24h": 20753.0066,
+      "volumeOf24h": 138320
     },
     {
       "canonical": "BRETTUSDT",
@@ -2830,8 +2832,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 279842.1688,
-      "volumeOf24h": 43201600
+      "turnoverOf24h": 284612.2608,
+      "volumeOf24h": 43223260
     },
     {
       "canonical": "BREVUSDT",
@@ -2849,8 +2851,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 23056.982,
-      "volumeOf24h": 227900
+      "turnoverOf24h": 49377.024,
+      "volumeOf24h": 486860
     },
     {
       "canonical": "BRKBUSDT",
@@ -2868,8 +2870,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1258219.7784,
-      "volumeOf24h": 2627.92
+      "turnoverOf24h": 1409663.7214,
+      "volumeOf24h": 2961.18
     },
     {
       "canonical": "BROCCOLI714USDT",
@@ -2887,8 +2889,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1806.344,
-      "volumeOf24h": 139400
+      "turnoverOf24h": 4880.494,
+      "volumeOf24h": 376800
     },
     {
       "canonical": "BRUSDT",
@@ -2906,8 +2908,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8690.7282,
-      "volumeOf24h": 74300
+      "turnoverOf24h": 13899.6218,
+      "volumeOf24h": 121000
     },
     {
       "canonical": "BSBUSDT",
@@ -2925,8 +2927,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4964565.9018,
-      "volumeOf24h": 12522580
+      "turnoverOf24h": 3512971.2748,
+      "volumeOf24h": 9165660
     },
     {
       "canonical": "BSVUSDT",
@@ -2944,8 +2946,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 173253.1132,
-      "volumeOf24h": 12434.22
+      "turnoverOf24h": 642507.8722,
+      "volumeOf24h": 45769.44
     },
     {
       "canonical": "BTRUSDT",
@@ -2963,8 +2965,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 77856.8858,
-      "volumeOf24h": 3396760
+      "turnoverOf24h": 63737.4712,
+      "volumeOf24h": 2767040
     },
     {
       "canonical": "BUSDT",
@@ -2982,8 +2984,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 397762.2284,
-      "volumeOf24h": 1676740
+      "turnoverOf24h": 242328.6554,
+      "volumeOf24h": 1001520
     },
     {
       "canonical": "BZUSDT",
@@ -3001,8 +3003,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2924232.5754,
-      "volumeOf24h": 31447.92
+      "turnoverOf24h": 2185215.7998,
+      "volumeOf24h": 23889.3
     },
     {
       "canonical": "C98USDT",
@@ -3020,8 +3022,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 19045.2078,
-      "volumeOf24h": 983592
+      "turnoverOf24h": 10046.44864,
+      "volumeOf24h": 526176
     },
     {
       "canonical": "CAKEUSDT",
@@ -3039,8 +3041,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3581233.9316,
-      "volumeOf24h": 2668112
+      "turnoverOf24h": 5521020.325,
+      "volumeOf24h": 4088216
     },
     {
       "canonical": "CARVUSDT",
@@ -3058,8 +3060,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10457.752,
-      "volumeOf24h": 212880
+      "turnoverOf24h": 4760.7626,
+      "volumeOf24h": 96410
     },
     {
       "canonical": "CATIUSDT",
@@ -3077,8 +3079,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5472421.10874,
-      "volumeOf24h": 101183126
+      "turnoverOf24h": 4786150.50904,
+      "volumeOf24h": 89248770
     },
     {
       "canonical": "CBRSUSDT",
@@ -3096,8 +3098,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2346182.7132,
-      "volumeOf24h": 9200.78
+      "turnoverOf24h": 1250752.8202,
+      "volumeOf24h": 5192.26
     },
     {
       "canonical": "CCUSDT",
@@ -3115,8 +3117,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 42828.4566,
-      "volumeOf24h": 276060
+      "turnoverOf24h": 85139.325,
+      "volumeOf24h": 546920
     },
     {
       "canonical": "CELOUSDT",
@@ -3134,8 +3136,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 13293.0358,
-      "volumeOf24h": 182472
+      "turnoverOf24h": 6931.352,
+      "volumeOf24h": 93488
     },
     {
       "canonical": "CELRUSDT",
@@ -3153,8 +3155,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1984.67874,
-      "volumeOf24h": 856520
+      "turnoverOf24h": 42192.9202,
+      "volumeOf24h": 17225600
     },
     {
       "canonical": "CETUSUSDT",
@@ -3172,8 +3174,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1561068.1166,
-      "volumeOf24h": 68350480
+      "turnoverOf24h": 76349.7474,
+      "volumeOf24h": 3339500
     },
     {
       "canonical": "CFGUSDT",
@@ -3191,8 +3193,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 190976.834,
-      "volumeOf24h": 687100
+      "turnoverOf24h": 162838.816,
+      "volumeOf24h": 598720
     },
     {
       "canonical": "CFXUSDT",
@@ -3210,8 +3212,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 794163.3714,
-      "volumeOf24h": 15156220
+      "turnoverOf24h": 629279.0426,
+      "volumeOf24h": 11916980
     },
     {
       "canonical": "CGPTUSDT",
@@ -3229,8 +3231,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 83549.1242,
-      "volumeOf24h": 3735820
+      "turnoverOf24h": 217539.4786,
+      "volumeOf24h": 9437120
     },
     {
       "canonical": "CHILLGUYUSDT",
@@ -3248,8 +3250,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 979469.15762,
-      "volumeOf24h": 92192990
+      "turnoverOf24h": 909951.18264,
+      "volumeOf24h": 87856610
     },
     {
       "canonical": "CHIPUSDT",
@@ -3267,8 +3269,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2050997.538,
-      "volumeOf24h": 51234600
+      "turnoverOf24h": 2016407.156,
+      "volumeOf24h": 51099200
     },
     {
       "canonical": "CHRUSDT",
@@ -3286,8 +3288,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 36665.31094,
-      "volumeOf24h": 1902764
+      "turnoverOf24h": 62923.46732,
+      "volumeOf24h": 2976730
     },
     {
       "canonical": "CHZUSDT",
@@ -3305,8 +3307,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 597400.07238,
-      "volumeOf24h": 17449658
+      "turnoverOf24h": 471607.30126,
+      "volumeOf24h": 14108012
     },
     {
       "canonical": "CKBUSDT",
@@ -3324,8 +3326,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 100630.8094,
-      "volumeOf24h": 79446000
+      "turnoverOf24h": 293520.7442,
+      "volumeOf24h": 231237000
     },
     {
       "canonical": "CLANKERUSDT",
@@ -3343,8 +3345,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 23585.634,
-      "volumeOf24h": 1293.6
+      "turnoverOf24h": 92040.772,
+      "volumeOf24h": 4864.6
     },
     {
       "canonical": "CLOUSDT",
@@ -3362,8 +3364,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7368713.4238,
-      "volumeOf24h": 92825420
+      "turnoverOf24h": 6446906.4168,
+      "volumeOf24h": 80278440
     },
     {
       "canonical": "CLUSDT",
@@ -3381,8 +3383,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10562672.67838,
-      "volumeOf24h": 118465.32
+      "turnoverOf24h": 5688335.79876,
+      "volumeOf24h": 64736.66
     },
     {
       "canonical": "COAIUSDT",
@@ -3400,8 +3402,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1555706.9384,
-      "volumeOf24h": 5531960
+      "turnoverOf24h": 1632624.188,
+      "volumeOf24h": 5797760
     },
     {
       "canonical": "COHRUSDT",
@@ -3419,8 +3421,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1606063.898,
-      "volumeOf24h": 4233.08
+      "turnoverOf24h": 1702295.98,
+      "volumeOf24h": 4646.72
     },
     {
       "canonical": "COINUSDT",
@@ -3438,8 +3440,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1094797.5428,
-      "volumeOf24h": 6110.64
+      "turnoverOf24h": 1080625.1572,
+      "volumeOf24h": 5827.42
     },
     {
       "canonical": "COLLECTUSDT",
@@ -3457,8 +3459,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 352569.8406,
-      "volumeOf24h": 6508860
+      "turnoverOf24h": 50500.4072,
+      "volumeOf24h": 957660
     },
     {
       "canonical": "COMPUSDT",
@@ -3476,8 +3478,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 56620.4262,
-      "volumeOf24h": 3203.26
+      "turnoverOf24h": 46738.3858,
+      "volumeOf24h": 2636.08
     },
     {
       "canonical": "COOKIEUSDT",
@@ -3495,8 +3497,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 569211.16588,
-      "volumeOf24h": 48461784
+      "turnoverOf24h": 148296.0172,
+      "volumeOf24h": 12030058
     },
     {
       "canonical": "COPPERUSDT",
@@ -3514,8 +3516,8 @@
       "riskStep": 10000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 40079.284,
-      "volumeOf24h": 6294
+      "turnoverOf24h": 120315.476,
+      "volumeOf24h": 18778
     },
     {
       "canonical": "COSTUSDT",
@@ -3533,8 +3535,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1462504.1344,
-      "volumeOf24h": 1458.678
+      "turnoverOf24h": 1645383.544,
+      "volumeOf24h": 1690.906
     },
     {
       "canonical": "COTIUSDT",
@@ -3552,8 +3554,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 26369.8314,
-      "volumeOf24h": 2297880
+      "turnoverOf24h": 56746.859,
+      "volumeOf24h": 4870980
     },
     {
       "canonical": "COWUSDT",
@@ -3571,8 +3573,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1043266.316,
-      "volumeOf24h": 6781240
+      "turnoverOf24h": 143483.032,
+      "volumeOf24h": 894480
     },
     {
       "canonical": "CRCLUSDT",
@@ -3590,8 +3592,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1026071.0764,
-      "volumeOf24h": 9761.02
+      "turnoverOf24h": 1193829.0278,
+      "volumeOf24h": 10852.56
     },
     {
       "canonical": "CROSSUSDT",
@@ -3609,8 +3611,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8606599.9242,
-      "volumeOf24h": 89950020
+      "turnoverOf24h": 9322430.5748,
+      "volumeOf24h": 92771600
     },
     {
       "canonical": "CROUSDT",
@@ -3628,8 +3630,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 708529.10644,
-      "volumeOf24h": 10600990
+      "turnoverOf24h": 398738.77718,
+      "volumeOf24h": 5908652
     },
     {
       "canonical": "CRVUSDT",
@@ -3647,8 +3649,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2646552.696,
-      "volumeOf24h": 12503114
+      "turnoverOf24h": 2496321.472,
+      "volumeOf24h": 11775268
     },
     {
       "canonical": "CRWVUSDT",
@@ -3666,8 +3668,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2390891.3272,
-      "volumeOf24h": 22401.16
+      "turnoverOf24h": 2394908.5158,
+      "volumeOf24h": 22342.08
     },
     {
       "canonical": "CSCOUSDT",
@@ -3685,8 +3687,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1190298.317,
-      "volumeOf24h": 9989.04
+      "turnoverOf24h": 1305402.5058,
+      "volumeOf24h": 10932.68
     },
     {
       "canonical": "CTCUSDT",
@@ -3704,8 +3706,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2793.0448,
-      "volumeOf24h": 21434
+      "turnoverOf24h": 2217.8718,
+      "volumeOf24h": 17056
     },
     {
       "canonical": "CTRUSDT",
@@ -3723,8 +3725,8 @@
       "riskStep": 1000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1141696.638,
-      "volumeOf24h": 62716200
+      "turnoverOf24h": 985898.616,
+      "volumeOf24h": 53816600
     },
     {
       "canonical": "CTSIUSDT",
@@ -3742,8 +3744,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 22689.68176,
-      "volumeOf24h": 831560
+      "turnoverOf24h": 70183.87832,
+      "volumeOf24h": 2523148
     },
     {
       "canonical": "CUSDT",
@@ -3761,8 +3763,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9970499.104,
-      "volumeOf24h": 123320520
+      "turnoverOf24h": 9431727.046,
+      "volumeOf24h": 114708160
     },
     {
       "canonical": "CVCUSDT",
@@ -3780,8 +3782,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10954.6246,
-      "volumeOf24h": 400460
+      "turnoverOf24h": 20064.1908,
+      "volumeOf24h": 722780
     },
     {
       "canonical": "CVXUSDT",
@@ -3799,8 +3801,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 137373.056,
-      "volumeOf24h": 90762
+      "turnoverOf24h": 255606.748,
+      "volumeOf24h": 164316
     },
     {
       "canonical": "CYBERUSDT",
@@ -3818,8 +3820,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 37982.034,
-      "volumeOf24h": 86112
+      "turnoverOf24h": 58012.982,
+      "volumeOf24h": 130466
     },
     {
       "canonical": "CYSUSDT",
@@ -3837,8 +3839,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 115837.26,
-      "volumeOf24h": 268120
+      "turnoverOf24h": 85886.202,
+      "volumeOf24h": 196700
     },
     {
       "canonical": "DASHUSDT",
@@ -3856,8 +3858,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2571627.168,
-      "volumeOf24h": 64828.1
+      "turnoverOf24h": 2663116.7398,
+      "volumeOf24h": 66728.3
     },
     {
       "canonical": "DEEPUSDT",
@@ -3875,8 +3877,27 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1416525.4778,
-      "volumeOf24h": 48271920
+      "turnoverOf24h": 214534.8072,
+      "volumeOf24h": 7327440
+    },
+    {
+      "canonical": "DELLUSDT",
+      "kucoin": "DELLUSDTM",
+      "base": "DELL",
+      "quote": "USDT",
+      "settle": "USDT",
+      "multiplier": 0.01,
+      "lotSize": 1,
+      "tickSize": 0.01,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
+      "maxRiskLimit": 5000,
+      "minRiskLimit": 5000,
+      "riskStep": 2500,
+      "makerFeeRate": 0.0002,
+      "takerFeeRate": 0.0006,
+      "turnoverOf24h": 1496370.207,
+      "volumeOf24h": 3490.4
     },
     {
       "canonical": "DISUSDT",
@@ -3894,8 +3915,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1304822.5046,
-      "volumeOf24h": 12550.82
+      "turnoverOf24h": 1322350.5722,
+      "volumeOf24h": 12838.82
     },
     {
       "canonical": "DODOUSDT",
@@ -3913,8 +3934,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8857.9536,
-      "volumeOf24h": 491160
+      "turnoverOf24h": 22492.852,
+      "volumeOf24h": 1281060
     },
     {
       "canonical": "DOGSUSDT",
@@ -3932,8 +3953,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5266522.4127,
-      "volumeOf24h": 111532326000
+      "turnoverOf24h": 4891472.68844,
+      "volumeOf24h": 102626634000
     },
     {
       "canonical": "DOGUSDT",
@@ -3951,8 +3972,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 87808.8796,
-      "volumeOf24h": 140318000
+      "turnoverOf24h": 115531.1468,
+      "volumeOf24h": 184757600
     },
     {
       "canonical": "DOLOUSDT",
@@ -3970,8 +3991,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 35708.6108,
-      "volumeOf24h": 1208980
+      "turnoverOf24h": 48430.0536,
+      "volumeOf24h": 1594980
     },
     {
       "canonical": "DOODUSDT",
@@ -3989,8 +4010,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 799146.16,
-      "volumeOf24h": 360258000
+      "turnoverOf24h": 109509.222,
+      "volumeOf24h": 48946000
     },
     {
       "canonical": "DOTUSDT",
@@ -4008,8 +4029,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3039626.106,
-      "volumeOf24h": 2521882
+      "turnoverOf24h": 4383024.598,
+      "volumeOf24h": 3633814
     },
     {
       "canonical": "DRAMUSDT",
@@ -4027,8 +4048,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1442340.2072,
-      "volumeOf24h": 23350.2
+      "turnoverOf24h": 1044746.318,
+      "volumeOf24h": 16578.24
     },
     {
       "canonical": "DRIFTUSDT",
@@ -4046,8 +4067,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 640048.77144,
-      "volumeOf24h": 21948002
+      "turnoverOf24h": 296407.13134,
+      "volumeOf24h": 10616008
     },
     {
       "canonical": "DUSDT",
@@ -4065,8 +4086,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 71853.4236,
-      "volumeOf24h": 6224100
+      "turnoverOf24h": 24705.3472,
+      "volumeOf24h": 2196040
     },
     {
       "canonical": "DUSKUSDT",
@@ -4084,8 +4105,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 270387.144,
-      "volumeOf24h": 2210600
+      "turnoverOf24h": 252348.858,
+      "volumeOf24h": 2121360
     },
     {
       "canonical": "DYDXUSDT",
@@ -4103,8 +4124,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2580524.9597,
-      "volumeOf24h": 16251053.6
+      "turnoverOf24h": 3392371.99444,
+      "volumeOf24h": 19604779.2
     },
     {
       "canonical": "DYMUSDT",
@@ -4122,8 +4143,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 389464.75604,
-      "volumeOf24h": 19063862.4
+      "turnoverOf24h": 247215.21995,
+      "volumeOf24h": 12301228.8
     },
     {
       "canonical": "EDENUSDT",
@@ -4134,15 +4155,15 @@
       "multiplier": 1,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.025,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9089883.201,
-      "volumeOf24h": 154365582
+      "turnoverOf24h": 9167353.19452,
+      "volumeOf24h": 164075726
     },
     {
       "canonical": "EDGEUSDT",
@@ -4160,8 +4181,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1470205.0184,
-      "volumeOf24h": 1057890
+      "turnoverOf24h": 1803300.997,
+      "volumeOf24h": 1348062
     },
     {
       "canonical": "EDUUSDT",
@@ -4179,8 +4200,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 89423.16202,
-      "volumeOf24h": 2051274
+      "turnoverOf24h": 273342.36066,
+      "volumeOf24h": 6154678
     },
     {
       "canonical": "EGLDUSDT",
@@ -4198,8 +4219,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 311693.6592,
-      "volumeOf24h": 87345.02
+      "turnoverOf24h": 201990.26812,
+      "volumeOf24h": 56735.48
     },
     {
       "canonical": "EIGENUSDT",
@@ -4217,8 +4238,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3298133.8194,
-      "volumeOf24h": 15201156
+      "turnoverOf24h": 3826582.0304,
+      "volumeOf24h": 17200336
     },
     {
       "canonical": "ELSAUSDT",
@@ -4236,8 +4257,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 19751.8052,
-      "volumeOf24h": 303000
+      "turnoverOf24h": 15434.3094,
+      "volumeOf24h": 243160
     },
     {
       "canonical": "ENAUSDT",
@@ -4255,8 +4276,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6567118.27924,
-      "volumeOf24h": 74802570
+      "turnoverOf24h": 7795026.1935,
+      "volumeOf24h": 89274164
     },
     {
       "canonical": "ENJUSDT",
@@ -4274,8 +4295,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 90527.0236,
-      "volumeOf24h": 2375990
+      "turnoverOf24h": 152087.93408,
+      "volumeOf24h": 3891376
     },
     {
       "canonical": "ENSOUSDT",
@@ -4293,8 +4314,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 39870.7242,
-      "volumeOf24h": 55994
+      "turnoverOf24h": 41185.7584,
+      "volumeOf24h": 56488
     },
     {
       "canonical": "ENSUSDT",
@@ -4312,8 +4333,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 77088.1388,
-      "volumeOf24h": 13494.2
+      "turnoverOf24h": 508057.5904,
+      "volumeOf24h": 84367.8
     },
     {
       "canonical": "ERAUSDT",
@@ -4331,8 +4352,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 260966.9234,
-      "volumeOf24h": 2081520
+      "turnoverOf24h": 423745.5806,
+      "volumeOf24h": 3419080
     },
     {
       "canonical": "ESPORTSUSDT",
@@ -4350,8 +4371,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8839569.652,
-      "volumeOf24h": 171123220
+      "turnoverOf24h": 3567852.454,
+      "volumeOf24h": 84386580
     },
     {
       "canonical": "ESPUSDT",
@@ -4369,8 +4390,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 92620.6226,
-      "volumeOf24h": 1406880
+      "turnoverOf24h": 87972.9268,
+      "volumeOf24h": 1360920
     },
     {
       "canonical": "ESUSDT",
@@ -4388,8 +4409,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 29285.496,
-      "volumeOf24h": 212500
+      "turnoverOf24h": 36528.89,
+      "volumeOf24h": 271080
     },
     {
       "canonical": "ETCUSDT",
@@ -4407,8 +4428,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1534825.2896,
-      "volumeOf24h": 187027.2
+      "turnoverOf24h": 489881.2746,
+      "volumeOf24h": 59694.8
     },
     {
       "canonical": "ETHBTCUSDT",
@@ -4426,8 +4447,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8873.2242,
-      "volumeOf24h": 326400
+      "turnoverOf24h": 4795.6808,
+      "volumeOf24h": 175600
     },
     {
       "canonical": "ETHFIUSDT",
@@ -4445,8 +4466,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6198961.1992,
-      "volumeOf24h": 16210690
+      "turnoverOf24h": 5456502.3092,
+      "volumeOf24h": 13920118
     },
     {
       "canonical": "EULUSDT",
@@ -4464,8 +4485,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 61210.39002,
-      "volumeOf24h": 51935.4
+      "turnoverOf24h": 34338.69148,
+      "volumeOf24h": 28533.2
     },
     {
       "canonical": "EVAAUSDT",
@@ -4476,15 +4497,15 @@
       "multiplier": 1,
       "lotSize": 1,
       "tickSize": 0.0001,
-      "initialMargin": 0.05,
-      "maintainMargin": 0.025,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
       "maxRiskLimit": 10000,
       "minRiskLimit": 10000,
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3663712.0146,
-      "volumeOf24h": 9660480
+      "turnoverOf24h": 3145105.9326,
+      "volumeOf24h": 8659796
     },
     {
       "canonical": "EWJUSDT",
@@ -4502,8 +4523,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 924114.8784,
-      "volumeOf24h": 9992.68
+      "turnoverOf24h": 774329.2128,
+      "volumeOf24h": 8320.68
     },
     {
       "canonical": "EWYUSDT",
@@ -4521,8 +4542,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1724304.9652,
-      "volumeOf24h": 8536.34
+      "turnoverOf24h": 1331220.1954,
+      "volumeOf24h": 6483.9
     },
     {
       "canonical": "FARTCOINUSDT",
@@ -4540,8 +4561,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3346800.971,
-      "volumeOf24h": 20691148
+      "turnoverOf24h": 3861213.6606,
+      "volumeOf24h": 23825410
     },
     {
       "canonical": "FETUSDT",
@@ -4559,8 +4580,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10439046.61,
-      "volumeOf24h": 45316220
+      "turnoverOf24h": 14384543.814,
+      "volumeOf24h": 58670320
     },
     {
       "canonical": "FFUSDT",
@@ -4578,8 +4599,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5600988.8906,
-      "volumeOf24h": 54844340
+      "turnoverOf24h": 5287021.1638,
+      "volumeOf24h": 50828240
     },
     {
       "canonical": "FHEUSDT",
@@ -4597,8 +4618,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2785982.472,
-      "volumeOf24h": 135886200
+      "turnoverOf24h": 3504885.63,
+      "volumeOf24h": 169923200
     },
     {
       "canonical": "FIGHTUSDT",
@@ -4616,8 +4637,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 154296.9022,
-      "volumeOf24h": 28879600
+      "turnoverOf24h": 158990.8746,
+      "volumeOf24h": 30886000
     },
     {
       "canonical": "FILUSDT",
@@ -4635,8 +4656,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 11674637.01972,
-      "volumeOf24h": 12145988.4
+      "turnoverOf24h": 10317967.89446,
+      "volumeOf24h": 10737874
     },
     {
       "canonical": "FLNCUSDT",
@@ -4654,8 +4675,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1263666.4362,
-      "volumeOf24h": 59910.42
+      "turnoverOf24h": 1191543.1842,
+      "volumeOf24h": 59127.6
     },
     {
       "canonical": "FLOCKUSDT",
@@ -4673,8 +4694,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2587122.5806,
-      "volumeOf24h": 45304580
+      "turnoverOf24h": 301166.7918,
+      "volumeOf24h": 5378060
     },
     {
       "canonical": "FLOKIUSDT",
@@ -4692,8 +4713,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6752243.7292,
-      "volumeOf24h": 246232400000
+      "turnoverOf24h": 5988270.0068,
+      "volumeOf24h": 217025800000
     },
     {
       "canonical": "FLOWUSDT",
@@ -4711,8 +4732,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 27471.8121,
-      "volumeOf24h": 872588.6
+      "turnoverOf24h": 65424.89115,
+      "volumeOf24h": 2097181.4
     },
     {
       "canonical": "FLUIDUSDT",
@@ -4730,8 +4751,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 19905.684,
-      "volumeOf24h": 13922
+      "turnoverOf24h": 21617.148,
+      "volumeOf24h": 15634
     },
     {
       "canonical": "FLUXUSDT",
@@ -4749,8 +4770,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 39941.38,
-      "volumeOf24h": 596904
+      "turnoverOf24h": 44485.93268,
+      "volumeOf24h": 660998
     },
     {
       "canonical": "FOGOUSDT",
@@ -4768,8 +4789,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 66032.4294,
-      "volumeOf24h": 4821300
+      "turnoverOf24h": 32743.5906,
+      "volumeOf24h": 2415800
     },
     {
       "canonical": "FOLKSUSDT",
@@ -4787,8 +4808,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 891811.406,
-      "volumeOf24h": 640838
+      "turnoverOf24h": 869113.504,
+      "volumeOf24h": 614310
     },
     {
       "canonical": "FORMUSDT",
@@ -4806,8 +4827,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 14214.1376,
-      "volumeOf24h": 64792
+      "turnoverOf24h": 7042.9004,
+      "volumeOf24h": 31786
     },
     {
       "canonical": "FRAXUSDT",
@@ -4825,8 +4846,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1376.8234,
-      "volumeOf24h": 3540
+      "turnoverOf24h": 2323.4912,
+      "volumeOf24h": 5952
     },
     {
       "canonical": "FTTUSDT",
@@ -4844,8 +4865,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8379.6814,
-      "volumeOf24h": 28410
+      "turnoverOf24h": 7434.2396,
+      "volumeOf24h": 25212
     },
     {
       "canonical": "FUSDT",
@@ -4863,8 +4884,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 127706.796,
-      "volumeOf24h": 26211800
+      "turnoverOf24h": 175131.2038,
+      "volumeOf24h": 36347200
     },
     {
       "canonical": "GALAUSDT",
@@ -4882,8 +4903,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3061201.316184,
-      "volumeOf24h": 1006875830
+      "turnoverOf24h": 3208336.054814,
+      "volumeOf24h": 1041368206
     },
     {
       "canonical": "GASUSDT",
@@ -4901,8 +4922,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10108.424,
-      "volumeOf24h": 7070
+      "turnoverOf24h": 11559.094,
+      "volumeOf24h": 8094
     },
     {
       "canonical": "GENIUSUSDT",
@@ -4920,8 +4941,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3954213.49114,
-      "volumeOf24h": 6206828
+      "turnoverOf24h": 8613265.9383,
+      "volumeOf24h": 17249812
     },
     {
       "canonical": "GIGGLEUSDT",
@@ -4939,8 +4960,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3791178.5346,
-      "volumeOf24h": 132164.8
+      "turnoverOf24h": 3929223.1976,
+      "volumeOf24h": 134138.18
     },
     {
       "canonical": "GLMRUSDT",
@@ -4958,8 +4979,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 76314.543,
-      "volumeOf24h": 6279800
+      "turnoverOf24h": 90202.9312,
+      "volumeOf24h": 7570740
     },
     {
       "canonical": "GLWUSDT",
@@ -4977,8 +4998,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 513334.7528,
-      "volumeOf24h": 2711.36
+      "turnoverOf24h": 530406.5666,
+      "volumeOf24h": 2899.14
     },
     {
       "canonical": "GMTUSDT",
@@ -4996,8 +5017,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1169708.4754,
-      "volumeOf24h": 112777358
+      "turnoverOf24h": 113991.90246,
+      "volumeOf24h": 11406034
     },
     {
       "canonical": "GMXUSDT",
@@ -5015,8 +5036,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 75338.9024,
-      "volumeOf24h": 12266.54
+      "turnoverOf24h": 47834.2454,
+      "volumeOf24h": 7657.22
     },
     {
       "canonical": "GOATUSDT",
@@ -5034,8 +5055,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 714238.57974,
-      "volumeOf24h": 44683530
+      "turnoverOf24h": 759382.46426,
+      "volumeOf24h": 47099858
     },
     {
       "canonical": "GOOGLUSDT",
@@ -5053,8 +5074,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 446902.6,
-      "volumeOf24h": 1148.4
+      "turnoverOf24h": 383099.3028,
+      "volumeOf24h": 996.9
     },
     {
       "canonical": "GPSUSDT",
@@ -5072,8 +5093,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 413905.1118,
-      "volumeOf24h": 57275720
+      "turnoverOf24h": 166698.4086,
+      "volumeOf24h": 23115280
     },
     {
       "canonical": "GRASSUSDT",
@@ -5091,8 +5112,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5603252.775,
-      "volumeOf24h": 11609290
+      "turnoverOf24h": 4567676.8046,
+      "volumeOf24h": 9725958
     },
     {
       "canonical": "GRIFFAINUSDT",
@@ -5110,8 +5131,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 913292.16152,
-      "volumeOf24h": 89471874
+      "turnoverOf24h": 708348.46116,
+      "volumeOf24h": 70460926
     },
     {
       "canonical": "GRTUSDT",
@@ -5129,8 +5150,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 570404.56318,
-      "volumeOf24h": 21640496
+      "turnoverOf24h": 301603.77522,
+      "volumeOf24h": 11453316
     },
     {
       "canonical": "GTCUSDT",
@@ -5148,8 +5169,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 190293.0232,
-      "volumeOf24h": 2055388
+      "turnoverOf24h": 58988.7678,
+      "volumeOf24h": 627756
     },
     {
       "canonical": "GUAUSDT",
@@ -5167,8 +5188,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 18686276.2544,
-      "volumeOf24h": 27133060
+      "turnoverOf24h": 11304524.1858,
+      "volumeOf24h": 14433500
     },
     {
       "canonical": "GUNUSDT",
@@ -5186,8 +5207,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 546692.6974,
-      "volumeOf24h": 66223300
+      "turnoverOf24h": 407807.8686,
+      "volumeOf24h": 53548880
     },
     {
       "canonical": "GUSDT",
@@ -5205,8 +5226,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 64059.9254,
-      "volumeOf24h": 19415000
+      "turnoverOf24h": 152282.0596,
+      "volumeOf24h": 45114400
     },
     {
       "canonical": "GWEIUSDT",
@@ -5224,8 +5245,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 81348.2734,
-      "volumeOf24h": 736400
+      "turnoverOf24h": 40447.0416,
+      "volumeOf24h": 355800
     },
     {
       "canonical": "HAEDALUSDT",
@@ -5243,8 +5264,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2227712.634,
-      "volumeOf24h": 84763440
+      "turnoverOf24h": 2123974.0838,
+      "volumeOf24h": 81147240
     },
     {
       "canonical": "HANAUSDT",
@@ -5255,15 +5276,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.05,
-      "maintainMargin": 0.025,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
       "maxRiskLimit": 10000,
       "minRiskLimit": 10000,
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2125114.535,
-      "volumeOf24h": 64394160
+      "turnoverOf24h": 1879214.7954,
+      "volumeOf24h": 56994820
     },
     {
       "canonical": "HBARUSDT",
@@ -5281,8 +5302,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 11916895.5384,
-      "volumeOf24h": 132801760
+      "turnoverOf24h": 12155051.0174,
+      "volumeOf24h": 129125400
     },
     {
       "canonical": "HDUSDT",
@@ -5300,8 +5321,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1619251.8908,
-      "volumeOf24h": 5059.8
+      "turnoverOf24h": 1392229.376,
+      "volumeOf24h": 4352.38
     },
     {
       "canonical": "HEIUSDT",
@@ -5319,8 +5340,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 43474.1912,
-      "volumeOf24h": 745442
+      "turnoverOf24h": 8222817.2772,
+      "volumeOf24h": 71858756
     },
     {
       "canonical": "HEMIUSDT",
@@ -5338,8 +5359,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2229993.4594,
-      "volumeOf24h": 350843000
+      "turnoverOf24h": 2917271.7718,
+      "volumeOf24h": 425659800
     },
     {
       "canonical": "HFTUSDT",
@@ -5350,15 +5371,15 @@
       "multiplier": 1,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.034,
+      "initialMargin": 0.04,
       "maintainMargin": 0.02,
-      "maxRiskLimit": 7500,
-      "minRiskLimit": 7500,
-      "riskStep": 3750,
+      "maxRiskLimit": 5000,
+      "minRiskLimit": 5000,
+      "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 68102.78698,
-      "volumeOf24h": 6457982
+      "turnoverOf24h": 100082.91796,
+      "volumeOf24h": 9161074
     },
     {
       "canonical": "HIGHUSDT",
@@ -5369,15 +5390,15 @@
       "multiplier": 1,
       "lotSize": 1,
       "tickSize": 0.0001,
-      "initialMargin": 0.034,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.025,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 603320.9456,
-      "volumeOf24h": 4671628
+      "turnoverOf24h": 164334.9278,
+      "volumeOf24h": 1272084
     },
     {
       "canonical": "HIMSUSDT",
@@ -5395,8 +5416,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1185588.0798,
-      "volumeOf24h": 46723.38
+      "turnoverOf24h": 1184521.3926,
+      "volumeOf24h": 46083.58
     },
     {
       "canonical": "HIVEUSDT",
@@ -5414,8 +5435,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 57816.004,
-      "volumeOf24h": 1001840
+      "turnoverOf24h": 43423.974,
+      "volumeOf24h": 751780
     },
     {
       "canonical": "HMSTRUSDT",
@@ -5433,8 +5454,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 234583.75944,
-      "volumeOf24h": 1358811600
+      "turnoverOf24h": 344218.44804,
+      "volumeOf24h": 1998196200
     },
     {
       "canonical": "HOLOUSDT",
@@ -5452,8 +5473,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 42241.9318,
-      "volumeOf24h": 589580
+      "turnoverOf24h": 95768.821,
+      "volumeOf24h": 1305500
     },
     {
       "canonical": "HOMEUSDT",
@@ -5471,8 +5492,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 429996.029506,
-      "volumeOf24h": 16090100
+      "turnoverOf24h": 256070.046622,
+      "volumeOf24h": 9180562
     },
     {
       "canonical": "HOODUSDT",
@@ -5490,8 +5511,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1552250.222,
-      "volumeOf24h": 19125.98
+      "turnoverOf24h": 1659574.7098,
+      "volumeOf24h": 18703.94
     },
     {
       "canonical": "HOTUSDT",
@@ -5509,8 +5530,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3399.165,
-      "volumeOf24h": 9300000
+      "turnoverOf24h": 10961.4208,
+      "volumeOf24h": 29508000
     },
     {
       "canonical": "HUMAUSDT",
@@ -5528,8 +5549,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2160697.65352,
-      "volumeOf24h": 86447820
+      "turnoverOf24h": 586329.88516,
+      "volumeOf24h": 22554000
     },
     {
       "canonical": "HUSDT",
@@ -5547,8 +5568,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7036956.9202,
-      "volumeOf24h": 27347480
+      "turnoverOf24h": 6499913.1856,
+      "volumeOf24h": 24567640
     },
     {
       "canonical": "HYPERUSDT",
@@ -5566,8 +5587,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 85278.6744,
-      "volumeOf24h": 973100
+      "turnoverOf24h": 130908.5238,
+      "volumeOf24h": 1494500
     },
     {
       "canonical": "HYPEUSDT",
@@ -5585,8 +5606,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 82748229.1958,
-      "volumeOf24h": 1385823
+      "turnoverOf24h": 96236101.364,
+      "volumeOf24h": 1510639.2
     },
     {
       "canonical": "IBMUSDT",
@@ -5604,8 +5625,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 451588.135,
-      "volumeOf24h": 1678.76
+      "turnoverOf24h": 481494.6982,
+      "volumeOf24h": 1679.88
     },
     {
       "canonical": "ICNTUSDT",
@@ -5623,8 +5644,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4470105.4726,
-      "volumeOf24h": 18301180
+      "turnoverOf24h": 5297934.5352,
+      "volumeOf24h": 22419360
     },
     {
       "canonical": "ICPUSDT",
@@ -5642,8 +5663,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7623787.33424,
-      "volumeOf24h": 2806255.58
+      "turnoverOf24h": 5905357.97272,
+      "volumeOf24h": 2170721.04
     },
     {
       "canonical": "ICXUSDT",
@@ -5661,8 +5682,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 25525.375,
-      "volumeOf24h": 716280
+      "turnoverOf24h": 40037.0204,
+      "volumeOf24h": 1079900
     },
     {
       "canonical": "IDOLUSDT",
@@ -5680,8 +5701,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8148854.904,
-      "volumeOf24h": 289286800
+      "turnoverOf24h": 7554146.644,
+      "volumeOf24h": 270479600
     },
     {
       "canonical": "IDUSDT",
@@ -5699,8 +5720,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 581214.759,
-      "volumeOf24h": 20459160
+      "turnoverOf24h": 9723332.4884,
+      "volumeOf24h": 270367620
     },
     {
       "canonical": "ILVUSDT",
@@ -5718,8 +5739,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 21204.75998,
-      "volumeOf24h": 5336.12
+      "turnoverOf24h": 17095.94774,
+      "volumeOf24h": 4271.06
     },
     {
       "canonical": "IMXUSDT",
@@ -5737,8 +5758,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1327517.2584,
-      "volumeOf24h": 8355094
+      "turnoverOf24h": 197419.8782,
+      "volumeOf24h": 1239940
     },
     {
       "canonical": "INFQUSDT",
@@ -5756,8 +5777,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 567929.436,
-      "volumeOf24h": 33136
+      "turnoverOf24h": 538709.388,
+      "volumeOf24h": 30978.2
     },
     {
       "canonical": "INITUSDT",
@@ -5775,8 +5796,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 468504.4988,
-      "volumeOf24h": 7298660
+      "turnoverOf24h": 94094.1454,
+      "volumeOf24h": 1486084
     },
     {
       "canonical": "INJUSDT",
@@ -5794,8 +5815,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8962757.114,
-      "volumeOf24h": 1619586
+      "turnoverOf24h": 14963911.27,
+      "volumeOf24h": 2402698
     },
     {
       "canonical": "INTCUSDT",
@@ -5813,8 +5834,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2055348.1782,
-      "volumeOf24h": 17103.74
+      "turnoverOf24h": 2109675.7024,
+      "volumeOf24h": 17637.14
     },
     {
       "canonical": "INUSDT",
@@ -5832,8 +5853,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1163581.216,
-      "volumeOf24h": 12374840
+      "turnoverOf24h": 1845796.9814,
+      "volumeOf24h": 18012140
     },
     {
       "canonical": "INXUSDT",
@@ -5851,8 +5872,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 225798.2048,
-      "volumeOf24h": 25346200
+      "turnoverOf24h": 177967.2402,
+      "volumeOf24h": 19606800
     },
     {
       "canonical": "IOTAUSDT",
@@ -5870,8 +5891,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 695629.998,
-      "volumeOf24h": 11918560
+      "turnoverOf24h": 771149.078,
+      "volumeOf24h": 12241900
     },
     {
       "canonical": "IOTXUSDT",
@@ -5889,8 +5910,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 23304.3202,
-      "volumeOf24h": 5844540
+      "turnoverOf24h": 97460.3916,
+      "volumeOf24h": 23220360
     },
     {
       "canonical": "IOUSDT",
@@ -5908,8 +5929,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1623644.35,
-      "volumeOf24h": 9957472
+      "turnoverOf24h": 7422385.8564,
+      "volumeOf24h": 37892328
     },
     {
       "canonical": "IPUSDT",
@@ -5927,8 +5948,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6222889.35534,
-      "volumeOf24h": 14170314
+      "turnoverOf24h": 4015410.58422,
+      "volumeOf24h": 9175666
     },
     {
       "canonical": "IRYSUSDT",
@@ -5946,8 +5967,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2681991.4724,
-      "volumeOf24h": 105460600
+      "turnoverOf24h": 3735195.4814,
+      "volumeOf24h": 147181200
     },
     {
       "canonical": "JASMYUSDT",
@@ -5965,8 +5986,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4150337.40612,
-      "volumeOf24h": 761654020
+      "turnoverOf24h": 3689692.88334,
+      "volumeOf24h": 669523700
     },
     {
       "canonical": "JCTUSDT",
@@ -5984,8 +6005,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 573410.5176,
-      "volumeOf24h": 146604000
+      "turnoverOf24h": 416336.112,
+      "volumeOf24h": 104386000
     },
     {
       "canonical": "JELLYJELLYUSDT",
@@ -6003,8 +6024,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9177572.7372,
-      "volumeOf24h": 151392000
+      "turnoverOf24h": 6004412.5828,
+      "volumeOf24h": 101488800
     },
     {
       "canonical": "JOEUSDT",
@@ -6022,8 +6043,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3548.75654,
-      "volumeOf24h": 92810
+      "turnoverOf24h": 8553.89582,
+      "volumeOf24h": 222834
     },
     {
       "canonical": "JPMUSDT",
@@ -6041,8 +6062,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 906955.0214,
-      "volumeOf24h": 3048.4
+      "turnoverOf24h": 940907.1084,
+      "volumeOf24h": 3165.08
     },
     {
       "canonical": "JTOUSDT",
@@ -6060,8 +6081,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 836599.6324,
-      "volumeOf24h": 1730526
+      "turnoverOf24h": 1012491.0768,
+      "volumeOf24h": 1963282
     },
     {
       "canonical": "JUPUSDT",
@@ -6079,8 +6100,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2587862.0972,
-      "volumeOf24h": 14768596
+      "turnoverOf24h": 2916522.8142,
+      "volumeOf24h": 16187804
     },
     {
       "canonical": "KAIAUSDT",
@@ -6098,8 +6119,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 103886.4612,
-      "volumeOf24h": 2157620
+      "turnoverOf24h": 50394.51,
+      "volumeOf24h": 1039600
     },
     {
       "canonical": "KAITOUSDT",
@@ -6117,8 +6138,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3440509.3286,
-      "volumeOf24h": 7550620
+      "turnoverOf24h": 3302344.429,
+      "volumeOf24h": 7250466
     },
     {
       "canonical": "KASUSDT",
@@ -6136,8 +6157,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2303579.1014,
-      "volumeOf24h": 74189200
+      "turnoverOf24h": 2313751.1596,
+      "volumeOf24h": 74646000
     },
     {
       "canonical": "KATUSDT",
@@ -6155,8 +6176,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 29484.4652,
-      "volumeOf24h": 4108620
+      "turnoverOf24h": 20208.0456,
+      "volumeOf24h": 2849320
     },
     {
       "canonical": "KAVAUSDT",
@@ -6174,8 +6195,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 82643.01688,
-      "volumeOf24h": 1531470.2
+      "turnoverOf24h": 95494.09206,
+      "volumeOf24h": 1746244
     },
     {
       "canonical": "KCSUSDT",
@@ -6193,8 +6214,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 39393.7558,
-      "volumeOf24h": 5044.6
+      "turnoverOf24h": 68028.5942,
+      "volumeOf24h": 8657.2
     },
     {
       "canonical": "KERNELUSDT",
@@ -6212,8 +6233,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3390433.1374,
-      "volumeOf24h": 56372100
+      "turnoverOf24h": 341144.4928,
+      "volumeOf24h": 5580960
     },
     {
       "canonical": "KGENUSDT",
@@ -6231,8 +6252,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 740350.8174,
-      "volumeOf24h": 4322020
+      "turnoverOf24h": 2039513.6156,
+      "volumeOf24h": 11925620
     },
     {
       "canonical": "KITEUSDT",
@@ -6250,8 +6271,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 856906.2156,
-      "volumeOf24h": 4248980
+      "turnoverOf24h": 576352.9176,
+      "volumeOf24h": 2906500
     },
     {
       "canonical": "KNCUSDT",
@@ -6269,8 +6290,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 59854.0694,
-      "volumeOf24h": 435886
+      "turnoverOf24h": 17382.0306,
+      "volumeOf24h": 126058
     },
     {
       "canonical": "KOMAUSDT",
@@ -6288,8 +6309,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1411856.3196,
-      "volumeOf24h": 213716140
+      "turnoverOf24h": 468243.12,
+      "volumeOf24h": 62048200
     },
     {
       "canonical": "KSMUSDT",
@@ -6307,8 +6328,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 42409.54622,
-      "volumeOf24h": 9556.98
+      "turnoverOf24h": 100467.02708,
+      "volumeOf24h": 22379.8
     },
     {
       "canonical": "LABUSDT",
@@ -6326,8 +6347,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 12584139.4312,
-      "volumeOf24h": 2672580
+      "turnoverOf24h": 31583561.322,
+      "volumeOf24h": 5561740
     },
     {
       "canonical": "LAUSDT",
@@ -6345,8 +6366,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 69190.733,
-      "volumeOf24h": 685024
+      "turnoverOf24h": 270430.7452,
+      "volumeOf24h": 2549598
     },
     {
       "canonical": "LDOUSDT",
@@ -6364,8 +6385,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 957547.1944,
-      "volumeOf24h": 2984227
+      "turnoverOf24h": 1087819.16094,
+      "volumeOf24h": 3374350
     },
     {
       "canonical": "LIGHTUSDT",
@@ -6383,8 +6404,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3117075.36382,
-      "volumeOf24h": 25737612
+      "turnoverOf24h": 3393007.2388,
+      "volumeOf24h": 28895816
     },
     {
       "canonical": "LINEAUSDT",
@@ -6402,8 +6423,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 23339.81756,
-      "volumeOf24h": 7910120
+      "turnoverOf24h": 51153.5948,
+      "volumeOf24h": 17245420
     },
     {
       "canonical": "LINKUSDT",
@@ -6421,8 +6442,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2747648.4964,
-      "volumeOf24h": 307501.8
+      "turnoverOf24h": 5600318.148,
+      "volumeOf24h": 623908.4
     },
     {
       "canonical": "LISTAUSDT",
@@ -6440,8 +6461,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2899249.93716,
-      "volumeOf24h": 45854320
+      "turnoverOf24h": 298735.31196,
+      "volumeOf24h": 4599214
     },
     {
       "canonical": "LITEUSDT",
@@ -6459,8 +6480,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4493547.3956,
-      "volumeOf24h": 5043.772
+      "turnoverOf24h": 2181068.93998,
+      "volumeOf24h": 2554.048
     },
     {
       "canonical": "LITUSDT",
@@ -6478,8 +6499,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 839603.948,
-      "volumeOf24h": 744116
+      "turnoverOf24h": 1747182.544,
+      "volumeOf24h": 1382136
     },
     {
       "canonical": "LLYUSDT",
@@ -6497,8 +6518,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1636194.4814,
-      "volumeOf24h": 1460.498
+      "turnoverOf24h": 1651066.3758,
+      "volumeOf24h": 1480.338
     },
     {
       "canonical": "LPTUSDT",
@@ -6516,8 +6537,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 641555.894,
-      "volumeOf24h": 303684
+      "turnoverOf24h": 278772.656,
+      "volumeOf24h": 131534
     },
     {
       "canonical": "LQTYUSDT",
@@ -6535,8 +6556,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 46822.5096,
-      "volumeOf24h": 197184
+      "turnoverOf24h": 158057.768,
+      "volumeOf24h": 647196
     },
     {
       "canonical": "LRCUSDT",
@@ -6554,8 +6575,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 25877.96626,
-      "volumeOf24h": 1660000
+      "turnoverOf24h": 58903.8029,
+      "volumeOf24h": 3808608
     },
     {
       "canonical": "LTCUSDT",
@@ -6573,8 +6594,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2058579.434,
-      "volumeOf24h": 40034.8
+      "turnoverOf24h": 1543531.622,
+      "volumeOf24h": 29774.2
     },
     {
       "canonical": "LUNAUSDT",
@@ -6592,8 +6613,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 271814.1495,
-      "volumeOf24h": 4595604
+      "turnoverOf24h": 544415.76158,
+      "volumeOf24h": 9060902
     },
     {
       "canonical": "LUNCUSDT",
@@ -6611,8 +6632,8 @@
       "riskStep": 10000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3934710.794192,
-      "volumeOf24h": 47622762000
+      "turnoverOf24h": 2934610.228458,
+      "volumeOf24h": 35970614000
     },
     {
       "canonical": "LYNUSDT",
@@ -6630,8 +6651,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 464037.1808,
-      "volumeOf24h": 13422640
+      "turnoverOf24h": 336962.4252,
+      "volumeOf24h": 9814220
     },
     {
       "canonical": "MAGICUSDT",
@@ -6649,8 +6670,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1796272.86326,
-      "volumeOf24h": 31721094
+      "turnoverOf24h": 175201.44542,
+      "volumeOf24h": 3051992
     },
     {
       "canonical": "MAGMAUSDT",
@@ -6668,8 +6689,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10462.9852,
-      "volumeOf24h": 39740
+      "turnoverOf24h": 7907.9098,
+      "volumeOf24h": 31020
     },
     {
       "canonical": "MANAUSDT",
@@ -6687,8 +6708,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 53885.7398,
-      "volumeOf24h": 648196
+      "turnoverOf24h": 75595.279,
+      "volumeOf24h": 901118
     },
     {
       "canonical": "MANTAUSDT",
@@ -6706,8 +6727,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 469412.682,
-      "volumeOf24h": 5766608
+      "turnoverOf24h": 100189.6232,
+      "volumeOf24h": 1253682
     },
     {
       "canonical": "MANTRAUSDT",
@@ -6725,8 +6746,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 72353.59,
-      "volumeOf24h": 8980200
+      "turnoverOf24h": 77997.734,
+      "volumeOf24h": 9585600
     },
     {
       "canonical": "MASKUSDT",
@@ -6744,8 +6765,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1591446.85558,
-      "volumeOf24h": 3685838.4
+      "turnoverOf24h": 227455.59276,
+      "volumeOf24h": 521529.6
     },
     {
       "canonical": "MAVIAUSDT",
@@ -6763,8 +6784,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 145697.386426,
-      "volumeOf24h": 4653766.6
+      "turnoverOf24h": 94276.385762,
+      "volumeOf24h": 3088006.6
     },
     {
       "canonical": "MAVUSDT",
@@ -6782,8 +6803,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10213.05078,
-      "volumeOf24h": 821378
+      "turnoverOf24h": 14589.66248,
+      "volumeOf24h": 1167020
     },
     {
       "canonical": "MBOXUSDT",
@@ -6801,8 +6822,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 52387.0438,
-      "volumeOf24h": 4857120
+      "turnoverOf24h": 616477.5208,
+      "volumeOf24h": 51689100
     },
     {
       "canonical": "MCDUSDT",
@@ -6820,8 +6841,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 405678.0346,
-      "volumeOf24h": 1451.34
+      "turnoverOf24h": 410402.8524,
+      "volumeOf24h": 1469.76
     },
     {
       "canonical": "MEGAUSDT",
@@ -6839,8 +6860,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 750752.3846,
-      "volumeOf24h": 11972760
+      "turnoverOf24h": 302411.5222,
+      "volumeOf24h": 4778260
     },
     {
       "canonical": "MELANIAUSDT",
@@ -6858,8 +6879,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 278441.81204,
-      "volumeOf24h": 3114829.6
+      "turnoverOf24h": 230991.91378,
+      "volumeOf24h": 2524192.2
     },
     {
       "canonical": "MEMEUSDT",
@@ -6877,8 +6898,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 20199.8998,
-      "volumeOf24h": 42334400
+      "turnoverOf24h": 126726.112,
+      "volumeOf24h": 253248000
     },
     {
       "canonical": "MERLUSDT",
@@ -6896,8 +6917,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 111938.49166,
-      "volumeOf24h": 4671078
+      "turnoverOf24h": 68951.6485,
+      "volumeOf24h": 2884548
     },
     {
       "canonical": "METAUSDT",
@@ -6915,8 +6936,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 707155.213,
-      "volumeOf24h": 1114.16
+      "turnoverOf24h": 1055021.4524,
+      "volumeOf24h": 1673.18
     },
     {
       "canonical": "METISUSDT",
@@ -6934,8 +6955,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5318.0658,
-      "volumeOf24h": 1730.5
+      "turnoverOf24h": 4084.29506,
+      "volumeOf24h": 1332.64
     },
     {
       "canonical": "METUSDT",
@@ -6953,8 +6974,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 318574.9478,
-      "volumeOf24h": 2515656
+      "turnoverOf24h": 368540.5492,
+      "volumeOf24h": 2896664
     },
     {
       "canonical": "MEUSDT",
@@ -6972,8 +6993,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 34042.92538,
-      "volumeOf24h": 394345
+      "turnoverOf24h": 119547.75956,
+      "volumeOf24h": 1399314.6
     },
     {
       "canonical": "MEWUSDT",
@@ -6991,8 +7012,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 236290.9814,
-      "volumeOf24h": 478977600
+      "turnoverOf24h": 233478.2234,
+      "volumeOf24h": 472017600
     },
     {
       "canonical": "MINAUSDT",
@@ -7010,8 +7031,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 81114.9506,
-      "volumeOf24h": 1468480
+      "turnoverOf24h": 108637.7238,
+      "volumeOf24h": 1959368
     },
     {
       "canonical": "MIRAUSDT",
@@ -7029,8 +7050,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 50998.45082,
-      "volumeOf24h": 643120
+      "turnoverOf24h": 66542.68496,
+      "volumeOf24h": 825820
     },
     {
       "canonical": "MITOUSDT",
@@ -7048,8 +7069,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 49022.9542,
-      "volumeOf24h": 1479840
+      "turnoverOf24h": 29461.6412,
+      "volumeOf24h": 906220
     },
     {
       "canonical": "MMTUSDT",
@@ -7067,8 +7088,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 763222.8596,
-      "volumeOf24h": 5827960
+      "turnoverOf24h": 630249.3694,
+      "volumeOf24h": 4684580
     },
     {
       "canonical": "MOCAUSDT",
@@ -7086,8 +7107,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 16280.2576,
-      "volumeOf24h": 1399620
+      "turnoverOf24h": 31877.6576,
+      "volumeOf24h": 2628740
     },
     {
       "canonical": "MONUSDT",
@@ -7105,8 +7126,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 881943.4704,
-      "volumeOf24h": 37511300
+      "turnoverOf24h": 473783.2952,
+      "volumeOf24h": 19942180
     },
     {
       "canonical": "MOODENGUSDT",
@@ -7124,8 +7145,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4745231.6472,
-      "volumeOf24h": 99386500
+      "turnoverOf24h": 6080930.3352,
+      "volumeOf24h": 122656860
     },
     {
       "canonical": "MORPHOUSDT",
@@ -7143,8 +7164,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 112896.6832,
-      "volumeOf24h": 54952
+      "turnoverOf24h": 108629.4652,
+      "volumeOf24h": 53132
     },
     {
       "canonical": "MOVEUSDT",
@@ -7156,14 +7177,14 @@
       "lotSize": 1,
       "tickSize": 0.00001,
       "initialMargin": 0.034,
-      "maintainMargin": 0.017,
-      "maxRiskLimit": 10000,
-      "minRiskLimit": 10000,
-      "riskStep": 5000,
+      "maintainMargin": 0.02,
+      "maxRiskLimit": 7500,
+      "minRiskLimit": 7500,
+      "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 454454.28842,
-      "volumeOf24h": 31315370
+      "turnoverOf24h": 229492.41468,
+      "volumeOf24h": 15885422
     },
     {
       "canonical": "MOVRUSDT",
@@ -7181,8 +7202,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 245188.702,
-      "volumeOf24h": 141833.6
+      "turnoverOf24h": 423002.796,
+      "volumeOf24h": 249977.8
     },
     {
       "canonical": "MPUSDT",
@@ -7200,8 +7221,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 922321.7388,
-      "volumeOf24h": 14134.92
+      "turnoverOf24h": 335525.8146,
+      "volumeOf24h": 5083.08
     },
     {
       "canonical": "MRVLUSDT",
@@ -7219,8 +7240,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4082178.6578,
-      "volumeOf24h": 20274.58
+      "turnoverOf24h": 2113330.7308,
+      "volumeOf24h": 10360.34
     },
     {
       "canonical": "MSFTUSDT",
@@ -7238,8 +7259,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1360617.1544,
-      "volumeOf24h": 3205.98
+      "turnoverOf24h": 1376550.2108,
+      "volumeOf24h": 3137.38
     },
     {
       "canonical": "MSTRUSDT",
@@ -7257,8 +7278,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 755756.5878,
-      "volumeOf24h": 5015.94
+      "turnoverOf24h": 1185539.8378,
+      "volumeOf24h": 7641.9
     },
     {
       "canonical": "MTLUSDT",
@@ -7276,8 +7297,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 33698.0368,
-      "volumeOf24h": 122404
+      "turnoverOf24h": 41905.2888,
+      "volumeOf24h": 149090
     },
     {
       "canonical": "MUBARAKUSDT",
@@ -7295,8 +7316,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 642887.9008,
-      "volumeOf24h": 53798900
+      "turnoverOf24h": 116723.0002,
+      "volumeOf24h": 9669160
     },
     {
       "canonical": "MUSDT",
@@ -7307,15 +7328,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
-      "maxRiskLimit": 5000,
-      "minRiskLimit": 5000,
-      "riskStep": 2500,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
+      "maxRiskLimit": 10000,
+      "minRiskLimit": 10000,
+      "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 12454381.9242,
-      "volumeOf24h": 4191180
+      "turnoverOf24h": 12164133.9204,
+      "volumeOf24h": 4026720
     },
     {
       "canonical": "MUUSDT",
@@ -7333,8 +7354,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1720630.4186,
-      "volumeOf24h": 1854.06
+      "turnoverOf24h": 2201631.384,
+      "volumeOf24h": 2307.94
     },
     {
       "canonical": "MYXUSDT",
@@ -7352,8 +7373,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1681346.225,
-      "volumeOf24h": 8084360
+      "turnoverOf24h": 772035.3,
+      "volumeOf24h": 3778060
     },
     {
       "canonical": "NAORISUSDT",
@@ -7364,15 +7385,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
-      "maxRiskLimit": 5000,
-      "minRiskLimit": 5000,
-      "riskStep": 2500,
+      "initialMargin": 0.1,
+      "maintainMargin": 0.05,
+      "maxRiskLimit": 10000,
+      "minRiskLimit": 10000,
+      "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 66481.6396,
-      "volumeOf24h": 1837060
+      "turnoverOf24h": 56376.2742,
+      "volumeOf24h": 1603260
     },
     {
       "canonical": "NATGASUSDT",
@@ -7390,8 +7411,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 739116.78,
-      "volumeOf24h": 229920
+      "turnoverOf24h": 839816.474,
+      "volumeOf24h": 252376
     },
     {
       "canonical": "NBISUSDT",
@@ -7409,8 +7430,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1239237.8766,
-      "volumeOf24h": 5421.22
+      "turnoverOf24h": 1273315.5306,
+      "volumeOf24h": 5616.32
     },
     {
       "canonical": "NEARUSDT",
@@ -7428,8 +7449,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 46988399.0492,
-      "volumeOf24h": 19529388
+      "turnoverOf24h": 61562982.6812,
+      "volumeOf24h": 24572875.6
     },
     {
       "canonical": "NEIROCTOUSDT",
@@ -7447,8 +7468,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 451642.8462,
-      "volumeOf24h": 5679328000
+      "turnoverOf24h": 241576.796,
+      "volumeOf24h": 3102948000
     },
     {
       "canonical": "NEOUSDT",
@@ -7466,8 +7487,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 498396.0518,
-      "volumeOf24h": 185125
+      "turnoverOf24h": 116163.156,
+      "volumeOf24h": 42602.6
     },
     {
       "canonical": "NEWTUSDT",
@@ -7485,8 +7506,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9821.4394,
-      "volumeOf24h": 145980
+      "turnoverOf24h": 132895.7802,
+      "volumeOf24h": 1708620
     },
     {
       "canonical": "NEXUSDT",
@@ -7504,8 +7525,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 775132.3876,
-      "volumeOf24h": 221966600000
+      "turnoverOf24h": 776596.8652,
+      "volumeOf24h": 223507800000
     },
     {
       "canonical": "NFLXUSDT",
@@ -7523,8 +7544,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1494623.269,
-      "volumeOf24h": 17229.08
+      "turnoverOf24h": 1010765.4392,
+      "volumeOf24h": 11709.7
     },
     {
       "canonical": "NFPUSDT",
@@ -7542,8 +7563,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 12129.5416,
-      "volumeOf24h": 1287228
+      "turnoverOf24h": 22833.62778,
+      "volumeOf24h": 2407004
     },
     {
       "canonical": "NIGHTUSDT",
@@ -7561,8 +7582,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2681097.3156,
-      "volumeOf24h": 75456000
+      "turnoverOf24h": 2143857.9484,
+      "volumeOf24h": 60582000
     },
     {
       "canonical": "NILUSDT",
@@ -7580,8 +7601,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4518129.667,
-      "volumeOf24h": 70667608
+      "turnoverOf24h": 3004069.9329,
+      "volumeOf24h": 43833670
     },
     {
       "canonical": "NMRUSDT",
@@ -7593,14 +7614,14 @@
       "lotSize": 1,
       "tickSize": 0.001,
       "initialMargin": 0.034,
-      "maintainMargin": 0.017,
-      "maxRiskLimit": 10000,
-      "minRiskLimit": 10000,
-      "riskStep": 5000,
+      "maintainMargin": 0.02,
+      "maxRiskLimit": 7500,
+      "minRiskLimit": 7500,
+      "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 60995.383,
-      "volumeOf24h": 7382.6
+      "turnoverOf24h": 48821.8274,
+      "volumeOf24h": 5902.8
     },
     {
       "canonical": "NOKUSDT",
@@ -7618,8 +7639,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 501545.712,
-      "volumeOf24h": 32196.8
+      "turnoverOf24h": 453839.086,
+      "volumeOf24h": 29763.6
     },
     {
       "canonical": "NOMUSDT",
@@ -7637,8 +7658,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 48915.47578,
-      "volumeOf24h": 25467160
+      "turnoverOf24h": 889717.53094,
+      "volumeOf24h": 399353500
     },
     {
       "canonical": "NOTUSDT",
@@ -7656,8 +7677,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3405661.27236,
-      "volumeOf24h": 7815999800
+      "turnoverOf24h": 479126.43772,
+      "volumeOf24h": 1080934400
     },
     {
       "canonical": "NPCUSDT",
@@ -7675,8 +7696,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 22641.5124,
-      "volumeOf24h": 3947000
+      "turnoverOf24h": 111985.9274,
+      "volumeOf24h": 19722400
     },
     {
       "canonical": "NVDAUSDT",
@@ -7694,8 +7715,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1325547.2998,
-      "volumeOf24h": 6219.88
+      "turnoverOf24h": 1465275.772,
+      "volumeOf24h": 6817.46
     },
     {
       "canonical": "NXPCUSDT",
@@ -7713,8 +7734,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2263744.206,
-      "volumeOf24h": 5951560
+      "turnoverOf24h": 2123585.452,
+      "volumeOf24h": 5442120
     },
     {
       "canonical": "OFCUSDT",
@@ -7732,8 +7753,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1705609.8448,
-      "volumeOf24h": 33997000
+      "turnoverOf24h": 1466754.5106,
+      "volumeOf24h": 31470400
     },
     {
       "canonical": "OGNUSDT",
@@ -7751,8 +7772,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 96150.1136,
-      "volumeOf24h": 4624100
+      "turnoverOf24h": 70469.9696,
+      "volumeOf24h": 3388360
     },
     {
       "canonical": "OGUSDT",
@@ -7770,8 +7791,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 112311.3774,
-      "volumeOf24h": 40838
+      "turnoverOf24h": 53853.9734,
+      "volumeOf24h": 19666
     },
     {
       "canonical": "OKLOUSDT",
@@ -7789,8 +7810,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 473577.8354,
-      "volumeOf24h": 6972.22
+      "turnoverOf24h": 484423.627,
+      "volumeOf24h": 7115.42
     },
     {
       "canonical": "ONDOUSDT",
@@ -7808,8 +7829,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4195648.546,
-      "volumeOf24h": 11485800
+      "turnoverOf24h": 4855474.914,
+      "volumeOf24h": 13346320
     },
     {
       "canonical": "ONEUSDT",
@@ -7827,8 +7848,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 12219.23274,
-      "volumeOf24h": 6808500
+      "turnoverOf24h": 20230.87512,
+      "volumeOf24h": 11227260
     },
     {
       "canonical": "ONTUSDT",
@@ -7846,8 +7867,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 88767.62116,
-      "volumeOf24h": 1713368
+      "turnoverOf24h": 91321.78262,
+      "volumeOf24h": 1765004
     },
     {
       "canonical": "ONUSDT",
@@ -7865,8 +7886,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 65803.551,
-      "volumeOf24h": 631120
+      "turnoverOf24h": 53193.4172,
+      "volumeOf24h": 504520
     },
     {
       "canonical": "OPENAIUSDT",
@@ -7884,8 +7905,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2049318.12186,
-      "volumeOf24h": 1469.24
+      "turnoverOf24h": 1837434.84802,
+      "volumeOf24h": 1292.494
     },
     {
       "canonical": "OPENUSDT",
@@ -7903,8 +7924,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 133041.375,
-      "volumeOf24h": 771760
+      "turnoverOf24h": 63085.2758,
+      "volumeOf24h": 357480
     },
     {
       "canonical": "OPGUSDT",
@@ -7922,8 +7943,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1835207.4554,
-      "volumeOf24h": 9941880
+      "turnoverOf24h": 2163849.623,
+      "volumeOf24h": 11729980
     },
     {
       "canonical": "OPNUSDT",
@@ -7941,8 +7962,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 72459.8358,
-      "volumeOf24h": 493978
+      "turnoverOf24h": 140129.6866,
+      "volumeOf24h": 974752
     },
     {
       "canonical": "OPUSDT",
@@ -7960,8 +7981,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2903414.4874,
-      "volumeOf24h": 24764738
+      "turnoverOf24h": 2431856.2158,
+      "volumeOf24h": 20547942
     },
     {
       "canonical": "ORBSUSDT",
@@ -7979,8 +8000,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7159.644,
-      "volumeOf24h": 923400
+      "turnoverOf24h": 3821.542,
+      "volumeOf24h": 495400
     },
     {
       "canonical": "ORCAUSDT",
@@ -7998,8 +8019,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3510383.2538,
-      "volumeOf24h": 2752610
+      "turnoverOf24h": 907776.404,
+      "volumeOf24h": 685832
     },
     {
       "canonical": "ORCLUSDT",
@@ -8017,8 +8038,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1846281.8192,
-      "volumeOf24h": 9042.16
+      "turnoverOf24h": 1705081.627,
+      "volumeOf24h": 7854.66
     },
     {
       "canonical": "ORDERUSDT",
@@ -8036,8 +8057,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 192916.5778,
-      "volumeOf24h": 3983340
+      "turnoverOf24h": 127428.503,
+      "volumeOf24h": 2622240
     },
     {
       "canonical": "ORDIUSDT",
@@ -8055,8 +8076,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1239255.03398,
-      "volumeOf24h": 359976.8
+      "turnoverOf24h": 1023394.30362,
+      "volumeOf24h": 303558.2
     },
     {
       "canonical": "PARTIUSDT",
@@ -8074,8 +8095,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2417440.6402,
-      "volumeOf24h": 50898980
+      "turnoverOf24h": 417003.0764,
+      "volumeOf24h": 9006460
     },
     {
       "canonical": "PAXGUSDT",
@@ -8093,8 +8114,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2743042.12572,
-      "volumeOf24h": 614.78
+      "turnoverOf24h": 2722851.3651,
+      "volumeOf24h": 600.272
     },
     {
       "canonical": "PAYPUSDT",
@@ -8112,8 +8133,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 522226.5174,
-      "volumeOf24h": 26669.04
+      "turnoverOf24h": 536633.282,
+      "volumeOf24h": 27396.84
     },
     {
       "canonical": "PENDLEUSDT",
@@ -8131,8 +8152,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4519511.8026,
-      "volumeOf24h": 3022728
+      "turnoverOf24h": 2279597.6398,
+      "volumeOf24h": 1620242
     },
     {
       "canonical": "PENGUUSDT",
@@ -8150,8 +8171,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4319919.1903,
-      "volumeOf24h": 555629460
+      "turnoverOf24h": 5253731.6817,
+      "volumeOf24h": 672368860
     },
     {
       "canonical": "PEOPLEUSDT",
@@ -8169,8 +8190,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 332198.071,
-      "volumeOf24h": 53597240
+      "turnoverOf24h": 42996.7246,
+      "volumeOf24h": 6847280
     },
     {
       "canonical": "PHAUSDT",
@@ -8188,8 +8209,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 293221.5464,
-      "volumeOf24h": 7084480
+      "turnoverOf24h": 363520.6534,
+      "volumeOf24h": 8572220
     },
     {
       "canonical": "PIEVERSEUSDT",
@@ -8200,15 +8221,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.034,
-      "maintainMargin": 0.02,
-      "maxRiskLimit": 7500,
-      "minRiskLimit": 7500,
-      "riskStep": 3750,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.025,
+      "maxRiskLimit": 2000,
+      "minRiskLimit": 2000,
+      "riskStep": 1000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1160812.655,
-      "volumeOf24h": 1680700
+      "turnoverOf24h": 1456763.839,
+      "volumeOf24h": 2070940
     },
     {
       "canonical": "PIPPINUSDT",
@@ -8226,8 +8247,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1063003.3716,
-      "volumeOf24h": 55529980
+      "turnoverOf24h": 818562.583,
+      "volumeOf24h": 43596980
     },
     {
       "canonical": "PIXELUSDT",
@@ -8245,8 +8266,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 73019.93232,
-      "volumeOf24h": 11284306
+      "turnoverOf24h": 79570.88436,
+      "volumeOf24h": 12086062
     },
     {
       "canonical": "PLTRUSDT",
@@ -8264,8 +8285,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1268102.1798,
-      "volumeOf24h": 9049.62
+      "turnoverOf24h": 1516990.5082,
+      "volumeOf24h": 10056.5
     },
     {
       "canonical": "PLUMEUSDT",
@@ -8283,8 +8304,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 159175.7978,
-      "volumeOf24h": 12806620
+      "turnoverOf24h": 314114.786,
+      "volumeOf24h": 25559040
     },
     {
       "canonical": "PNUTUSDT",
@@ -8302,8 +8323,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3764611.89852,
-      "volumeOf24h": 72076412
+      "turnoverOf24h": 3384270.05556,
+      "volumeOf24h": 64206614
     },
     {
       "canonical": "POLUSDT",
@@ -8321,8 +8342,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 222488.5154,
-      "volumeOf24h": 2536140
+      "turnoverOf24h": 376000.2216,
+      "volumeOf24h": 4231660
     },
     {
       "canonical": "POLYXUSDT",
@@ -8340,8 +8361,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 45153.1984,
-      "volumeOf24h": 938700
+      "turnoverOf24h": 19394.2262,
+      "volumeOf24h": 400160
     },
     {
       "canonical": "POPCATUSDT",
@@ -8359,8 +8380,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2335671.19102,
-      "volumeOf24h": 45397164
+      "turnoverOf24h": 1802916.2594,
+      "volumeOf24h": 34984916
     },
     {
       "canonical": "PORTALUSDT",
@@ -8378,8 +8399,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 763116.87398,
-      "volumeOf24h": 99880238
+      "turnoverOf24h": 191071.15626,
+      "volumeOf24h": 24991082
     },
     {
       "canonical": "POWERUSDT",
@@ -8397,8 +8418,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3966735.8204,
-      "volumeOf24h": 53527600
+      "turnoverOf24h": 4843485.0822,
+      "volumeOf24h": 60642180
     },
     {
       "canonical": "POWRUSDT",
@@ -8416,8 +8437,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5965.478,
-      "volumeOf24h": 100040
+      "turnoverOf24h": 11432.042,
+      "volumeOf24h": 188720
     },
     {
       "canonical": "PRLUSDT",
@@ -8435,8 +8456,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9297133.6052,
-      "volumeOf24h": 49929180
+      "turnoverOf24h": 4283966.1972,
+      "volumeOf24h": 23700980
     },
     {
       "canonical": "PROMPTUSDT",
@@ -8454,8 +8475,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1172900.6168,
-      "volumeOf24h": 36240840
+      "turnoverOf24h": 125489.3622,
+      "volumeOf24h": 3786580
     },
     {
       "canonical": "PROMUSDT",
@@ -8473,8 +8494,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 199076.3423,
-      "volumeOf24h": 193168.8
+      "turnoverOf24h": 154525.2367,
+      "volumeOf24h": 151858
     },
     {
       "canonical": "PROSUSDT",
@@ -8492,8 +8513,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1593816.2528,
-      "volumeOf24h": 2578126
+      "turnoverOf24h": 1527856.973,
+      "volumeOf24h": 2467940
     },
     {
       "canonical": "PROVEUSDT",
@@ -8511,8 +8532,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 437361.54354,
-      "volumeOf24h": 1906748
+      "turnoverOf24h": 417331.3408,
+      "volumeOf24h": 1851276
     },
     {
       "canonical": "PTBUSDT",
@@ -8530,8 +8551,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 262456.0768,
-      "volumeOf24h": 385179600
+      "turnoverOf24h": 336020.1636,
+      "volumeOf24h": 480438800
     },
     {
       "canonical": "PUMPUSDT",
@@ -8549,8 +8570,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2875049.342,
-      "volumeOf24h": 1712160000
+      "turnoverOf24h": 3836966.232,
+      "volumeOf24h": 2231520000
     },
     {
       "canonical": "PYTHUSDT",
@@ -8568,8 +8589,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1443501.6622,
-      "volumeOf24h": 37071900
+      "turnoverOf24h": 1035673.087,
+      "volumeOf24h": 25598800
     },
     {
       "canonical": "QCOMUSDT",
@@ -8587,8 +8608,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1370627.9868,
-      "volumeOf24h": 5730.82
+      "turnoverOf24h": 1421179.3088,
+      "volumeOf24h": 5659.66
     },
     {
       "canonical": "QNTUSDT",
@@ -8606,8 +8627,27 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 286466.5126,
-      "volumeOf24h": 4041.02
+      "turnoverOf24h": 204891.094,
+      "volumeOf24h": 2843.92
+    },
+    {
+      "canonical": "QNTXUSDT",
+      "kucoin": "QNTXUSDTM",
+      "base": "QNTX",
+      "quote": "USDT",
+      "settle": "USDT",
+      "multiplier": 0.01,
+      "lotSize": 1,
+      "tickSize": 0.01,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.04,
+      "maxRiskLimit": 5000,
+      "minRiskLimit": 5000,
+      "riskStep": 2500,
+      "makerFeeRate": 0.0002,
+      "takerFeeRate": 0.0006,
+      "turnoverOf24h": 1263470.1688,
+      "volumeOf24h": 13666.38
     },
     {
       "canonical": "QQQUSDT",
@@ -8625,8 +8665,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1209051.1694,
-      "volumeOf24h": 1650.3
+      "turnoverOf24h": 1124317.1062,
+      "volumeOf24h": 1525.6
     },
     {
       "canonical": "QTUMUSDT",
@@ -8644,8 +8684,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6129.1062,
-      "volumeOf24h": 7097.4
+      "turnoverOf24h": 5140.732,
+      "volumeOf24h": 5977.4
     },
     {
       "canonical": "QUSDT",
@@ -8663,8 +8703,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 51945.5994,
-      "volumeOf24h": 2983000
+      "turnoverOf24h": 64099.6226,
+      "volumeOf24h": 3678400
     },
     {
       "canonical": "RAREUSDT",
@@ -8682,8 +8722,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 129369.499,
-      "volumeOf24h": 8637060
+      "turnoverOf24h": 74132.9242,
+      "volumeOf24h": 4753000
     },
     {
       "canonical": "RAVEUSDT",
@@ -8701,8 +8741,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6545870.2166,
-      "volumeOf24h": 14582640
+      "turnoverOf24h": 5710593.2656,
+      "volumeOf24h": 12880700
     },
     {
       "canonical": "RAYUSDT",
@@ -8720,8 +8760,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2966963.022,
-      "volumeOf24h": 4196546
+      "turnoverOf24h": 3023385.4656,
+      "volumeOf24h": 4253404
     },
     {
       "canonical": "RDDTUSDT",
@@ -8739,8 +8779,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 287705.1706,
-      "volumeOf24h": 1776.58
+      "turnoverOf24h": 363807.037,
+      "volumeOf24h": 2133.32
     },
     {
       "canonical": "RDWUSDT",
@@ -8758,8 +8798,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1242882.202,
-      "volumeOf24h": 51653.2
+      "turnoverOf24h": 553726.112,
+      "volumeOf24h": 22799
     },
     {
       "canonical": "RECALLUSDT",
@@ -8777,8 +8817,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4088725.7962,
-      "volumeOf24h": 79253720
+      "turnoverOf24h": 4099290.5896,
+      "volumeOf24h": 79239820
     },
     {
       "canonical": "REDSTONEUSDT",
@@ -8796,8 +8836,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 14313.621,
-      "volumeOf24h": 120434
+      "turnoverOf24h": 30784.2294,
+      "volumeOf24h": 259858
     },
     {
       "canonical": "RENDERUSDT",
@@ -8815,8 +8855,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5370609.0984,
-      "volumeOf24h": 2685142.6
+      "turnoverOf24h": 5639944.8094,
+      "volumeOf24h": 2790463
     },
     {
       "canonical": "RESOLVUSDT",
@@ -8834,8 +8874,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 942136.35766,
-      "volumeOf24h": 43964816
+      "turnoverOf24h": 900368.66486,
+      "volumeOf24h": 42199984
     },
     {
       "canonical": "REZUSDT",
@@ -8853,8 +8893,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3162013.56904,
-      "volumeOf24h": 782144860
+      "turnoverOf24h": 244879.29708,
+      "volumeOf24h": 60519300
     },
     {
       "canonical": "RGTIUSDT",
@@ -8872,8 +8912,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1100959.404,
-      "volumeOf24h": 44263.8
+      "turnoverOf24h": 551583.232,
+      "volumeOf24h": 21050.2
     },
     {
       "canonical": "RIFUSDT",
@@ -8891,8 +8931,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 130430.9042,
-      "volumeOf24h": 1798920
+      "turnoverOf24h": 100937.7414,
+      "volumeOf24h": 1382100
     },
     {
       "canonical": "RIVERUSDT",
@@ -8910,8 +8950,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10181693.682,
-      "volumeOf24h": 1517092
+      "turnoverOf24h": 8980978.024,
+      "volumeOf24h": 1344298
     },
     {
       "canonical": "RKLBUSDT",
@@ -8929,8 +8969,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2661999.2782,
-      "volumeOf24h": 18185.68
+      "turnoverOf24h": 2705203.1956,
+      "volumeOf24h": 19154.98
     },
     {
       "canonical": "RNBWUSDT",
@@ -8948,8 +8988,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8452.399,
-      "volumeOf24h": 472140
+      "turnoverOf24h": 5777.5958,
+      "volumeOf24h": 313900
     },
     {
       "canonical": "ROAMUSDT",
@@ -8967,8 +9007,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 16121.2548,
-      "volumeOf24h": 2713680
+      "turnoverOf24h": 10734.69194,
+      "volumeOf24h": 1791880
     },
     {
       "canonical": "ROBOUSDT",
@@ -8986,8 +9026,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 126171.25,
-      "volumeOf24h": 7113200
+      "turnoverOf24h": 577090.798,
+      "volumeOf24h": 30741400
     },
     {
       "canonical": "RONUSDT",
@@ -9005,8 +9045,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 106899.2598,
-      "volumeOf24h": 1339342
+      "turnoverOf24h": 134442.6136,
+      "volumeOf24h": 1712706
     },
     {
       "canonical": "ROSEUSDT",
@@ -9024,8 +9064,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 690093.9674,
-      "volumeOf24h": 75986960
+      "turnoverOf24h": 392668.4716,
+      "volumeOf24h": 42927420
     },
     {
       "canonical": "RSRUSDT",
@@ -9043,8 +9083,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 342586.0228,
-      "volumeOf24h": 212255400
+      "turnoverOf24h": 400061.501,
+      "volumeOf24h": 238751400
     },
     {
       "canonical": "RUNEUSDT",
@@ -9062,8 +9102,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2124760.24562,
-      "volumeOf24h": 5066540.4
+      "turnoverOf24h": 614026.02984,
+      "volumeOf24h": 1464021.4
     },
     {
       "canonical": "RVNUSDT",
@@ -9081,8 +9121,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 111443.7032,
-      "volumeOf24h": 22059980
+      "turnoverOf24h": 42797.6454,
+      "volumeOf24h": 8365340
     },
     {
       "canonical": "SAGAUSDT",
@@ -9093,15 +9133,15 @@
       "multiplier": 0.1,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.025,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1255405.584588,
-      "volumeOf24h": 68389396.4
+      "turnoverOf24h": 527256.911924,
+      "volumeOf24h": 29094729.6
     },
     {
       "canonical": "SAHARAUSDT",
@@ -9119,8 +9159,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 434737.5768,
-      "volumeOf24h": 12792580
+      "turnoverOf24h": 295261.0636,
+      "volumeOf24h": 8668120
     },
     {
       "canonical": "SANDUSDT",
@@ -9138,8 +9178,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2401546.1671,
-      "volumeOf24h": 35726124
+      "turnoverOf24h": 262217.65614,
+      "volumeOf24h": 3817786
     },
     {
       "canonical": "SAPIENUSDT",
@@ -9157,8 +9197,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2318729.3716,
-      "volumeOf24h": 23992060
+      "turnoverOf24h": 4033382.8226,
+      "volumeOf24h": 39972320
     },
     {
       "canonical": "SCRUSDT",
@@ -9176,8 +9216,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10859.37118,
-      "volumeOf24h": 263538
+      "turnoverOf24h": 13481.29,
+      "volumeOf24h": 324818
     },
     {
       "canonical": "SEIUSDT",
@@ -9195,8 +9235,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7746807.5906,
-      "volumeOf24h": 113571320
+      "turnoverOf24h": 6870363.4862,
+      "volumeOf24h": 104247300
     },
     {
       "canonical": "SENTUSDT",
@@ -9214,8 +9254,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 40171.8024,
-      "volumeOf24h": 2685180
+      "turnoverOf24h": 53377.1336,
+      "volumeOf24h": 3545040
     },
     {
       "canonical": "SFPUSDT",
@@ -9233,8 +9273,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1907.36,
-      "volumeOf24h": 7020
+      "turnoverOf24h": 2450.512,
+      "volumeOf24h": 9020
     },
     {
       "canonical": "SHELLUSDT",
@@ -9252,8 +9292,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10370.9742,
-      "volumeOf24h": 353200
+      "turnoverOf24h": 17100.6698,
+      "volumeOf24h": 573680
     },
     {
       "canonical": "SHIBUSDT",
@@ -9271,8 +9311,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1994893.776,
-      "volumeOf24h": 374005800000
+      "turnoverOf24h": 1794017.3996,
+      "volumeOf24h": 332975400000
     },
     {
       "canonical": "SIGNUSDT",
@@ -9290,8 +9330,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 561743.1,
-      "volumeOf24h": 48832000
+      "turnoverOf24h": 672969.406,
+      "volumeOf24h": 57249600
     },
     {
       "canonical": "SIRENUSDT",
@@ -9309,8 +9349,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 678509.0344,
-      "volumeOf24h": 1469140
+      "turnoverOf24h": 382524.6774,
+      "volumeOf24h": 814780
     },
     {
       "canonical": "SKLUSDT",
@@ -9322,14 +9362,14 @@
       "lotSize": 1,
       "tickSize": 0.00001,
       "initialMargin": 0.034,
-      "maintainMargin": 0.017,
-      "maxRiskLimit": 10000,
-      "minRiskLimit": 10000,
-      "riskStep": 5000,
+      "maintainMargin": 0.02,
+      "maxRiskLimit": 7500,
+      "minRiskLimit": 7500,
+      "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 47099.9092,
-      "volumeOf24h": 8358320
+      "turnoverOf24h": 44828.8484,
+      "volumeOf24h": 7854160
     },
     {
       "canonical": "SKRUSDT",
@@ -9347,8 +9387,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 32026.9308,
-      "volumeOf24h": 2328200
+      "turnoverOf24h": 93235.2656,
+      "volumeOf24h": 6805200
     },
     {
       "canonical": "SKYAIUSDT",
@@ -9366,8 +9406,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 26680009.6854,
-      "volumeOf24h": 136661140
+      "turnoverOf24h": 1841370.1208,
+      "volumeOf24h": 9274920
     },
     {
       "canonical": "SKYUSDT",
@@ -9385,8 +9425,8 @@
       "riskStep": 10000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 20559.5196,
-      "volumeOf24h": 313900
+      "turnoverOf24h": 24831.0174,
+      "volumeOf24h": 378340
     },
     {
       "canonical": "SNDKUSDT",
@@ -9404,8 +9444,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 219253.513,
-      "volumeOf24h": 134.6
+      "turnoverOf24h": 213864.1414,
+      "volumeOf24h": 128.02
     },
     {
       "canonical": "SNXUSDT",
@@ -9423,8 +9463,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1361892.24792,
-      "volumeOf24h": 4487329
+      "turnoverOf24h": 1274903.9166,
+      "volumeOf24h": 4186990.2
     },
     {
       "canonical": "SOLAYERUSDT",
@@ -9442,8 +9482,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1296363.8674,
-      "volumeOf24h": 14674556
+      "turnoverOf24h": 921936.5062,
+      "volumeOf24h": 10290164
     },
     {
       "canonical": "SOLVUSDT",
@@ -9454,15 +9494,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.000001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.03,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1033807.41054,
-      "volumeOf24h": 277439080
+      "turnoverOf24h": 285820.7168,
+      "volumeOf24h": 75207240
     },
     {
       "canonical": "SOMIUSDT",
@@ -9480,8 +9520,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 264390.3786,
-      "volumeOf24h": 1759028
+      "turnoverOf24h": 272563.2182,
+      "volumeOf24h": 1800122
     },
     {
       "canonical": "SONICUSDT",
@@ -9499,8 +9539,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1055596.47064,
-      "volumeOf24h": 31006558
+      "turnoverOf24h": 126835.95538,
+      "volumeOf24h": 3584992
     },
     {
       "canonical": "SOONUSDT",
@@ -9518,8 +9558,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6966288.83626,
-      "volumeOf24h": 42867602
+      "turnoverOf24h": 4457115.37466,
+      "volumeOf24h": 27760184
     },
     {
       "canonical": "SOPHUSDT",
@@ -9537,8 +9577,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 249887.694,
-      "volumeOf24h": 34653600
+      "turnoverOf24h": 72638.162,
+      "volumeOf24h": 9871800
     },
     {
       "canonical": "SOXLUSDT",
@@ -9556,8 +9596,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1579824.397,
-      "volumeOf24h": 7180.62
+      "turnoverOf24h": 1310605.824,
+      "volumeOf24h": 5805.38
     },
     {
       "canonical": "SOXSUSDT",
@@ -9575,8 +9615,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 377582.314,
-      "volumeOf24h": 57679.6
+      "turnoverOf24h": 122628.106,
+      "volumeOf24h": 19523.2
     },
     {
       "canonical": "SPACEUSDT",
@@ -9594,8 +9634,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 407507.2214,
-      "volumeOf24h": 58445000
+      "turnoverOf24h": 509874.3376,
+      "volumeOf24h": 77971600
     },
     {
       "canonical": "SPCXUSDT",
@@ -9613,8 +9653,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1766709.0518,
-      "volumeOf24h": 8958.78
+      "turnoverOf24h": 1368145.9862,
+      "volumeOf24h": 7040.26
     },
     {
       "canonical": "SPELLUSDT",
@@ -9632,8 +9672,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 4735.8854,
-      "volumeOf24h": 32036000
+      "turnoverOf24h": 4847.5398,
+      "volumeOf24h": 32488000
     },
     {
       "canonical": "SPKUSDT",
@@ -9651,8 +9691,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 185718.138,
-      "volumeOf24h": 7804400
+      "turnoverOf24h": 197189.636,
+      "volumeOf24h": 8202600
     },
     {
       "canonical": "SPORTFUNUSDT",
@@ -9670,8 +9710,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 124689.7774,
-      "volumeOf24h": 2094060
+      "turnoverOf24h": 89515.2542,
+      "volumeOf24h": 1472900
     },
     {
       "canonical": "SPXUSDT",
@@ -9689,8 +9729,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2475865.1454,
-      "volumeOf24h": 7668476
+      "turnoverOf24h": 1643144.1894,
+      "volumeOf24h": 5079704
     },
     {
       "canonical": "SPYUSDT",
@@ -9708,8 +9748,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 251627.867,
-      "volumeOf24h": 334
+      "turnoverOf24h": 305181.9426,
+      "volumeOf24h": 403.8
     },
     {
       "canonical": "SQDUSDT",
@@ -9727,8 +9767,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2094911.1152,
-      "volumeOf24h": 58048460
+      "turnoverOf24h": 1972895.627,
+      "volumeOf24h": 56997020
     },
     {
       "canonical": "SQQQUSDT",
@@ -9746,8 +9786,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 610896.9168,
-      "volumeOf24h": 15677.08
+      "turnoverOf24h": 492960.2292,
+      "volumeOf24h": 12870.52
     },
     {
       "canonical": "SSVUSDT",
@@ -9759,14 +9799,14 @@
       "lotSize": 1,
       "tickSize": 0.001,
       "initialMargin": 0.034,
-      "maintainMargin": 0.017,
-      "maxRiskLimit": 10000,
-      "minRiskLimit": 10000,
-      "riskStep": 5000,
+      "maintainMargin": 0.02,
+      "maxRiskLimit": 7500,
+      "minRiskLimit": 7500,
+      "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6991.3564,
-      "volumeOf24h": 2970
+      "turnoverOf24h": 53359.5046,
+      "volumeOf24h": 22898.2
     },
     {
       "canonical": "STABLEUSDT",
@@ -9784,8 +9824,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 132841.7402,
-      "volumeOf24h": 3479180
+      "turnoverOf24h": 243382.8416,
+      "volumeOf24h": 6247140
     },
     {
       "canonical": "STARUSDT",
@@ -9803,8 +9843,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 417079.495,
-      "volumeOf24h": 2881660
+      "turnoverOf24h": 451871.3366,
+      "volumeOf24h": 2965800
     },
     {
       "canonical": "STBLUSDT",
@@ -9822,8 +9862,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 389964.926,
-      "volumeOf24h": 13149460
+      "turnoverOf24h": 577207.8498,
+      "volumeOf24h": 18187300
     },
     {
       "canonical": "STEEMUSDT",
@@ -9841,8 +9881,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 43301.372,
-      "volumeOf24h": 859420
+      "turnoverOf24h": 51000.832,
+      "volumeOf24h": 1013000
     },
     {
       "canonical": "STGUSDT",
@@ -9860,8 +9900,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 86549.0812,
-      "volumeOf24h": 555956
+      "turnoverOf24h": 256363.2488,
+      "volumeOf24h": 1479176
     },
     {
       "canonical": "STORJUSDT",
@@ -9879,8 +9919,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 337916.2694,
-      "volumeOf24h": 3429282
+      "turnoverOf24h": 363413.2888,
+      "volumeOf24h": 3834660
     },
     {
       "canonical": "STOUSDT",
@@ -9898,8 +9938,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1633024.4242,
-      "volumeOf24h": 27124220
+      "turnoverOf24h": 281014.1874,
+      "volumeOf24h": 4722080
     },
     {
       "canonical": "STRKUSDT",
@@ -9917,8 +9957,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3007884.58194,
-      "volumeOf24h": 82929178
+      "turnoverOf24h": 968178.02716,
+      "volumeOf24h": 26078678
     },
     {
       "canonical": "STXUSDT",
@@ -9936,8 +9976,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 537503.7984,
-      "volumeOf24h": 2341966
+      "turnoverOf24h": 235697.1848,
+      "volumeOf24h": 1001938
     },
     {
       "canonical": "SUIUSDT",
@@ -9955,8 +9995,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 17141408.3976,
-      "volumeOf24h": 18512806
+      "turnoverOf24h": 22277349.991,
+      "volumeOf24h": 24402884
     },
     {
       "canonical": "SUNUSDT",
@@ -9974,8 +10014,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8349.4668,
-      "volumeOf24h": 447600
+      "turnoverOf24h": 9678.3666,
+      "volumeOf24h": 531200
     },
     {
       "canonical": "SUPERUSDT",
@@ -9993,8 +10033,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 54117.05,
-      "volumeOf24h": 492180
+      "turnoverOf24h": 109544.78,
+      "volumeOf24h": 1002840
     },
     {
       "canonical": "SUSDT",
@@ -10012,8 +10052,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1751242.61796,
-      "volumeOf24h": 43254060
+      "turnoverOf24h": 1907942.96128,
+      "volumeOf24h": 47306270
     },
     {
       "canonical": "SUSHIUSDT",
@@ -10031,8 +10071,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 753302.9886,
-      "volumeOf24h": 3895874
+      "turnoverOf24h": 318343.1232,
+      "volumeOf24h": 1653862
     },
     {
       "canonical": "SWARMSUSDT",
@@ -10043,15 +10083,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.03,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5419500.8338,
-      "volumeOf24h": 636528840
+      "turnoverOf24h": 1424988.7972,
+      "volumeOf24h": 198332760
     },
     {
       "canonical": "SXTUSDT",
@@ -10069,8 +10109,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 87970.492,
-      "volumeOf24h": 7355200
+      "turnoverOf24h": 173873.4468,
+      "volumeOf24h": 13398560
     },
     {
       "canonical": "SYRUPUSDT",
@@ -10088,8 +10128,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2988405.6036,
-      "volumeOf24h": 18040960
+      "turnoverOf24h": 493063.8718,
+      "volumeOf24h": 3041820
     },
     {
       "canonical": "TACUSDT",
@@ -10107,8 +10147,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6907001.545,
-      "volumeOf24h": 392007800
+      "turnoverOf24h": 6743280.4936,
+      "volumeOf24h": 376263800
     },
     {
       "canonical": "TAGUSDT",
@@ -10126,8 +10166,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 40818.3484,
-      "volumeOf24h": 31824000
+      "turnoverOf24h": 12857.102,
+      "volumeOf24h": 10386000
     },
     {
       "canonical": "TAIKOUSDT",
@@ -10145,8 +10185,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 24833.2002,
-      "volumeOf24h": 240968
+      "turnoverOf24h": 47918.7412,
+      "volumeOf24h": 460356
     },
     {
       "canonical": "TAKEUSDT",
@@ -10164,8 +10204,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 109883.7198,
-      "volumeOf24h": 5722100
+      "turnoverOf24h": 32314.6614,
+      "volumeOf24h": 1474820
     },
     {
       "canonical": "TAOUSDT",
@@ -10183,8 +10223,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6869998.868,
-      "volumeOf24h": 26469.38
+      "turnoverOf24h": 9143547.15,
+      "volumeOf24h": 36083.44
     },
     {
       "canonical": "TAUSDT",
@@ -10202,8 +10242,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 141456.3648,
-      "volumeOf24h": 2287960
+      "turnoverOf24h": 49909.3226,
+      "volumeOf24h": 790020
     },
     {
       "canonical": "THETAUSDT",
@@ -10221,8 +10261,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 786187.393,
-      "volumeOf24h": 4310907.2
+      "turnoverOf24h": 143151.15048,
+      "volumeOf24h": 769811.2
     },
     {
       "canonical": "THEUSDT",
@@ -10240,8 +10280,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 66144.0342,
-      "volumeOf24h": 780398
+      "turnoverOf24h": 158609.1264,
+      "volumeOf24h": 1818178
     },
     {
       "canonical": "TIAUSDT",
@@ -10259,8 +10299,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3094345.8686,
-      "volumeOf24h": 7438920
+      "turnoverOf24h": 3342595.1586,
+      "volumeOf24h": 8014520
     },
     {
       "canonical": "TNSRUSDT",
@@ -10278,8 +10318,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1462798.03786,
-      "volumeOf24h": 41388618
+      "turnoverOf24h": 1598728.358,
+      "volumeOf24h": 45065684
     },
     {
       "canonical": "TONUSDT",
@@ -10297,8 +10337,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 11906158.8094,
-      "volumeOf24h": 6718632
+      "turnoverOf24h": 10971027.4904,
+      "volumeOf24h": 6210208
     },
     {
       "canonical": "TOSHIUSDT",
@@ -10316,8 +10356,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 38735.3894,
-      "volumeOf24h": 259780000
+      "turnoverOf24h": 38347.11678,
+      "volumeOf24h": 258246000
     },
     {
       "canonical": "TOWNSUSDT",
@@ -10335,8 +10375,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 31463.8688,
-      "volumeOf24h": 10606400
+      "turnoverOf24h": 36328.3748,
+      "volumeOf24h": 12165600
     },
     {
       "canonical": "TQQQUSDT",
@@ -10354,8 +10394,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 514873.1796,
-      "volumeOf24h": 6217.2
+      "turnoverOf24h": 516395.6744,
+      "volumeOf24h": 6127.46
     },
     {
       "canonical": "TRADOORUSDT",
@@ -10373,8 +10413,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 364018.894,
-      "volumeOf24h": 802336
+      "turnoverOf24h": 189117.974,
+      "volumeOf24h": 416090
     },
     {
       "canonical": "TRBUSDT",
@@ -10392,8 +10432,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2032231.2056,
-      "volumeOf24h": 123285.4
+      "turnoverOf24h": 306251.6392,
+      "volumeOf24h": 18445
     },
     {
       "canonical": "TREEUSDT",
@@ -10411,8 +10451,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 28308.83442,
-      "volumeOf24h": 468520
+      "turnoverOf24h": 35767.81924,
+      "volumeOf24h": 583034
     },
     {
       "canonical": "TRIAUSDT",
@@ -10430,8 +10470,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 202309.7568,
-      "volumeOf24h": 5256000
+      "turnoverOf24h": 159194.306,
+      "volumeOf24h": 4171200
     },
     {
       "canonical": "TRUMPUSDT",
@@ -10449,8 +10489,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3210030.4046,
-      "volumeOf24h": 1709769.2
+      "turnoverOf24h": 2869562.1006,
+      "volumeOf24h": 1469936.2
     },
     {
       "canonical": "TRUSTUSDT",
@@ -10468,8 +10508,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1244210.0558,
-      "volumeOf24h": 18850100
+      "turnoverOf24h": 1076624.2552,
+      "volumeOf24h": 16551660
     },
     {
       "canonical": "TRUTHUSDT",
@@ -10487,8 +10527,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 97443.818,
-      "volumeOf24h": 9335400
+      "turnoverOf24h": 93118.7686,
+      "volumeOf24h": 8429000
     },
     {
       "canonical": "TRXUSDT",
@@ -10506,8 +10546,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5551819.57,
-      "volumeOf24h": 15736200
+      "turnoverOf24h": 4583893.844,
+      "volumeOf24h": 13279200
     },
     {
       "canonical": "TSLAUSDT",
@@ -10525,8 +10565,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 550371.9614,
-      "volumeOf24h": 1253.12
+      "turnoverOf24h": 672169.0136,
+      "volumeOf24h": 1539.06
     },
     {
       "canonical": "TSMUSDT",
@@ -10544,8 +10584,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 235015.3694,
-      "volumeOf24h": 558.28
+      "turnoverOf24h": 180036.1444,
+      "volumeOf24h": 424.74
     },
     {
       "canonical": "TSTBSCUSDT",
@@ -10556,15 +10596,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.03,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 80452.0626,
-      "volumeOf24h": 4797820
+      "turnoverOf24h": 262076.2714,
+      "volumeOf24h": 14712620
     },
     {
       "canonical": "TURBOUSDT",
@@ -10582,8 +10622,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 6268892.582,
-      "volumeOf24h": 5977480000
+      "turnoverOf24h": 6737202.284,
+      "volumeOf24h": 6278320000
     },
     {
       "canonical": "TURTLEUSDT",
@@ -10601,8 +10641,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 41961.41412,
-      "volumeOf24h": 1005616
+      "turnoverOf24h": 51445.393,
+      "volumeOf24h": 1230248
     },
     {
       "canonical": "TUSDT",
@@ -10620,8 +10660,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 45411.258,
-      "volumeOf24h": 9561400
+      "turnoverOf24h": 45991.758,
+      "volumeOf24h": 9675800
     },
     {
       "canonical": "TUTUSDT",
@@ -10639,8 +10679,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 39035.4898,
-      "volumeOf24h": 4085100
+      "turnoverOf24h": 56718.0142,
+      "volumeOf24h": 5921480
     },
     {
       "canonical": "TWTUSDT",
@@ -10658,8 +10698,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1808112.3114,
-      "volumeOf24h": 4105368
+      "turnoverOf24h": 1977188.9062,
+      "volumeOf24h": 4460310
     },
     {
       "canonical": "UAIUSDT",
@@ -10677,8 +10717,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 60854.7246,
-      "volumeOf24h": 222620
+      "turnoverOf24h": 92294.6772,
+      "volumeOf24h": 343860
     },
     {
       "canonical": "UBERUSDT",
@@ -10696,8 +10736,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1573539.6276,
-      "volumeOf24h": 22239.06
+      "turnoverOf24h": 1622772.5854,
+      "volumeOf24h": 22826.9
     },
     {
       "canonical": "UBUSDT",
@@ -10715,8 +10755,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 12607635.09768,
-      "volumeOf24h": 66675600
+      "turnoverOf24h": 6112709.30982,
+      "volumeOf24h": 32703800
     },
     {
       "canonical": "UMAUSDT",
@@ -10734,8 +10774,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 53467.4674,
-      "volumeOf24h": 125306
+      "turnoverOf24h": 36063.7824,
+      "volumeOf24h": 83470
     },
     {
       "canonical": "UNIUSDT",
@@ -10753,8 +10793,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1982168.724,
-      "volumeOf24h": 651950
+      "turnoverOf24h": 5478198.282,
+      "volumeOf24h": 1815266
     },
     {
       "canonical": "USARUSDT",
@@ -10772,8 +10812,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 892235.578,
-      "volumeOf24h": 32557.4
+      "turnoverOf24h": 962387.378,
+      "volumeOf24h": 34709.4
     },
     {
       "canonical": "USDCUSDT",
@@ -10791,8 +10831,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 13333.8086,
-      "volumeOf24h": 13322
+      "turnoverOf24h": 1461.3826,
+      "volumeOf24h": 1460
     },
     {
       "canonical": "USDGUSDT",
@@ -10810,8 +10850,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10831.4722,
-      "volumeOf24h": 10816
+      "turnoverOf24h": 117828.3062,
+      "volumeOf24h": 117996
     },
     {
       "canonical": "USELESSUSDT",
@@ -10829,8 +10869,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 21448303.4356,
-      "volumeOf24h": 313260580
+      "turnoverOf24h": 19961150.1108,
+      "volumeOf24h": 289770820
     },
     {
       "canonical": "USTCUSDT",
@@ -10848,8 +10888,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 86739.9436,
-      "volumeOf24h": 14334800
+      "turnoverOf24h": 229308.7014,
+      "volumeOf24h": 34960600
     },
     {
       "canonical": "USUALUSDT",
@@ -10867,8 +10907,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 435767.94374,
-      "volumeOf24h": 35095498
+      "turnoverOf24h": 81534.67192,
+      "volumeOf24h": 6531756
     },
     {
       "canonical": "USUSDT",
@@ -10886,8 +10926,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 251854.7482,
-      "volumeOf24h": 39014800
+      "turnoverOf24h": 640089.4758,
+      "volumeOf24h": 85256400
     },
     {
       "canonical": "VANAUSDT",
@@ -10905,8 +10945,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 747865.7172,
-      "volumeOf24h": 552822
+      "turnoverOf24h": 72068.965,
+      "volumeOf24h": 51612.2
     },
     {
       "canonical": "VANRYUSDT",
@@ -10924,8 +10964,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 30514.2478,
-      "volumeOf24h": 6752200
+      "turnoverOf24h": 115456.2914,
+      "volumeOf24h": 26345180
     },
     {
       "canonical": "VELOUSDT",
@@ -10943,8 +10983,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 127890.6992,
-      "volumeOf24h": 32225000
+      "turnoverOf24h": 127134.236,
+      "volumeOf24h": 31102400
     },
     {
       "canonical": "VELVETUSDT",
@@ -10962,8 +11002,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8324720.2994,
-      "volumeOf24h": 90040220
+      "turnoverOf24h": 8897667.3552,
+      "volumeOf24h": 95792240
     },
     {
       "canonical": "VETUSDT",
@@ -10981,8 +11021,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1380367.5904,
-      "volumeOf24h": 232287400
+      "turnoverOf24h": 1443054.3536,
+      "volumeOf24h": 246837400
     },
     {
       "canonical": "VICUSDT",
@@ -10993,15 +11033,15 @@
       "multiplier": 10,
       "lotSize": 1,
       "tickSize": 0.00001,
-      "initialMargin": 0.04,
-      "maintainMargin": 0.02,
+      "initialMargin": 0.05,
+      "maintainMargin": 0.03,
       "maxRiskLimit": 5000,
       "minRiskLimit": 5000,
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 710486.84,
-      "volumeOf24h": 16762320
+      "turnoverOf24h": 297582.647,
+      "volumeOf24h": 7364680
     },
     {
       "canonical": "VIRTUALUSDT",
@@ -11019,8 +11059,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9235645.9398,
-      "volumeOf24h": 12911584
+      "turnoverOf24h": 9712213.0678,
+      "volumeOf24h": 13448684
     },
     {
       "canonical": "VRTUSDT",
@@ -11038,8 +11078,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 390043.7518,
-      "volumeOf24h": 1230
+      "turnoverOf24h": 369108.862,
+      "volumeOf24h": 1161.54
     },
     {
       "canonical": "VUSDT",
@@ -11057,8 +11097,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 499400.8528,
-      "volumeOf24h": 1534.96
+      "turnoverOf24h": 487843.0646,
+      "volumeOf24h": 1495.38
     },
     {
       "canonical": "VVVUSDT",
@@ -11076,8 +11116,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1967588.885,
-      "volumeOf24h": 126329.6
+      "turnoverOf24h": 1282840.4916,
+      "volumeOf24h": 81462.6
     },
     {
       "canonical": "WALUSDT",
@@ -11095,8 +11135,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 121338.768,
-      "volumeOf24h": 2022980
+      "turnoverOf24h": 67557.098,
+      "volumeOf24h": 1134500
     },
     {
       "canonical": "WARDUSDT",
@@ -11114,8 +11154,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 161997.5838,
-      "volumeOf24h": 21870600
+      "turnoverOf24h": 718145.62306,
+      "volumeOf24h": 72965280
     },
     {
       "canonical": "WAVESUSDT",
@@ -11133,8 +11173,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 35356.47016,
-      "volumeOf24h": 102150
+      "turnoverOf24h": 60682.70148,
+      "volumeOf24h": 172724.8
     },
     {
       "canonical": "WAXPUSDT",
@@ -11152,8 +11192,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5947.17678,
-      "volumeOf24h": 1006190
+      "turnoverOf24h": 8491.35234,
+      "volumeOf24h": 1431722
     },
     {
       "canonical": "WCTUSDT",
@@ -11171,8 +11211,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1501317.5546,
-      "volumeOf24h": 27420160
+      "turnoverOf24h": 126520.5886,
+      "volumeOf24h": 2289340
     },
     {
       "canonical": "WDCUSDT",
@@ -11190,8 +11230,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1213382.3816,
-      "volumeOf24h": 2267.34
+      "turnoverOf24h": 1125055.0934,
+      "volumeOf24h": 2108.66
     },
     {
       "canonical": "WETUSDT",
@@ -11209,8 +11249,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 779971.3058,
-      "volumeOf24h": 10443840
+      "turnoverOf24h": 1072900.1536,
+      "volumeOf24h": 14285280
     },
     {
       "canonical": "WHITEWHALEUSDT",
@@ -11228,8 +11268,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 23581.7216,
-      "volumeOf24h": 4166020
+      "turnoverOf24h": 21438.5484,
+      "volumeOf24h": 3851440
     },
     {
       "canonical": "WLDUSDT",
@@ -11247,8 +11287,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 21010021.082,
-      "volumeOf24h": 72394706
+      "turnoverOf24h": 17696819.8028,
+      "volumeOf24h": 59432534
     },
     {
       "canonical": "WLFIUSDT",
@@ -11266,8 +11306,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 519641.2928,
-      "volumeOf24h": 8780796
+      "turnoverOf24h": 552836.4296,
+      "volumeOf24h": 9475580
     },
     {
       "canonical": "WLUSDT",
@@ -11285,8 +11325,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 696522.8632,
-      "volumeOf24h": 128402920
+      "turnoverOf24h": 1510501.1806,
+      "volumeOf24h": 300433900
     },
     {
       "canonical": "WMTUSDT",
@@ -11304,8 +11344,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 994044.8508,
-      "volumeOf24h": 8379.02
+      "turnoverOf24h": 1083060.9022,
+      "volumeOf24h": 9249.94
     },
     {
       "canonical": "WOOUSDT",
@@ -11323,8 +11363,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 81373.79422,
-      "volumeOf24h": 5061322
+      "turnoverOf24h": 64699.81534,
+      "volumeOf24h": 3955694
     },
     {
       "canonical": "WOTAMALAILEUSDT",
@@ -11342,8 +11382,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 47962.4614,
-      "volumeOf24h": 6326800
+      "turnoverOf24h": 14750.9882,
+      "volumeOf24h": 1921400
     },
     {
       "canonical": "WUSDT",
@@ -11361,8 +11401,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 498371.74802,
-      "volumeOf24h": 43900344
+      "turnoverOf24h": 178401.92446,
+      "volumeOf24h": 15457054
     },
     {
       "canonical": "XAGUSDT",
@@ -11380,8 +11420,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8408716.2106,
-      "volumeOf24h": 113580.92
+      "turnoverOf24h": 3424528.7146,
+      "volumeOf24h": 45378.92
     },
     {
       "canonical": "XAIUSDT",
@@ -11399,8 +11439,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 711534.55616,
-      "volumeOf24h": 75293344
+      "turnoverOf24h": 96234.055,
+      "volumeOf24h": 10194638
     },
     {
       "canonical": "XANUSDT",
@@ -11418,8 +11458,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3983135.3466,
-      "volumeOf24h": 391118240
+      "turnoverOf24h": 3626179.64282,
+      "volumeOf24h": 359076840
     },
     {
       "canonical": "XAUTUSDT",
@@ -11437,8 +11477,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2274366.75458,
-      "volumeOf24h": 509.356
+      "turnoverOf24h": 2504741.182,
+      "volumeOf24h": 553.684
     },
     {
       "canonical": "XECUSDT",
@@ -11456,8 +11496,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 9374.246,
-      "volumeOf24h": 1390200000
+      "turnoverOf24h": 9356.074,
+      "volumeOf24h": 1376400000
     },
     {
       "canonical": "XLMUSDT",
@@ -11475,8 +11515,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 72038689.1816,
-      "volumeOf24h": 363757620
+      "turnoverOf24h": 64964276.2882,
+      "volumeOf24h": 290226940
     },
     {
       "canonical": "XMRUSDT",
@@ -11494,8 +11534,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 16846737.3056,
-      "volumeOf24h": 46625.54
+      "turnoverOf24h": 15821644.201,
+      "volumeOf24h": 42504.28
     },
     {
       "canonical": "XNYUSDT",
@@ -11513,8 +11553,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5555.3872,
-      "volumeOf24h": 899200
+      "turnoverOf24h": 11823.388,
+      "volumeOf24h": 1958000
     },
     {
       "canonical": "XOMUSDT",
@@ -11532,8 +11572,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 758107.4902,
-      "volumeOf24h": 5122.16
+      "turnoverOf24h": 698819.0838,
+      "volumeOf24h": 4781.18
     },
     {
       "canonical": "XPDUSDT",
@@ -11551,8 +11591,8 @@
       "riskStep": 7500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 18856.99422,
-      "volumeOf24h": 13.75
+      "turnoverOf24h": 23048.76458,
+      "volumeOf24h": 16.718
     },
     {
       "canonical": "XPINUSDT",
@@ -11570,8 +11610,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 333320.0298,
-      "volumeOf24h": 264618000
+      "turnoverOf24h": 466478.961,
+      "volumeOf24h": 371226000
     },
     {
       "canonical": "XPLUSDT",
@@ -11589,8 +11629,8 @@
       "riskStep": 10000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3243932.00608,
-      "volumeOf24h": 35337868
+      "turnoverOf24h": 2481071.26788,
+      "volumeOf24h": 26211628
     },
     {
       "canonical": "XPTUSDT",
@@ -11608,8 +11648,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 938631.92918,
-      "volumeOf24h": 490.888
+      "turnoverOf24h": 88492.64674,
+      "volumeOf24h": 45.954
     },
     {
       "canonical": "XTZUSDT",
@@ -11627,8 +11667,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 110573.2262,
-      "volumeOf24h": 355672
+      "turnoverOf24h": 455020.4702,
+      "volumeOf24h": 1492258
     },
     {
       "canonical": "XVGUSDT",
@@ -11646,8 +11686,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 142113.5044,
-      "volumeOf24h": 45081000
+      "turnoverOf24h": 180026.3928,
+      "volumeOf24h": 55781800
     },
     {
       "canonical": "XVSUSDT",
@@ -11665,8 +11705,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10241.526,
-      "volumeOf24h": 3908
+      "turnoverOf24h": 9338.792,
+      "volumeOf24h": 3606
     },
     {
       "canonical": "YBUSDT",
@@ -11684,8 +11724,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 296580.457,
-      "volumeOf24h": 3010820
+      "turnoverOf24h": 178317.7074,
+      "volumeOf24h": 1802158
     },
     {
       "canonical": "YFIUSDT",
@@ -11703,8 +11743,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 161806.988,
-      "volumeOf24h": 70.604
+      "turnoverOf24h": 28379.1086,
+      "volumeOf24h": 12.542
     },
     {
       "canonical": "YGGUSDT",
@@ -11722,8 +11762,8 @@
       "riskStep": 3750,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 43450.955304,
-      "volumeOf24h": 1267578.6
+      "turnoverOf24h": 75811.25743,
+      "volumeOf24h": 2209924.2
     },
     {
       "canonical": "ZAMAUSDT",
@@ -11741,8 +11781,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 295554.1574,
-      "volumeOf24h": 7834720
+      "turnoverOf24h": 225209.9142,
+      "volumeOf24h": 6019280
     },
     {
       "canonical": "ZBTUSDT",
@@ -11760,8 +11800,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 3348579.0122,
-      "volumeOf24h": 26705500
+      "turnoverOf24h": 3409996.0732,
+      "volumeOf24h": 27136280
     },
     {
       "canonical": "ZECUSDT",
@@ -11779,8 +11819,8 @@
       "riskStep": 12500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 55178206.6656,
-      "volumeOf24h": 101780.98
+      "turnoverOf24h": 63053787.749,
+      "volumeOf24h": 117044.48
     },
     {
       "canonical": "ZENUSDT",
@@ -11798,8 +11838,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 5633261.995,
-      "volumeOf24h": 989699.6
+      "turnoverOf24h": 3896446.0506,
+      "volumeOf24h": 677875.4
     },
     {
       "canonical": "ZEREBROUSDT",
@@ -11817,8 +11857,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 7268958.12801,
-      "volumeOf24h": 320336860
+      "turnoverOf24h": 7072368.35898,
+      "volumeOf24h": 293896174
     },
     {
       "canonical": "ZESTUSDT",
@@ -11836,8 +11876,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 1047552.5814,
-      "volumeOf24h": 5752500
+      "turnoverOf24h": 937551.8262,
+      "volumeOf24h": 5262580
     },
     {
       "canonical": "ZETAUSDT",
@@ -11855,8 +11895,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 27878.6206,
-      "volumeOf24h": 582030
+      "turnoverOf24h": 36064.6476,
+      "volumeOf24h": 745970
     },
     {
       "canonical": "ZIGUSDT",
@@ -11874,8 +11914,8 @@
       "riskStep": 1500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 8096.2314,
-      "volumeOf24h": 147380
+      "turnoverOf24h": 15646.3862,
+      "volumeOf24h": 295080
     },
     {
       "canonical": "ZILUSDT",
@@ -11893,8 +11933,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 110956.18386,
-      "volumeOf24h": 29573800
+      "turnoverOf24h": 137355.04928,
+      "volumeOf24h": 36613640
     },
     {
       "canonical": "ZKCUSDT",
@@ -11912,8 +11952,8 @@
       "riskStep": 2500,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 10471.45512,
-      "volumeOf24h": 168638
+      "turnoverOf24h": 23388.9883,
+      "volumeOf24h": 373600
     },
     {
       "canonical": "ZKPUSDT",
@@ -11931,8 +11971,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 844490.6006,
-      "volumeOf24h": 12311960
+      "turnoverOf24h": 943936.332,
+      "volumeOf24h": 13766100
     },
     {
       "canonical": "ZKUSDT",
@@ -11950,8 +11990,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 465710.4786,
-      "volumeOf24h": 34815880
+      "turnoverOf24h": 651072.377,
+      "volumeOf24h": 47949220
     },
     {
       "canonical": "ZORAUSDT",
@@ -11969,8 +12009,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 236872.382,
-      "volumeOf24h": 24012600
+      "turnoverOf24h": 330068.566,
+      "volumeOf24h": 33864600
     },
     {
       "canonical": "ZROUSDT",
@@ -11988,8 +12028,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 2603883.2002,
-      "volumeOf24h": 2288358
+      "turnoverOf24h": 382851.795,
+      "volumeOf24h": 338074
     },
     {
       "canonical": "ZRXUSDT",
@@ -12007,8 +12047,8 @@
       "riskStep": 5000,
       "makerFeeRate": 0.0002,
       "takerFeeRate": 0.0006,
-      "turnoverOf24h": 23299.124,
-      "volumeOf24h": 232560
+      "turnoverOf24h": 51627.18,
+      "volumeOf24h": 510480
     }
   ]
 }
