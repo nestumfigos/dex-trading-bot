@@ -5,7 +5,7 @@ const http = require('http');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { randomUUID } = require('crypto');
+const { randomUUID, timingSafeEqual } = require('crypto');
 const { WebSocketServer } = require('ws');
 const config = require('../config');
 const logger = require('./utils/logger');
@@ -532,6 +532,16 @@ function startDashboard(portfolio, ctx) {
     maxConcurrentPositions: { min: 1, max: 500 },
   };
 
+  // Constant-time credential comparison — avoids leaking the admin token /
+  // webhook secret through response-timing differences. Length mismatch returns
+  // false (timingSafeEqual throws on unequal-length buffers).
+  function safeEqual(provided, expected) {
+    const a = Buffer.from(String(provided || ''));
+    const b = Buffer.from(String(expected || ''));
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  }
+
   function isLocalRequest(req) {
     const remote = String(req.ip || req.socket?.remoteAddress || '');
     return remote === '127.0.0.1' || remote === '::1' || remote.endsWith('::ffff:127.0.0.1');
@@ -543,7 +553,7 @@ function startDashboard(portfolio, ctx) {
       const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
       const headerToken = String(req.headers['x-admin-token'] || '').trim();
       const token = headerToken || bearer;
-      if (token !== adminToken) {
+      if (!safeEqual(token, adminToken)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
       return next();
@@ -562,7 +572,7 @@ function startDashboard(portfolio, ctx) {
       const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
       const headerToken = String(req.headers['x-admin-token'] || '').trim();
       const token = headerToken || bearer;
-      if (token !== adminToken) {
+      if (!safeEqual(token, adminToken)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
       return next();
@@ -1384,7 +1394,12 @@ WHERE version_id = @version_id
         || req.body?.secret
         || ''
       ).trim();
-      if (configuredSecret && providedSecret !== configuredSecret) {
+      // Fail CLOSED: if the webhook is enabled but no secret is configured,
+      // refuse unauthenticated signal injection rather than accepting anything.
+      if (!configuredSecret) {
+        return res.status(503).json({ error: 'Webhook enabled but no secret configured — refusing unauthenticated signals' });
+      }
+      if (!safeEqual(providedSecret, configuredSecret)) {
         return res.status(401).json({ error: 'Unauthorized webhook secret' });
       }
 
