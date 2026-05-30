@@ -57,6 +57,15 @@ module.exports = {
       name: 'dex-bot-paper',
       cwd: PAPER_WORKTREE_PATH,
       script: 'src/index.js',
+      // STOPGAP (2026-05-30, not a leak fix): paper runs the heavy experimental
+      // ML superset (rl-online-updater, bayesian-network, python-sidecar,
+      // hybrid-orchestrator) and leaks memory, hard-OOM-crashing ~every 30-45min
+      // at node's ~2GB heap ceiling (pm2 max_memory_restart can't see memory on
+      // Windows, so it never fires). Give V8 4GB headroom (machine has 30GB) and
+      // recycle cleanly every 30min so it recycles BEFORE OOM instead of crashing.
+      // Real fix = heap-profile the superset to find the leak.
+      node_args: '--max-old-space-size=4096',
+      cron_restart: '0,30 * * * *',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
