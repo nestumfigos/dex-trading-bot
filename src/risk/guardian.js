@@ -965,7 +965,7 @@ class RiskGuardian {
     if (chainKey === 'bsc' && !config.paperTrading && unknownTopHoldersPct) {
       return {
         allowed: false,
-        reason: 'BSC holder concentration data unavailable â€” trade blocked in live mode',
+        reason: 'BSC holder concentration data unavailable — trade blocked in live mode',
         code: 'unknown_holder_concentration',
       };
     }
