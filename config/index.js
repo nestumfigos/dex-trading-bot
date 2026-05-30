@@ -317,6 +317,10 @@ const config = {
     minTradesForKpiGate: parseInt(process.env.MIN_TRADES_FOR_KPI_GATE || '50', 10),
     minProfitFactor: parseFloat(process.env.MIN_PROFIT_FACTOR || '1.15'),
     maxPortfolioHeatPct: parseFloat(process.env.MAX_PORTFOLIO_HEAT_PCT || '45'),
+    // Parity with live (spot) risk layer: aggregate gross-exposure cap across
+    // ALL chains + in-flight. Per-chain heat alone allows cross-chain stacking
+    // (45% sol + 45% bsc + 45% kucoin = 135% gross). Ported from main 2026-05-30.
+    maxGlobalExposurePct: parseFloat(process.env.MAX_GLOBAL_EXPOSURE_PCT || '90'),
     kucoinMomentumHeatAllowancePct: parseFloat(process.env.KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT || '60'),
     kucoinSwingHeatAllowancePct: parseFloat(process.env.KUCOIN_SWING_HEAT_ALLOWANCE_PCT || '95'),
     heatExemptSymbols: (process.env.HEAT_EXEMPT_SYMBOLS || 'BANANAS31').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),

@@ -562,6 +562,55 @@ class RiskGuardian {
     }, {});
   }
 
+  getTotalInFlightUsd() {
+    return Object.values(this._inFlightUsd || {}).reduce((sum, v) => sum + Number(v || 0), 0);
+  }
+
+  getGlobalGrossExposureUsd() {
+    const exemptSymbols = new Set((config.risk?.heatExemptSymbols || []).map((s) => String(s).toUpperCase()));
+    const exposureFromPositions = Object.values(this.portfolio.positions || {}).reduce((sum, position) => {
+      const sym = String(position?.symbol || position?.token || '').toUpperCase();
+      if (exemptSymbols.has(sym)) return sum;
+      return sum + this.getPositionCostBasisUsd(position);
+    }, 0);
+    return exposureFromPositions + this.getTotalInFlightUsd();
+  }
+
+  /**
+   * Aggregate exposure cap across ALL chains + in-flight.
+   * Without this, per-chain caps allow stacking (e.g. 45% sol + 45% bsc + 45% kucoin = 135% gross).
+   * Returns same shape as checkPortfolioHeat. Parity with live (spot) — ported 2026-05-30.
+   */
+  checkGlobalExposure(tokenData = {}, strategyName = 'momentum') {
+    const equityUsd = Math.max(0, Number(this.getEquityBalanceUsd() || 0));
+    if (equityUsd <= 0) {
+      return { exposurePct: 0, blocked: false };
+    }
+    const maxGlobalExposurePct = Number(config.risk?.maxGlobalExposurePct ?? 90);
+    const candidateSizeUsd = Math.max(0, Number(this.positionSize(tokenData, strategyName) || 0));
+    const currentGrossUsd = this.getGlobalGrossExposureUsd();
+    const projectedGrossUsd = currentGrossUsd + candidateSizeUsd;
+    const exposurePct = (projectedGrossUsd / equityUsd) * 100;
+    const blocked = exposurePct > maxGlobalExposurePct;
+    if (blocked) {
+      logger.warn(
+        `Global exposure check: projected ${exposurePct.toFixed(1)}% ($${projectedGrossUsd.toFixed(2)} / $${equityUsd.toFixed(2)} equity) exceeds cap ${maxGlobalExposurePct}%`
+      );
+    }
+    return {
+      exposurePct,
+      currentExposurePct: (currentGrossUsd / equityUsd) * 100,
+      projectedGrossUsd,
+      equityUsd,
+      candidateSizeUsd,
+      blocked,
+      code: blocked ? 'global_exposure_cap' : undefined,
+      reason: blocked
+        ? `global gross exposure ${exposurePct.toFixed(1)}% exceeds cap ${maxGlobalExposurePct}% (prevents cross-chain stacking)`
+        : undefined,
+    };
+  }
+
   /**
    * Calculate per-chain heat (exposure) against that chain wallet balance.
    * Heat = chain open exposure / chain wallet balance.
@@ -709,6 +758,15 @@ class RiskGuardian {
         allowed: false,
         reason: portfolioHeat.reason,
         code: portfolioHeat.code || 'portfolio_heat',
+      };
+    }
+
+    const globalExposure = this.checkGlobalExposure(tokenData, strategyName);
+    if (globalExposure.blocked) {
+      return {
+        allowed: false,
+        reason: globalExposure.reason,
+        code: globalExposure.code || 'global_exposure_cap',
       };
     }
 
