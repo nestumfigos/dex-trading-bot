@@ -171,7 +171,13 @@ function createExecutionOrchestrator(deps) {
         return;
       }
     } catch (e) {
-      logger.debug(`[pre-trade-contract] BUY check threw: ${e?.message || e} — proceeding (degraded open)`);
+      // Fail CLOSED on entry: if the pre-trade risk contract can't run (e.g. SQL
+      // pool down), we cannot confirm daily-loss / consecutive-loss / duplicate-
+      // order / AI-circuit limits — so we must NOT open new risk. Worst case is a
+      // skipped buy, never a forced one. SELL stays fail-OPEN (below) — an infra
+      // error must never block an exit. Brings live to parity with paper.
+      logger.warn(`[pre-trade-contract] BUY check threw: ${e?.message || e} — failing closed (skipping entry)`);
+      return;
     }
 
     // B3.exec.8: TTL must exceed execTimeoutMs + buffer so a slow exchange
