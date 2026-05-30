@@ -26,6 +26,41 @@
 
 const fsSync = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
+
+// PID-reuse-safe liveness. process.kill(pid, 0) only proves SOME process owns
+// that pid; the OS recycles pids, so a dead bot's pid can resurface as an
+// unrelated process (observed 2026-05-30: msedgewebview2.exe reusing a dead
+// bot's pid), which read as "alive" and locked the whole fleet out of startup.
+// We additionally confirm the held pid is a node (bot) process.
+//
+// classifyProcessProbe is pure (unit-testable without spawning):
+//   true  = probe shows a node process  (treat as a live sibling — defer)
+//   false = probe shows another process (recycled pid — stale, take over)
+//   null  = couldn't tell               (caller stays conservative: alive)
+function classifyProcessProbe(platform, probeOutput) {
+  const text = String(probeOutput || '');
+  if (!text.trim()) return null;
+  if (platform === 'win32') {
+    // tasklist /FO CSV: "<image>","<pid>",...  No quoted image => not found.
+    const m = text.match(/^\s*"([^"]+)"/m);
+    if (!m) return null;
+    return /^node(\.exe)?$/i.test(m[1].trim());
+  }
+  // ps -o comm= : the executable name owning the pid.
+  return /\bnode\b/i.test(text);
+}
+
+function probePidProcess(pid) {
+  if (process.platform === 'win32') {
+    return execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'], {
+      encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  }
+  return execFileSync('ps', ['-p', String(pid), '-o', 'comm='], {
+    encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
 
 function acquireRuntimeSingleton({
   dataDirAbs,
@@ -48,8 +83,22 @@ function acquireRuntimeSingleton({
     startedAt: new Date().toISOString(),
   });
 
+  const pidExists = (pid) => {
+    const n = Number(pid);
+    if (!Number.isInteger(n) || n <= 0) return false;
+    try { process.kill(n, 0); return true; } catch (_) { return false; }
+  };
+
+  // Full check: pid exists AND is a node (bot) process. The process probe
+  // (tasklist/ps) is the slow part, so the post-grace liveness re-check below
+  // uses the cheap pidExists() instead — identity can't change in ~50ms, only
+  // liveness. This keeps at most ONE probe per lock acquisition.
   const isPidAlive = (pid) => {
-    try { process.kill(Number(pid), 0); return true; } catch (_) { return false; }
+    if (!pidExists(pid)) return false;
+    let probe = '';
+    try { probe = probePidProcess(Number(pid)); } catch (_) { return true; }
+    const verdict = classifyProcessProbe(process.platform, probe);
+    return verdict === null ? true : verdict;
   };
 
   // Generic acquire: either writes the lock or calls process.exit(0) on duplicate.
@@ -66,7 +115,7 @@ function acquireRuntimeSingleton({
         // Sibling alive — duplicate spawn race. Sleep then re-check.
         const sleepSab = new Int32Array(new SharedArrayBuffer(4));
         Atomics.wait(sleepSab, 0, 0, graceMs);
-        if (isPidAlive(existing.pid)) {
+        if (pidExists(existing.pid)) {
           logger.warn(
             `Another ${profile} runtime is active (${scope} lock held by pid=${existing.pid}, ` +
             `port=${existing.port || 'unknown'}). Exiting duplicate process ${process.pid} cleanly.`
@@ -113,4 +162,4 @@ function acquireRuntimeSingleton({
   return { release, lockPath: portLockPath, profileLockPath, pid: process.pid };
 }
 
-module.exports = { acquireRuntimeSingleton };
+module.exports = { acquireRuntimeSingleton, classifyProcessProbe };
