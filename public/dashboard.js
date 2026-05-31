@@ -34,7 +34,8 @@ const fmtUptime = (sec) => {
 
 // ─── Base URL: switch port by selected bot ────────────────────────────────
 function getBaseUrl() {
-  const port = STATE.bot === 'live' ? '3002' : '3001';
+  // 2026-05-31: paper now on 3003 (was 3001).
+  const port = STATE.bot === 'live' ? '3002' : '3003';
   return `${window.location.protocol}//${window.location.hostname}:${port}`;
 }
 
@@ -890,7 +891,7 @@ async function refreshAll() {
   const switcher = el('bot-switcher');
   if (!status) {
     switcher.classList.add('bot-down');
-    el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3001'}`;
+    el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3003'}`;
     return;
   }
   switcher.classList.remove('bot-down');
