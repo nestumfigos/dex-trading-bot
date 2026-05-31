@@ -107,6 +107,16 @@ module.exports = {
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
+        // 2026-05-31 (cmd-window storm fix): paper's python_model_sidecar.py
+        // is per-call spawn (not a daemon). Each evaluation cycle fired ~22
+        // python.exe spawns per 15s; despite windowsHide:true on the spawn,
+        // each child triggers a hidden conhost wrapper and contributes to
+        // visible churn on Windows. Disable until the sidecar is refactored
+        // into a kept-alive worker. Inference falls back to xgboost / RF /
+        // lstm local fallbacks in ml-inference.js so trading decisions still
+        // run; we lose only the sentiment-engine / external-model paths.
+        PYTHON_SIDECAR_ENABLED: 'false',
+        EXTERNAL_MODELS_ENABLED: 'false',
         SELF_EVOLUTION_AUTO_APPLY: 'false',
         SELF_EVOLUTION_ALLOW_LIVE_APPLY: 'false',
         SELF_EVOLUTION_AUTO_PROMOTE: 'false',
@@ -123,6 +133,16 @@ module.exports = {
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
+        // 2026-05-31 (cmd-window storm fix): paper's python_model_sidecar.py
+        // is per-call spawn (not a daemon). Each evaluation cycle fired ~22
+        // python.exe spawns per 15s; despite windowsHide:true on the spawn,
+        // each child triggers a hidden conhost wrapper and contributes to
+        // visible churn on Windows. Disable until the sidecar is refactored
+        // into a kept-alive worker. Inference falls back to xgboost / RF /
+        // lstm local fallbacks in ml-inference.js so trading decisions still
+        // run; we lose only the sentiment-engine / external-model paths.
+        PYTHON_SIDECAR_ENABLED: 'false',
+        EXTERNAL_MODELS_ENABLED: 'false',
         SELF_EVOLUTION_AUTO_APPLY: 'false',
         SELF_EVOLUTION_ALLOW_LIVE_APPLY: 'false',
         SELF_EVOLUTION_AUTO_PROMOTE: 'false',
