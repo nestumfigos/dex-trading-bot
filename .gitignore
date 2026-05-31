@@ -26,7 +26,11 @@ data/self-evolution-history.jsonl
 .serena/
 .vscode/
 .agents/
+.swarm/
 graphify-out/
 agentdb.rvf
+
+# Config-schema audit output — regenerated each boot.
+data/config-unknown-env-vars.txt
 agentdb.rvf.lock
 ruvector.db
