@@ -21,6 +21,7 @@ const KNOBS = {
   // ── Self-evolution gates (DANGER: 2026-05-16 these are 'false' in live) ──
   SELF_EVOLUTION_ENABLED: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_ALLOW_LIVE_MUTATION: { type: 'bool', default: false, hotReload: true },
+  SELF_EVOLUTION_AUTO_APPLY: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_ALLOW_LIVE_APPLY: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_AUTO_PROMOTE: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_UNSAFE_EXPERIMENTAL: { type: 'bool', default: false, hotReload: true },

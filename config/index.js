@@ -1036,8 +1036,8 @@ const config = {
     enabled: isPaperTrading
       ? process.env.SELF_EVOLUTION_ENABLED !== 'false'
       : process.env.SELF_EVOLUTION_ENABLED === 'true' && process.env.SELF_EVOLUTION_ALLOW_LIVE_MUTATION === 'true',
-    autoApply: process.env.SELF_EVOLUTION_AUTO_APPLY !== 'false',
-    allowLiveApply: isPaperTrading ? true : process.env.SELF_EVOLUTION_ALLOW_LIVE_APPLY === 'true',
+    autoApply: process.env.SELF_EVOLUTION_AUTO_APPLY === 'true',
+    allowLiveApply: process.env.SELF_EVOLUTION_ALLOW_LIVE_APPLY === 'true',
     autoRestart: process.env.SELF_EVOLUTION_AUTO_RESTART !== 'false',
     aiPlanningEnabled: process.env.SELF_EVOLUTION_AI_PLANNING_ENABLED === 'true',
     // Paper-only: after applying changes, automatically promote them to the main bot.

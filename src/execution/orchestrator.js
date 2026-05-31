@@ -375,7 +375,7 @@ function createExecutionOrchestrator(deps) {
           chainName,
           tokenData,
           position,
-          txResult: recoveredTxResult,
+          txResult,
           reason,
           strategyName,
           expectedExitPrice,
