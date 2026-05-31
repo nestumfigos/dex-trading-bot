@@ -277,13 +277,27 @@ function buildFeatureSeriesFromHistories(priceHistory = {}, volumeHistory = {}, 
     const key = entry.key;
     const prices = entry.values.map(Number).filter(Number.isFinite);
     const volumes = (volumeHistory?.[key] || []).map(Number).filter(Number.isFinite);
-    for (let i = 12; i < prices.length; i += 1) {
+    // 2026-05-31 audit (cycle-2 P1): port live's B2.14 feature-leakage fix.
+    // Paper had been computing `volWindow` as `volumes.slice(max(0,i-12), i+1)`
+    // — INCLUDING `volumes[i]` itself. Then `volumeSpike = volumes[i] /
+    // avgVol(volWindow)` correlated `volumes[i]` with its own average, which
+    // is a future-volume-spike feature indistinguishable in training data
+    // from "the bar that drove the spike already happened". Live data can't
+    // peek at bar `i+0` until after the decision at `i`. Lagging by
+    // LOOKAHEAD_LAG bars makes the training feature consistent with what's
+    // observable at inference time. Without this, paper canary metrics
+    // overstate model edge and would have promoted a leaky policy to live.
+    const LOOKAHEAD_LAG = 3;
+    for (let i = 12 + LOOKAHEAD_LAG; i < prices.length; i += 1) {
       const current = prices[i];
       const prev3 = prices[i - 3];
       const prev12 = prices[i - 12];
       if (!Number.isFinite(current) || !Number.isFinite(prev3) || !Number.isFinite(prev12) || prev3 === 0 || prev12 === 0) continue;
-      const volWindow = volumes.slice(Math.max(0, i - 12), i + 1);
+      const windowStart = Math.max(0, i - 12 - LOOKAHEAD_LAG);
+      const windowEnd = i - LOOKAHEAD_LAG; // exclusive — slice excludes index windowEnd
+      const volWindow = volumes.slice(windowStart, windowEnd);
       const avgVol = volWindow.length ? volWindow.reduce((sum, value) => sum + value, 0) / volWindow.length : 0;
+      const laggedVolume = Number(volumes[i - LOOKAHEAD_LAG] || 0);
       series.push({
         key,
         price: current,
@@ -291,7 +305,7 @@ function buildFeatureSeriesFromHistories(priceHistory = {}, volumeHistory = {}, 
           price: current,
           return3Pct: ((current - prev3) / prev3) * 100,
           return12Pct: ((current - prev12) / prev12) * 100,
-          volumeSpike: avgVol > 0 ? (Number(volumes[i] || 0) / avgVol) : 1,
+          volumeSpike: avgVol > 0 ? (laggedVolume / avgVol) : 1,
           rsi: 50,
           sentimentScore: 0.5,
           realizedVolPct: 3,

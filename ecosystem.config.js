@@ -95,7 +95,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PAPER_TRADING: 'true',
-        PORT: '3001',
+        PORT: '3003',
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
@@ -122,7 +122,7 @@ module.exports = {
       env_production: {
         NODE_ENV: 'production',
         PAPER_TRADING: 'true',
-        PORT: '3001',
+        PORT: '3003',
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',

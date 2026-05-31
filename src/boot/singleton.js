@@ -102,31 +102,57 @@ function acquireRuntimeSingleton({
   };
 
   // Generic acquire: either writes the lock or calls process.exit(0) on duplicate.
+  //
+  // TOCTOU note (2026-05-31): the takeover path (unlink → wx-write) is racy
+  // when two paper processes both decide the prior pid is dead. Both unlink,
+  // both attempt wx-write, the loser throws EEXIST and crashes the whole bot
+  // (observed 151× restart loop on 2026-05-30/31). Fix: bounded retry loop
+  // that re-runs the full liveness+takeover decision rather than just blindly
+  // re-writing — if the winner is a live sibling, we exit(0) like any other
+  // duplicate; if it's another dead-pid takeover attempt, we keep racing
+  // until one of us wins.
+  const MAX_ACQUIRE_ATTEMPTS = 5;
   const acquireLock = (lockPath, scope) => {
-    try {
-      fsSync.writeFileSync(lockPath, pidPayload, { flag: 'wx' });
-      return;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-    }
-    try {
-      const existing = JSON.parse(fsSync.readFileSync(lockPath, 'utf8'));
-      if (existing?.pid && isPidAlive(existing.pid)) {
-        // Sibling alive — duplicate spawn race. Sleep then re-check.
-        const sleepSab = new Int32Array(new SharedArrayBuffer(4));
-        Atomics.wait(sleepSab, 0, 0, graceMs);
-        if (pidExists(existing.pid)) {
-          logger.warn(
-            `Another ${profile} runtime is active (${scope} lock held by pid=${existing.pid}, ` +
-            `port=${existing.port || 'unknown'}). Exiting duplicate process ${process.pid} cleanly.`
-          );
-          process.exit(0);
-        }
-        logger.info(`Sibling pid ${existing.pid} released ${scope} lock — taking over.`);
+    for (let attempt = 1; attempt <= MAX_ACQUIRE_ATTEMPTS; attempt += 1) {
+      try {
+        fsSync.writeFileSync(lockPath, pidPayload, { flag: 'wx' });
+        return;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
       }
-    } catch (_) { /* unreadable; replace below */ }
-    try { fsSync.unlinkSync(lockPath); } catch (_) {}
-    fsSync.writeFileSync(lockPath, pidPayload, { flag: 'wx' });
+      try {
+        const existing = JSON.parse(fsSync.readFileSync(lockPath, 'utf8'));
+        if (existing?.pid && isPidAlive(existing.pid)) {
+          // Sibling alive — duplicate spawn race. Sleep then re-check.
+          const sleepSab = new Int32Array(new SharedArrayBuffer(4));
+          Atomics.wait(sleepSab, 0, 0, graceMs);
+          if (pidExists(existing.pid)) {
+            logger.warn(
+              `Another ${profile} runtime is active (${scope} lock held by pid=${existing.pid}, ` +
+              `port=${existing.port || 'unknown'}). Exiting duplicate process ${process.pid} cleanly.`
+            );
+            process.exit(0);
+          }
+          logger.info(`Sibling pid ${existing.pid} released ${scope} lock — taking over.`);
+        }
+      } catch (_) { /* unreadable; replace below */ }
+      try { fsSync.unlinkSync(lockPath); } catch (_) {}
+      try {
+        fsSync.writeFileSync(lockPath, pidPayload, { flag: 'wx' });
+        return;
+      } catch (writeError) {
+        if (writeError?.code !== 'EEXIST') throw writeError;
+        // Lost the takeover race to another concurrent acquirer. Re-evaluate
+        // whether the new holder is alive (could be a real sibling we should
+        // defer to) instead of blindly clobbering. Small backoff to avoid
+        // a tight CPU-burn race.
+        const backoffSab = new Int32Array(new SharedArrayBuffer(4));
+        Atomics.wait(backoffSab, 0, 0, Math.min(50 * attempt, 250));
+      }
+    }
+    throw new Error(
+      `acquireRuntimeSingleton: failed to acquire ${scope} lock at ${lockPath} after ${MAX_ACQUIRE_ATTEMPTS} attempts`
+    );
   };
 
   fsSync.mkdirSync(dataDirAbs, { recursive: true });

@@ -1,4 +1,17 @@
 'use strict';
+// PARITY NOTE (2026-05-31 audit cycle-2 P2): this paper-branch kucoin.js is
+// structurally older than the live-branch counterpart (dex-trading-bot/src/
+// exchanges/kucoin.js). Live has KuCoin-native `clientOid` idempotency
+// (_genClientOid + _findFilledKucoinOrder + clientOid on every createOrder
+// call) so a retry after a timeout cross-checks prior attempts instead of
+// double-firing. Paper does NOT have this. The risk is bounded today because
+// executeBuy/executeSell short-circuit at `config.paperTrading` (lines ~579
+// and ~759) before reaching createOrder — paper trades are simulated as
+// `paper_tx_*` and never hit KuCoin. If PAPER_TRADING is ever flipped off
+// against this branch (or the file is promoted to a live profile), paper
+// will lose retry-safety. Tracked follow-up: port the full clientOid path
+// from the live branch (~362 lines of semantic diff) while preserving
+// paper's `adjustForTimeDifference` + KC-API-TIMESTAMP retry additions.
 const ccxt = require('ccxt');
 const config = require('../../config');
 const logger = require('../utils/logger');

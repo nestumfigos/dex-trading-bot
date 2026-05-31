@@ -694,17 +694,13 @@ class RiskGuardian {
     }
 
     if (this.portfolio?.statePersistenceError) {
-      // Try to auto-clear statePersistenceError if error is gone
-      if (!this.portfolio.statePersistenceErrorLastChecked || Date.now() - this.portfolio.statePersistenceErrorLastChecked > 60000) {
-        // Attempt a test write or check for error resolution here if possible
-        // For now, just auto-clear after 1 minute for demonstration
-        this.portfolio.statePersistenceError = false;
-        this.portfolio.statePersistenceErrorLastChecked = Date.now();
-        logger.info('Auto-cleared statePersistenceError after 1 minute.');
-      }
-      if (this.portfolio.statePersistenceError) {
-        return { allowed: false, reason: 'state persistence error — operator review required' };
-      }
+      // 2026-05-31 audit (cycle-2 P1): NEVER auto-clear. Mirror of the live
+      // fix. The prior 60s timer cleared the flag without proving writes
+      // worked, so the strategy resumed trading while state durability was
+      // still broken. Fail closed until persistence layer clears it after a
+      // successful write or operator clears via dashboard.
+      this.portfolio.statePersistenceErrorLastChecked = Date.now();
+      return { allowed: false, reason: 'state persistence error — operator review required (no auto-clear)' };
     }
 
     if (this.portfolio?.balanceDriftHalt) {
