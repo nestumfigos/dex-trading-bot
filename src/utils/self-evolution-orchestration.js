@@ -266,7 +266,7 @@ ORDER BY ts DESC
         return;
       }
 
-      if (evaluation.decision === 'promote' && config.paperTrading && config.selfEvolution?.autoPromote !== false) {
+      if (evaluation.decision === 'promote' && config.paperTrading && config.selfEvolution?.autoPromote === true) {
         const versionId = manifest?.versioning?.versionId || strategyVersionId;
         if (updated.rollout?.manualApprovalRequired && !(await hasManualApproval(versionId))) {
           logger.warn(`[Self-evolution] Manual approval required before promoting ${manifest.id}`);

@@ -908,12 +908,12 @@ const config = {
     enabled: isPaperTrading
       ? process.env.SELF_EVOLUTION_ENABLED !== 'false'
       : process.env.SELF_EVOLUTION_ENABLED === 'true' && process.env.SELF_EVOLUTION_ALLOW_LIVE_MUTATION === 'true',
-    autoApply: process.env.SELF_EVOLUTION_AUTO_APPLY !== 'false',
-    allowLiveApply: isPaperTrading ? true : process.env.SELF_EVOLUTION_ALLOW_LIVE_APPLY === 'true',
+    autoApply: process.env.SELF_EVOLUTION_AUTO_APPLY === 'true',
+    allowLiveApply: process.env.SELF_EVOLUTION_ALLOW_LIVE_APPLY === 'true',
     autoRestart: process.env.SELF_EVOLUTION_AUTO_RESTART !== 'false',
     // Paper-only: after applying changes, automatically promote them to the main bot.
-    // Set SELF_EVOLUTION_AUTO_PROMOTE=false to disable and keep promotion manual.
-    autoPromote: process.env.SELF_EVOLUTION_AUTO_PROMOTE !== 'false',
+    // Promotion is explicit opt-in; generated proposals stay manual by default.
+    autoPromote: process.env.SELF_EVOLUTION_AUTO_PROMOTE === 'true',
     intervalMinutes: parseInt(process.env.SELF_EVOLUTION_INTERVAL_MINUTES || '60', 10),
     minClosedTrades: parseInt(process.env.SELF_EVOLUTION_MIN_CLOSED_TRADES || '12', 10),
     // Holdout window in hours before a patch's outcome is validated and recorded.
