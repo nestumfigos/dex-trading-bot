@@ -5,7 +5,7 @@
   "description": "Perpetual futures trading bot (TraderXO methodology). SCAFFOLD ONLY — see README.md.",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --import ./test/_test-env.js --test test/*.test.js"
   },
   "dependencies": {},
   "devDependencies": {}

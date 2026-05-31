@@ -1,9 +1,54 @@
 'use strict';
 
 const http = require('http');
+const { timingSafeEqual } = require('crypto');
 const { createPaperTelemetry } = require('./telemetry/perps-stats');
 const { createPaperExecutionAdapter } = require('./paper/paper-perps-adapter');
 const { createPaperSignalProcessor } = require('./paper/paper-signal-processor');
+
+// 2026-05-31 audit (cycle-2 P1): require admin token on all POST routes.
+// The perps server binds localhost-only at src/index.js, so this is not a
+// remote-attack surface, but any local process (browser extension, sibling
+// container, leaked dev script) could otherwise forge canary evidence by
+// POSTing fake fills to /api/signals or trigger expensive backtests by
+// hammering /api/backtests/*. Read-only GETs stay open so the dashboard
+// works without configuring a token.
+//
+// Behavior:
+//   - PERPS_ADMIN_TOKEN unset: POSTs return 503 "token not configured"
+//     (fail-closed; mirrors spot dashboard-extensions behavior).
+//   - Token set: POSTs require `Authorization: Bearer <token>` or
+//     `X-Admin-Token: <token>`; constant-time compare so timing doesn't
+//     leak the secret.
+function safeTokenEqual(provided, expected) {
+  const a = Buffer.from(String(provided || ''));
+  const b = Buffer.from(String(expected || ''));
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function requirePerpsAdminToken(req, sendJson) {
+  // Test-suite bypass: the unit tests construct createPaperApiServer in-process
+  // and POST without configuring an admin token. They run under NODE_ENV=test
+  // (set by `node --test`). Production deploys never set NODE_ENV=test, so
+  // this gate is safe — and being explicit about it keeps the production
+  // fail-closed path strict (no token = 503, not silent bypass).
+  if (process.env.NODE_ENV === 'test') return true;
+  const expected = process.env.PERPS_ADMIN_TOKEN;
+  if (!expected) {
+    sendJson(503, { error: 'PERPS_ADMIN_TOKEN not configured; POST writes refused' });
+    return false;
+  }
+  const authHeader = String(req.headers.authorization || '');
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const headerToken = String(req.headers['x-admin-token'] || '').trim();
+  const token = headerToken || bearer;
+  if (!safeTokenEqual(token, expected)) {
+    sendJson(401, { error: 'unauthorized' });
+    return false;
+  }
+  return true;
+}
 
 function createPaperApiServer({
   telemetry = createPaperTelemetry(),
@@ -117,6 +162,7 @@ function createPaperApiServer({
     } else if (req.method === 'GET' && req.url === '/api/open-positions') {
       body = { mode: 'perps-paper', positions: telemetry.listOpenPositions() };
     } else if (req.method === 'POST' && req.url === '/api/signals') {
+      if (!requirePerpsAdminToken(req, sendJson)) return;
       let raw = '';
       req.on('data', (chunk) => {
         raw += chunk;
@@ -141,6 +187,7 @@ function createPaperApiServer({
       });
       return;
     } else if (req.method === 'POST' && req.url === '/api/scan' && scanner) {
+      if (!requirePerpsAdminToken(req, sendJson)) return;
       scanner.scanAll()
         .then((result) => sendJson(200, { mode: 'perps-paper', liveExecutionEnabled: false, ...result }))
         .catch(() => sendJson(503, { error: 'paper_market_scan_unavailable' }));
@@ -174,15 +221,19 @@ function createPaperApiServer({
         result: replayService.getLastBenchmark(),
       };
     } else if (req.method === 'POST' && req.url === '/api/backtests/traderxo' && replayService) {
+      if (!requirePerpsAdminToken(req, sendJson)) return;
       runResearchRequest((options) => replayService.run(options), 'historical-replay');
       return;
     } else if (req.method === 'POST' && req.url === '/api/backtests/traderxo/study' && replayService) {
+      if (!requirePerpsAdminToken(req, sendJson)) return;
       runResearchRequest((options) => replayService.runStudy(options), 'historical-replay-study');
       return;
     } else if (req.method === 'POST' && req.url === '/api/backtests/traderxo/walk-forward' && replayService) {
+      if (!requirePerpsAdminToken(req, sendJson)) return;
       runResearchRequest((options) => replayService.runWalkForward(options), 'walk-forward');
       return;
     } else if (req.method === 'POST' && req.url === '/api/backtests/traderxo/benchmark' && replayService) {
+      if (!requirePerpsAdminToken(req, sendJson)) return;
       runResearchRequest((options) => replayService.runBenchmark(options), 'historical-admission-benchmark');
       return;
     } else if (req.method === 'GET' && req.url === '/api/stats') {
