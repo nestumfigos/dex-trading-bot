@@ -126,3 +126,25 @@ test('bsc flow sizing falls back when stop distance is missing', async () => {
   const args = await runBuy(harness, token({ structuralStopPrice: 0, invalidationPrice: 0 }));
   assert.equal(args.sizeUsd, 44);
 });
+
+test('buy lock ttl follows actual buy timeout plus buffer', async () => {
+  let ttlMs = 0;
+  const harness = makeDeps({
+    deps: {
+      config: {
+        paperTrading: true,
+        strategies: { bsc_flow_breakout: { riskPct: 0.2, maxSlippagePct: 3, useMevJitter: true } },
+        risk: { maxPositionSizePct: 3 },
+        execution: { buyTimeoutMs: 90_000 },
+      },
+      sqlCoordination: {
+        acquireLock: async (_key, options) => {
+          ttlMs = options.ttlMs;
+          return { ok: true, release: async () => {} };
+        },
+      },
+    },
+  });
+  await runBuy(harness);
+  assert.equal(ttlMs, 100_000);
+});

@@ -16,6 +16,7 @@ data/learning-backup.json
 data/evolution-candidates/
 data/self-evolution-backups/
 data/self-evolution-history.jsonl
+data/rl-pending-validations.jsonl
 data/self-evolution-pending-validations.json
 data/self-evolution-proposals/
 data/strategy-lab/

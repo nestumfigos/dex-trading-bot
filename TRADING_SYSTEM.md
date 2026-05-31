@@ -100,6 +100,14 @@ db/migrations/                   # 0000-0026 (M001-M026)
 5. **Telemetry** → SQL (`signals`, `trades`, `ai_decisions`, `trade_rejections`, `decision_log`)
 6. **Intelligence cycle** (30min) → RSS/Reddit/CryptoCompare/CoinGecko → LLM synthesis → watchlist/avoid feeds back into sizing + memory
 
+### 2.2 Separation Rules (2026-05-31 audit)
+
+- Strategy evaluators emit intent only: setup, trigger, stop, targets, confidence. They do not mutate portfolio cash or venue state.
+- Risk modules own admissibility and sizing caps. Execution cannot increase a risk-approved `sizeUsd`; positive jitter clamps at the approved size.
+- Execution modules own order lifecycle, fill reconciliation, partial-fill state, fee/slippage accounting, and sell recovery. Paper and live must share mutex and timeout-lock semantics.
+- Learning/evolution modules observe completed outcomes. They must not alter live parameters without validation plus explicit approval.
+- SQL is the queryable source for telemetry and gates; JSON is recovery/cache. Dashboard reads/reporting must not become a trading decision source.
+
 ---
 
 ## 3. Risk Model (`src/risk/guardian.js`)
@@ -161,6 +169,8 @@ clamp to [minPositionSizeUsd, remainingChainCapacity]
 
 Mode: `PRE_TRADE_CONTRACT_MODE=enforce` set in spot+paper ecosystem.config.js and PowerShell restart env (verified 2026-05-27).
 
+Runtime adapter must load `risk_rules.scope` and persist `trade_rejections.wallet_usd`; scoped block/warn/log overrides are part of the risk contract, not dashboard-only metadata.
+
 ---
 
 ## 4. Execution (`src/execution/orchestrator.js`)
@@ -187,6 +197,8 @@ Mode: `PRE_TRADE_CONTRACT_MODE=enforce` set in spot+paper ecosystem.config.js an
 4. Venue execute
 5. On failure: `recoverFailedSellExecutionFromExchange` (matches by recent fills, B3 sell-recovery)
 6. Finalize sell execution
+
+Paper and live both use the actual buy timeout (`execTimeoutMs || buyTimeoutMs || 30000`) for lock TTL. This prevents duplicate orders when operator config raises buy timeout but leaves generic timeout at default.
 
 ### 4.3 Exit conditions (`src/execution/exit-conditions.js`)
 
@@ -237,6 +249,19 @@ Primary: MSSQL via `SQL_CONNECTION_STRING`. Mirror: `data/{agent-memory,state}.j
 Cycle every 30min (floor 15min — see C6 doc note). Sources: 5 RSS + 4 Reddit + CryptoCompare + CoinGecko trending. Synthesis fallback chain: **Cerebras → Groq → NVIDIA → Mistral → Gemini**. Output: `{macroSentiment, sentimentScore, hotSectors, coldSectors, narrativeThemes, watchlistTokens, avoidTokens, strategyRecommendation, riskWarnings, selfImprovementInsights, summary}`.
 
 Feeds back: blacklists avoid tokens (12h), watchlist boosts position sizing, runs `deepResearchToken` on top 3 watchlist symbols (staggered 8s).
+
+### 6.3 RL online updater
+
+- Closed-trade updates accept singular `symbol` and array `symbols`; both execution-flow and scheduler paths feed learning.
+- Default mode is shadow: append pending validation rows, do not mutate live Q-table unless `rl.onlineUpdatesEnabled=true`.
+- Reward shape uses fractional returns (`0.20` = 20%) and subtracts current drawdown penalty, so policies optimize risk-adjusted outcomes.
+
+### 6.4 Self-evolution
+
+- Generated behavior must carry `validation.preApplyPassed=true` and `approval.approved=true` before apply.
+- Generated plans cannot relax capital protections such as max daily loss or concurrent position caps.
+- Direct live apply is prohibited; paper validation and promotion are the path to live.
+- Apply failures throw through rollback so earlier file writes are restored if any later mutation is denied.
 
 ---
 

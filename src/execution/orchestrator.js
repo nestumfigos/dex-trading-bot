@@ -175,11 +175,12 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
-    // B3.exec.8 (parity with live): TTL must exceed execTimeoutMs + buffer so a
-    // slow exchange can't release the lock before execution actually completes,
-    // which would let a second caller double-execute. Pin lock TTL >=
-    // execTimeoutMs + 10s; honors SQL_LOCK_TTL_MS override but floors to buffer.
-    const execTimeoutMsForLock = Math.max(15000, Number(config.execution?.timeoutMs || 45000));
+    // TTL must exceed the ACTUAL buy timeout plus a buffer so a slow exchange
+    // cannot release the distributed lock before execution completes.
+    const execTimeoutMsForLock = Math.max(
+      15000,
+      Number(config.execution?.execTimeoutMs || config.execution?.buyTimeoutMs || 30000)
+    );
     const requestedLockTtl = Number(process.env.SQL_LOCK_TTL_MS || 30000);
     const lockTtlMs = Math.max(requestedLockTtl, execTimeoutMsForLock + 10000);
     const lockKey = `buy:${String(chainName || '').toLowerCase()}:${String(tokenData?.symbol || tokenData?.address || '').toUpperCase()}`.slice(0, 200);
@@ -316,77 +317,60 @@ function createExecutionOrchestrator(deps) {
   }
 
   async function executeSell(chainName, exchange, tokenData, position, sellPct = 1, reason = 'EXIT') {
-    if (position?.exitInProgress) {
-      logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol || position?.address}: exit already in progress`);
-      return;
-    }
-
-    // Set inside try so a throw between flag-set and try-block can never strand exitInProgress=true.
-    const strategyName = position.strategy || 'momentum';
-    const fraction = Math.max(0.01, Math.min(Number(sellPct || 1), 1));
-    const positionQuantityBefore = Number(position.quantity || 0);
-    const quantityToSell = positionQuantityBefore * fraction;
-    const expectedExitPrice = Number(tokenData.price);
-    const sellStartedAtMs = Date.now();
-
+    const release = await positionMutex.lock();
     try {
-      position.exitInProgress = true;
-      const { getPool } = require('../utils/sqlServer');
-      const ptPool = await getPool(logger).catch(() => null);
-      const positionValueUsd = positionQuantityBefore * (Number(tokenData?.price) || Number(position?.entryPrice) || 0);
-      const ptResult = await runPreTradeContract({
-        side: 'SELL',
-        trade: { symbol: tokenData.symbol, chain: chainName, address: tokenData.address, sizeUsd: 0, positionValueUsd },
-        state: { aiCircuitOpen: aiCircuit.cooldownUntil > Date.now() },
-        scope: BOT_PROFILE,
-        strategy: strategyName,
-        sql: ptPool,
-        logger,
-        botVersion: process.env.BOT_VERSION || null,
-      });
-      if (!ptResult.ok) {
-        logger.warn(`[pre-trade-contract] enforce: ${tokenData.symbol} SELL blocked (reason=${reason}), skipping`);
-        position.exitInProgress = false;
+      if (position?.exitInProgress) {
+        logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol || position?.address}: exit already in progress`);
         return;
       }
-    } catch (e) {
-      logger.debug(`[pre-trade-contract] SELL check threw: ${e?.message || e} — proceeding`);
-    }
+      const remainingQty = Number(position?.quantity || 0);
+      if (!position || remainingQty <= 0) {
+        logger.debug(`SELL skipped for ${tokenData?.symbol || position?.symbol}: position already closed (qty=${remainingQty})`);
+        return;
+      }
 
-    logger.info(`Executing SELL: ${tokenData.symbol} @ $${tokenData.price} | selling ${round(fraction * 100, 1)}%`);
+      const strategyName = position.strategy || 'momentum';
+      const fraction = Math.max(0.01, Math.min(Number(sellPct || 1), 1));
+      const positionQuantityBefore = remainingQty;
+      const quantityToSell = positionQuantityBefore * fraction;
+      const expectedExitPrice = Number(tokenData.price);
+      const sellStartedAtMs = Date.now();
 
-    try {
-      const sellTimeoutMs = Math.max(15000, Number(config.execution?.sellTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+      try {
+        position.exitInProgress = true;
+        const { getPool } = require('../utils/sqlServer');
+        const ptPool = await getPool(logger).catch(() => null);
+        const positionValueUsd = positionQuantityBefore * (Number(tokenData?.price) || Number(position?.entryPrice) || 0);
+        const ptResult = await runPreTradeContract({
+          side: 'SELL',
+          trade: { symbol: tokenData.symbol, chain: chainName, address: tokenData.address, sizeUsd: 0, positionValueUsd },
+          state: { aiCircuitOpen: aiCircuit.cooldownUntil > Date.now() },
+          scope: BOT_PROFILE,
+          strategy: strategyName,
+          sql: ptPool,
+          logger,
+          botVersion: process.env.BOT_VERSION || null,
+        });
+        if (!ptResult.ok) {
+          logger.warn(`[pre-trade-contract] enforce: ${tokenData.symbol} SELL blocked (reason=${reason}), skipping`);
+          return;
+        }
+      } catch (e) {
+        logger.debug(`[pre-trade-contract] SELL check threw: ${e?.message || e} — proceeding`);
+      }
 
-      const txResult = await executeSellViaVenue({
-        exchange,
-        tokenData,
-        quantityToSell,
-        execTimeoutMs: sellTimeoutMs,
-        withTimeout,
-      });
-      await finalizeSellExecution({
-        chainName,
-        tokenData,
-        position,
-        txResult,
-        reason,
-        strategyName,
-        expectedExitPrice,
-        quantityRequested: quantityToSell,
-        requestedFraction: fraction,
-      });
-    } catch (error) {
-      const errorText = String(error?.message || error || '');
-      const recoveredTxResult = await recoverFailedSellExecutionFromExchange({
-        chainName,
-        exchange,
-        tokenData,
-        quantityToSell,
-        sellStartedAtMs,
-        errorText,
-      });
-      if (recoveredTxResult) {
+      logger.info(`Executing SELL: ${tokenData.symbol} @ $${tokenData.price} | selling ${round(fraction * 100, 1)}%`);
+
+      try {
+        const sellTimeoutMs = Math.max(15000, Number(config.execution?.sellTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+
+        const txResult = await executeSellViaVenue({
+          exchange,
+          tokenData,
+          quantityToSell,
+          execTimeoutMs: sellTimeoutMs,
+          withTimeout,
+        });
         await finalizeSellExecution({
           chainName,
           tokenData,
@@ -398,23 +382,47 @@ function createExecutionOrchestrator(deps) {
           quantityRequested: quantityToSell,
           requestedFraction: fraction,
         });
-        return;
-      }
+      } catch (error) {
+        const errorText = String(error?.message || error || '');
+        const recoveredTxResult = await recoverFailedSellExecutionFromExchange({
+          chainName,
+          exchange,
+          tokenData,
+          quantityToSell,
+          sellStartedAtMs,
+          errorText,
+        });
+        if (recoveredTxResult) {
+          await finalizeSellExecution({
+            chainName,
+            tokenData,
+            position,
+            txResult: recoveredTxResult,
+            reason,
+            strategyName,
+            expectedExitPrice,
+            quantityRequested: quantityToSell,
+            requestedFraction: fraction,
+          });
+          return;
+        }
 
-      await executionFlow.handleSellExecutionFailure({
-        chainName,
-        exchange,
-        tokenData,
-        position,
-        quantityToSell,
-        strategyName,
-        reason,
-        error,
-      });
+        await executionFlow.handleSellExecutionFailure({
+          chainName,
+          exchange,
+          tokenData,
+          position,
+          quantityToSell,
+          strategyName,
+          reason,
+          error,
+        });
+      }
     } finally {
       if (position && typeof position === 'object') {
         position.exitInProgress = false;
       }
+      try { release(); } catch (_) { /* swallow */ }
     }
   }
 

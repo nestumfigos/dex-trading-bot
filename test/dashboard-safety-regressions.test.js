@@ -22,7 +22,7 @@ test('sensitive diagnostic dashboard routes require protected access', () => {
   assert.match(dashboardSource, /ttlMs:\s*Number\(config\.webhooks\?\.tradingViewMaxAgeMs/);
   assert.match(dashboardSource, /Access-Control-Allow-Origin/);
   assert.doesNotMatch(dashboardSource, /DASHBOARD_CORS_ORIGIN \|\| '\*'/);
-  assert.match(dashboardSource, /\['3001', '3002'\]\.includes\(parsed\.port\)/);
+  assert.match(dashboardSource, /\['3001', '3002', '3003'\]\.includes\(parsed\.port\)/);
 });
 
 test('dashboard does not present unknown trade or 24h PnL as profit', () => {
@@ -33,7 +33,7 @@ test('dashboard does not present unknown trade or 24h PnL as profit', () => {
   assert.match(frontendSource, /renderTrades\(\[\]\)/);
   assert.match(frontendSource, /p\.unrealizedPnl == null \? null/);
   assert.match(frontendSource, /Unavailable/);
-  assert.match(frontendSource, /const portBot = window\.location\.port === '3001' \? 'paper' : 'live'/);
+  assert.match(frontendSource, /const portBot = \(window\.location\.port === '3001' \|\| window\.location\.port === '3003'\) \? 'paper' : 'live'/);
   assert.match(frontendSource, /localStorage\.getItem\('dt\.botExplicit'\) === 'true'/);
   assert.match(frontendSource, /window\.location\.hash\.slice\(1\)/);
 });

@@ -12,6 +12,7 @@ test('Telegram sender posts outbound messages without bot SDK polling surface', 
     chatId: 'chat-1',
     httpPost: async (...args) => { requests.push(args); },
     log: { warn() {}, error() {} },
+    paperTrading: false,
   });
   await sendMessage('<b>health</b>');
   assert.equal(requests.length, 1);
@@ -32,6 +33,7 @@ test('Telegram sender retries transient failures with bounded delays', async () 
     },
     log: { warn() {}, error() {} },
     sleep: async (ms) => { delays.push(ms); },
+    paperTrading: false,
   });
   await sendMessage('retriable', 3);
   assert.equal(attempts, 3);

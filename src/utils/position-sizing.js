@@ -270,11 +270,11 @@ class PositionSizingEngine {
     const currentProfit = ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
     if (currentProfit >= profitTarget * 0.8) {
-      return Math.round(position.quantity * 0.4); // Take 40% off at 80% of TP
+      return Number(position.quantity || 0) * 0.4; // Take 40% off at 80% of TP
     }
 
     if (currentProfit >= profitTarget * 0.5) {
-      return Math.round(position.quantity * 0.25); // Take 25% off at 50% of TP
+      return Number(position.quantity || 0) * 0.25; // Take 25% off at 50% of TP
     }
 
     return 0; // Don't reduce yet

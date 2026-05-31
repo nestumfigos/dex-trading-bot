@@ -14,10 +14,13 @@ class RLOnlineUpdater {
   }
 
   /**
-   * Update Q-values based on a completed trade outcome
+   * Update Q-values based on a completed trade outcome.
+   *
+   * Default mode buffers updates for offline validation; direct Q-table writes
+   * require `config.rl.onlineUpdatesEnabled = true`.
    */
   updateFromTrade(tradeOutcome) {
-    if (!tradeOutcome || !tradeOutcome.symbols || !tradeOutcome.pnl) {
+    if (!tradeOutcome || !(tradeOutcome.symbol || tradeOutcome.symbols) || !Number.isFinite(Number(tradeOutcome.pnl))) {
       return;
     }
 
@@ -27,17 +30,64 @@ class RLOnlineUpdater {
       const reward = this.computeReward(tradeOutcome);
       const nextState = this.encodeNextState(tradeOutcome);
 
-      this.updateQValue(state, action, reward, nextState);
       this.recordExperience({ state, action, reward, nextState, ...tradeOutcome });
 
-      if (tradeOutcome.pnl > 0) {
+      this._bufferPendingUpdate({
+        state,
+        action,
+        reward,
+        nextState,
+        ts: Date.now(),
+        symbols: tradeOutcome.symbols || [tradeOutcome.symbol],
+        pnl: Number(tradeOutcome.pnl || 0),
+        sizeUsd: Number(tradeOutcome.sizeUsd || 0),
+        strategy: tradeOutcome.strategy || 'unknown',
+      });
+
+      const onlineEnabled = this.config?.rl?.onlineUpdatesEnabled === true;
+      if (onlineEnabled) {
+        this.updateQValue(state, action, reward, nextState);
+      }
+
+      if (onlineEnabled && tradeOutcome.pnl > 0) {
         this.logger?.debug(
-          `[RLOnline] Updated Q-table: ${state} -> ${action} | reward=${reward.toFixed(2)} | PnL=$${tradeOutcome.pnl.toFixed(2)}`
+          `[RLOnline] LIVE Q-update applied: ${state} -> ${action} | reward=${reward.toFixed(2)} | PnL=$${tradeOutcome.pnl.toFixed(2)}`
+        );
+      } else if (!onlineEnabled) {
+        this.logger?.debug(
+          `[RLOnline] SHADOW buffered (online disabled): ${state} -> ${action} | reward=${reward.toFixed(2)} | PnL=$${tradeOutcome.pnl.toFixed(2)}`
         );
       }
     } catch (err) {
       this.logger?.warn(`[RLOnline] Failed to update from trade: ${err.message}`);
     }
+  }
+
+  _bufferPendingUpdate(entry) {
+    if (!Array.isArray(this.pendingUpdates)) this.pendingUpdates = [];
+    this.pendingUpdates.push(entry);
+    const cap = Math.max(100, Number(this.maxBufferSize || 1000) * 2);
+    while (this.pendingUpdates.length > cap) {
+      this.pendingUpdates.shift();
+    }
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const dir = path.join(process.cwd(), 'data');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+      const file = path.join(dir, 'rl-pending-validations.jsonl');
+      fs.appendFileSync(file, JSON.stringify(entry) + '\n');
+    } catch (_) {
+      // Best-effort persistence only.
+    }
+  }
+
+  getPendingUpdates() {
+    return Array.isArray(this.pendingUpdates) ? this.pendingUpdates.slice() : [];
+  }
+
+  clearPendingUpdates() {
+    this.pendingUpdates = [];
   }
 
   /**
@@ -87,12 +137,12 @@ class RLOnlineUpdater {
     // Bonus for winning trades
     if (pnl > 0) {
       reward += 5; // +5 for any win
-      if (pnlPercent > 20) reward += 10; // +10 for >20% win
-      if (pnlPercent > 50) reward += 15; // +15 for >50% win
+      if (pnlPercent > 0.20) reward += 10; // +10 for >20% win
+      if (pnlPercent > 0.50) reward += 15; // +15 for >50% win
     } else {
       // Penalty for losing trades
       reward -= 3; // -3 for any loss
-      if (pnlPercent < -10) reward -= 10; // -10 for >10% loss
+      if (pnlPercent < -0.10) reward -= 10; // -10 for >10% loss
     }
 
     // Reward for risk management
@@ -102,6 +152,12 @@ class RLOnlineUpdater {
 
     if (tradeOutcome.confidence > 0.8) {
       reward += (tradeOutcome.confidence - 0.8) * 20; // Scale by high confidence
+    }
+
+    const currentDrawdownPct = this.calculateDrawdown(tradeOutcome.portfolio || {});
+    if (Number.isFinite(currentDrawdownPct) && currentDrawdownPct > 0) {
+      const drawdownPenaltyCoef = Number(tradeOutcome.drawdownPenaltyCoef ?? 0.15);
+      reward -= currentDrawdownPct * drawdownPenaltyCoef;
     }
 
     return Math.max(-100, Math.min(100, reward)); // Clamp
@@ -203,8 +259,12 @@ class RLOnlineUpdater {
    * Calculate drawdown from portfolio
    */
   calculateDrawdown(portfolio) {
-    const peakBalance = portfolio.peakBalance || portfolio.balance || 10000;
-    const currentBalance = portfolio.balance || 10000;
+    const parsedCurrent = Number(portfolio.balance);
+    const parsedPeak = Number(portfolio.peakBalance);
+    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
+      ? parsedPeak
+      : (currentBalance > 0 ? currentBalance : 10000);
 
     if (peakBalance <= 0) return 0;
     return ((peakBalance - currentBalance) / peakBalance) * 100;
@@ -225,8 +285,13 @@ class RLOnlineUpdater {
    * Calculate updated drawdown
    */
   calculateUpdatedDrawdown(pnl, portfolio) {
-    const newBalance = (portfolio.balance || 10000) + pnl;
-    const peakBalance = portfolio.peakBalance || portfolio.balance || 10000;
+    const parsedCurrent = Number(portfolio.balance);
+    const parsedPeak = Number(portfolio.peakBalance);
+    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const newBalance = currentBalance + Number(pnl || 0);
+    const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
+      ? parsedPeak
+      : (currentBalance > 0 ? currentBalance : 10000);
 
     if (peakBalance <= 0) return 0;
     return Math.max(0, ((peakBalance - newBalance) / peakBalance) * 100);
@@ -236,7 +301,8 @@ class RLOnlineUpdater {
    * Classify size tier
    */
   classifySize(sizeUsd, portfolio) {
-    const balance = portfolio.balance || 10000;
+    const parsedBalance = Number(portfolio.balance);
+    const balance = Number.isFinite(parsedBalance) && parsedBalance > 0 ? parsedBalance : 10000;
     const sizePct = (sizeUsd / balance) * 100;
 
     if (sizePct > 5) return 'large';

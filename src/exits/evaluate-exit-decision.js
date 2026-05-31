@@ -43,6 +43,9 @@ function decideExitAction({
   }
 
   const currentProfit = (price - entryPrice) / entryPrice;
+  const profitLockMutations = (!staleData && !position.setupType)
+    ? buildProfitLockMutations({ position, entryPrice, price, riskCfg })
+    : {};
 
   // 0) BULL-FLAG SETUP — structural stop, measured-move target, manual-cut
   //    deadline. Branches run BEFORE generic trailing/stop logic so the
@@ -361,10 +364,10 @@ function decideExitAction({
             sellPct: 0,
             tierIndex,
             meta: { tierExitRsiValue, tierDelayRsiMin, tierSellRatioPct, currentProfit },
-            mutations: {
+            mutations: mergeMutations(profitLockMutations, {
               tierDelayedAt: { ...tierDelayedAt, [tierIndex]: now },
               tierLocalHigh: nextLocalHigh,
-            },
+            }),
           };
         }
       }
@@ -376,11 +379,11 @@ function decideExitAction({
         sellPct: Number(tier.sellPct || 0),
         tierIndex,
         meta: { currentProfit, profitMultiplier: tier.profitMultiplier },
-        mutations: {
+        mutations: mergeMutations(profitLockMutations, {
           triggeredSellTiers: { ...triggeredSellTiers, [tierIndex]: true },
           tierDelayedAt: omitKey(tierDelayedAt, tierIndex),
           tierLocalHigh: nextLocalHigh,
-        },
+        }),
       };
     }
   }
@@ -407,7 +410,7 @@ function decideExitAction({
     });
   }
 
-  return noop({ reason: 'no_exit_trigger', meta: { currentProfit, hoursInTrade } });
+  return noop({ reason: 'no_exit_trigger', meta: { currentProfit, hoursInTrade }, mutations: profitLockMutations });
 }
 
 // --- helpers ---
@@ -416,8 +419,8 @@ function sell({ reason, sellPct = 1, meta = {}, mutations = {} }) {
   return { action: 'sell', reason, sellPct, tierIndex: null, meta, mutations };
 }
 
-function noop({ reason = 'noop', meta = {} } = {}) {
-  return { action: 'noop', reason, sellPct: 0, tierIndex: null, meta, mutations: {} };
+function noop({ reason = 'noop', meta = {}, mutations = {} } = {}) {
+  return { action: 'noop', reason, sellPct: 0, tierIndex: null, meta, mutations };
 }
 
 function sellTierBatch({ tierIndex, totalTiers, reason, sellPct, nextLocalHigh, meta }) {
@@ -440,6 +443,44 @@ function omitKey(obj, key) {
   const out = { ...(obj || {}) };
   delete out[key];
   return out;
+}
+
+function mergeMutations(...items) {
+  return Object.assign({}, ...items.filter((item) => item && typeof item === 'object'));
+}
+
+function buildProfitLockMutations({ position, entryPrice, price, riskCfg }) {
+  if (riskCfg?.profitLockEnabled === false) return {};
+  const tiers = Array.isArray(riskCfg?.profitLockTiers) ? riskCfg.profitLockTiers : [];
+  if (!tiers.length || !(entryPrice > 0) || !(price > entryPrice)) return {};
+
+  const currentProfitPct = ((price - entryPrice) / entryPrice) * 100;
+  const bestTier = tiers
+    .map((tier, index) => ({
+      index,
+      triggerPct: Number(tier?.triggerPct),
+      lockPct: Number(tier?.lockPct),
+    }))
+    .filter((tier) => (
+      Number.isFinite(tier.triggerPct)
+      && Number.isFinite(tier.lockPct)
+      && tier.triggerPct >= 0
+      && currentProfitPct >= tier.triggerPct
+    ))
+    .sort((left, right) => right.triggerPct - left.triggerPct)[0];
+  if (!bestTier) return {};
+
+  const lockStop = entryPrice * (1 + (bestTier.lockPct / 100));
+  const currentStop = Number(position.stopLoss || 0);
+  if (!(lockStop > 0) || lockStop <= currentStop + 1e-12 || lockStop >= price) return {};
+
+  return {
+    stopLoss: lockStop,
+    profitLockStop: lockStop,
+    profitLockTierIndex: bestTier.index,
+    profitLockTriggerPct: bestTier.triggerPct,
+    profitLockPct: bestTier.lockPct,
+  };
 }
 
 function getBackesTrendFailureReason({ tokenData, exitSignal }) {

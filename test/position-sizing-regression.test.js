@@ -50,3 +50,12 @@ test('position sizing learns from sell trades when closedTrades is a numeric cou
   assert.equal(engine.getRecentTradesForSymbol(portfolio, 'AAA').length, 2);
   assert.equal(engine.getIterationNumber(portfolio, 'AAA'), 3);
 });
+
+test('reduce sizing preserves fractional token quantities', () => {
+  const engine = new PositionSizingEngine({
+    logger: console,
+    config: { risk: { takeProfitPct: 20 } },
+  });
+  assert.ok(Math.abs(engine.calculateReduceSizing({ quantity: 0.75, entryPrice: 100, currentPrice: 116 }) - 0.3) < 1e-12);
+  assert.equal(engine.calculateReduceSizing({ quantity: 0.75, entryPrice: 100, currentPrice: 111 }), 0.1875);
+});
