@@ -702,7 +702,17 @@ const config = {
 
   externalModels: {
     enabled: process.env.EXTERNAL_MODELS_ENABLED !== 'false',
-    failOpen: process.env.EXTERNAL_MODELS_FAIL_OPEN !== 'false',
+    // 2026-05-31 audit (cycle-2 P2): default-OFF for failOpen. The only caller
+    // of runModelInference (src/utils/ml-inference.js — invoked via
+    // hybrid-agent-orchestrator → intelligent-model-review → index.js:4190
+    // strategy-evaluation loop) is the ENTRY signal path. When the python
+    // sidecar throws, swallowing the error (failOpen=true) silently let
+    // entries proceed without their model gate. For entries, the safer
+    // default is "no model signal → no AI-promoted BUY". No exit path
+    // currently goes through runModelInference, so this change can't block
+    // an exit. Operators who explicitly want the old swallow behavior set
+    // EXTERNAL_MODELS_FAIL_OPEN=true.
+    failOpen: process.env.EXTERNAL_MODELS_FAIL_OPEN === 'true',
     artifactRoot: process.env.EXTERNAL_MODELS_ARTIFACT_ROOT || 'artifacts',
   },
 
