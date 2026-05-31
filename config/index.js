@@ -821,7 +821,12 @@ const config = {
 
   externalModels: {
     enabled: process.env.EXTERNAL_MODELS_ENABLED !== 'false',
-    failOpen: process.env.EXTERNAL_MODELS_FAIL_OPEN !== 'false',
+    // 2026-05-31 audit (cycle-2 P2): mirror of live fix. Default-OFF for
+    // failOpen. Sole caller (runModelInference via hybrid-agent-orchestrator)
+    // is the ENTRY signal path; swallowing sidecar errors let entries
+    // proceed without their model gate. Set EXTERNAL_MODELS_FAIL_OPEN=true
+    // to opt back into the old swallow behavior.
+    failOpen: process.env.EXTERNAL_MODELS_FAIL_OPEN === 'true',
     artifactRoot: process.env.EXTERNAL_MODELS_ARTIFACT_ROOT || 'artifacts',
   },
 

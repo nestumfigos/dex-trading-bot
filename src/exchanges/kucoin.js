@@ -1,17 +1,15 @@
 'use strict';
-// PARITY NOTE (2026-05-31 audit cycle-2 P2): this paper-branch kucoin.js is
-// structurally older than the live-branch counterpart (dex-trading-bot/src/
-// exchanges/kucoin.js). Live has KuCoin-native `clientOid` idempotency
-// (_genClientOid + _findFilledKucoinOrder + clientOid on every createOrder
-// call) so a retry after a timeout cross-checks prior attempts instead of
-// double-firing. Paper does NOT have this. The risk is bounded today because
-// executeBuy/executeSell short-circuit at `config.paperTrading` (lines ~579
-// and ~759) before reaching createOrder — paper trades are simulated as
-// `paper_tx_*` and never hit KuCoin. If PAPER_TRADING is ever flipped off
-// against this branch (or the file is promoted to a live profile), paper
-// will lose retry-safety. Tracked follow-up: port the full clientOid path
-// from the live branch (~362 lines of semantic diff) while preserving
-// paper's `adjustForTimeDifference` + KC-API-TIMESTAMP retry additions.
+// PARITY NOTE (2026-05-31 audit cycle-2 P2, updated cycle-2 follow-up):
+// this paper-branch kucoin.js is structurally older than the live-branch
+// counterpart (dex-trading-bot/src/exchanges/kucoin.js) — ~362 lines of
+// semantic diff remain (KC-API-TIMESTAMP retry handling, structural error
+// resilience, etc). The B1.5 idempotency surface (_genClientOid,
+// _findFilledKucoinOrder, _orderToFillResult, clientOid on every
+// createOrder + cross-check before retry) HAS been ported, so paper now
+// matches live retry-safety. executeBuy/executeSell still short-circuit at
+// config.paperTrading before reaching createOrder (paper trades simulate
+// as `paper_tx_*`), but the structural parity means flipping PAPER_TRADING
+// off or promoting this branch to live no longer loses idempotency.
 const ccxt = require('ccxt');
 const config = require('../../config');
 const logger = require('../utils/logger');
@@ -338,6 +336,50 @@ class KuCoinExchange {
     }
   }
 
+  // 2026-05-31 (cycle-2 follow-up): port live's B1.5 idempotency helpers.
+  // clientOid is KuCoin's native idempotency key. Passing it on every
+  // createOrder lets a retry that times out cross-check the prior attempt
+  // (via fetchOrder by clientOid) instead of double-firing the order. Paper
+  // executeBuy/executeSell short-circuit at config.paperTrading before
+  // reaching createOrder today, so this is structural parity for the day
+  // PAPER_TRADING is flipped off or this branch is promoted to live.
+  _genClientOid(side) {
+    const ts = Date.now().toString(36);
+    const rnd = Math.random().toString(36).slice(2, 8);
+    return `b1-${side}-${ts}-${rnd}`;
+  }
+
+  async _findFilledKucoinOrder(symbol, clientOids) {
+    if (!Array.isArray(clientOids) || clientOids.length === 0) return null;
+    for (const oid of clientOids) {
+      try {
+        // ccxt-kucoin: when id is undefined and params.clientOid set, routes to /order/client-order/{clientOid}
+        const order = await this.exchange.fetchOrder(undefined, symbol, { clientOid: oid });
+        if (order && Number(order.filled || 0) > 0) {
+          return { ...order, clientOid: oid };
+        }
+      } catch (_) {
+        // not found — try next oid
+      }
+    }
+    return null;
+  }
+
+  _orderToFillResult(order, opts = {}) {
+    const filled = Number(order?.filled || 0);
+    const avgPrice = Number(order?.average || order?.avgPrice || opts.fallbackPrice || 0);
+    const cost = Number(order?.cost || (filled * avgPrice) || opts.fallbackCost || 0);
+    return {
+      txid: order?.id || `recovered_${order?.clientOid || Date.now()}`,
+      simulated: false,
+      executedPriceUsd: avgPrice,
+      filledBaseQty: filled,
+      filledQuoteUsd: cost,
+      hasExchangeFilledData: Boolean(filled > 0 && cost > 0),
+      recoveredViaClientOid: Boolean(order?.clientOid),
+    };
+  }
+
   normalizeSymbol(symbol) {
     const raw = String(symbol || '').trim();
     if (!raw) return raw;
@@ -641,8 +683,20 @@ class KuCoinExchange {
       const strategyName = String(options?.strategyName || 'momentum').toLowerCase();
       const useMarketBuy = Boolean(config.execution?.kucoinMomentumUseMarketBuy !== false && strategyName === 'momentum');
       let marketAttemptUsed = false;
+      const placedClientOids = []; // B1.5 (ported 2026-05-31): idempotency tracker across retries
       for (let attempt = 1; attempt <= retries; attempt += 1) {
+        const clientOid = this._genClientOid('buy');
         try {
+          // Before re-trying, cross-check any prior clientOids — a timed-out
+          // attempt may have actually landed on the exchange.
+          if (placedClientOids.length > 0) {
+            const landed = await this._findFilledKucoinOrder(symbol, placedClientOids);
+            if (landed) {
+              logger.warn(`KuCoin BUY ${symbol}: prior attempt ${landed.clientOid} actually filled; returning that fill instead of re-ordering`);
+              return this._orderToFillResult(landed);
+            }
+          }
+          placedClientOids.push(clientOid);
           if (useMarketBuy && !marketAttemptUsed) {
             marketAttemptUsed = true;
             const funds = Number(this.exchange.costToPrecision(symbol, cappedQuoteFunds));
@@ -654,6 +708,7 @@ class KuCoinExchange {
             }
             const order = await this.exchange.createOrder(symbol, 'market', 'buy', null, null, {
               funds,
+              clientOid,
             });
 
             let filled = Number(order?.filled || 0);
@@ -711,6 +766,7 @@ class KuCoinExchange {
 
           const order = await this.exchange.createOrder(symbol, 'limit', 'buy', baseAmount, limitPrice, {
             timeInForce: 'IOC',
+            clientOid,
           });
 
           const filled = Number(order?.filled || 0);
@@ -798,7 +854,8 @@ class KuCoinExchange {
           }
           // Use funds-based market sell: KuCoin accepts `funds` param to sell by quote value
           const fundsValue = Number(this.exchange.costToPrecision(symbol, estimatedFunds * 0.999)); // tiny discount to avoid rounding above actual balance
-          const order = await this.exchange.createOrder(symbol, 'market', 'sell', null, null, { funds: fundsValue });
+          const fundsSellClientOid = this._genClientOid('sell');
+          const order = await this.exchange.createOrder(symbol, 'market', 'sell', null, null, { funds: fundsValue, clientOid: fundsSellClientOid });
           await new Promise((resolve) => setTimeout(resolve, 800));
           let filledOrder = order;
           if (order?.id) {
@@ -833,9 +890,21 @@ class KuCoinExchange {
         logger.warn(`KuCoin sell preflight failed (${preflightErr.message}), falling back to limit sell`);
       }
 
+      const placedSellClientOids = []; // B1.5 (ported 2026-05-31): idempotency tracker for SELL retries
       for (let attempt = 1; attempt <= retries; attempt += 1) {
         const attemptStartedAtMs = Date.now();
+        const clientOid = this._genClientOid('sell');
         try {
+          // Cross-check prior clientOids before retrying — a timed-out attempt
+          // may have actually landed on the exchange.
+          if (placedSellClientOids.length > 0) {
+            const landed = await this._findFilledKucoinOrder(symbol, placedSellClientOids);
+            if (landed) {
+              logger.warn(`KuCoin SELL ${symbol}: prior attempt ${landed.clientOid} actually filled; returning that fill instead of re-ordering`);
+              return this._orderToFillResult(landed);
+            }
+          }
+          placedSellClientOids.push(clientOid);
           const { bestBid } = await this.getTopOfBook(symbol);
           const slippagePct = maxSlippagePct + (attempt - 1) * 0.25;
           const limitPriceRaw = bestBid * (1 - slippagePct / 100);
@@ -848,6 +917,7 @@ class KuCoinExchange {
 
           const order = await this.exchange.createOrder(symbol, 'limit', 'sell', sellAmount, limitPrice, {
             timeInForce: 'IOC',
+            clientOid,
           });
 
           let filled = Number(order?.filled || 0);

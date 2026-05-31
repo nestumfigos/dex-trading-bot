@@ -62,6 +62,24 @@ function probePidProcess(pid) {
   });
 }
 
+// 2026-05-31 (cycle-2 follow-up): pm2-Windows quirk handler. When pm2 spawns
+// us (signaled by `process.env.pm_id`) and we detect a live sibling holds
+// the lock, a naive `process.exit(0)` fires BEFORE pm2's `min_uptime`
+// threshold (default 10s) elapses → pm2 counts the exit as a failed startup,
+// hits `max_restarts` (default 10), marks the app `errored`. Workaround:
+// delay the exit past `min_uptime + buffer` so pm2 treats it as a normal
+// post-online shutdown and keeps autorestarting until the sibling is gone,
+// without ever marking the app errored.
+//
+// Read PM2_MIN_UPTIME_MS env (pm2 sets it as integer ms when the app config
+// uses `min_uptime`) and default to 10s + 5s buffer when not present.
+function pm2DelayedExitMs() {
+  if (!process.env.pm_id) return 0; // not running under pm2
+  const fromEnv = Number(process.env.PM2_MIN_UPTIME_MS);
+  const base = Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 10000;
+  return base + 5000;
+}
+
 function acquireRuntimeSingleton({
   dataDirAbs,
   profile,
@@ -127,10 +145,18 @@ function acquireRuntimeSingleton({
           const sleepSab = new Int32Array(new SharedArrayBuffer(4));
           Atomics.wait(sleepSab, 0, 0, graceMs);
           if (pidExists(existing.pid)) {
+            const delayMs = pm2DelayedExitMs();
+            const suffix = delayMs > 0
+              ? ` (pm2-spawn detected; sleeping ${delayMs}ms before exit so pm2 doesn't count this as failed-startup)`
+              : '';
             logger.warn(
               `Another ${profile} runtime is active (${scope} lock held by pid=${existing.pid}, ` +
-              `port=${existing.port || 'unknown'}). Exiting duplicate process ${process.pid} cleanly.`
+              `port=${existing.port || 'unknown'}). Exiting duplicate process ${process.pid} cleanly.${suffix}`
             );
+            if (delayMs > 0) {
+              const exitSab = new Int32Array(new SharedArrayBuffer(4));
+              Atomics.wait(exitSab, 0, 0, delayMs);
+            }
             process.exit(0);
           }
           logger.info(`Sibling pid ${existing.pid} released ${scope} lock — taking over.`);
