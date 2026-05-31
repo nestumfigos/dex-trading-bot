@@ -22,13 +22,11 @@ module.exports = {
         BOT_PROFILE: 'live',
         PORT: '3002',
         DASHBOARD_BIND_HOST: '0.0.0.0',
-        // 2026-05-31 (cmd-window storm fix): see paper block below for full
-        // rationale. python_model_sidecar.py is per-call spawn (~11/15s
-        // observed on live); each spawn contributes to Windows cmd-flash
-        // churn. Disable until refactored into a kept-alive worker.
-        // ml-inference.js falls back to in-process xgboost/RF/lstm code.
-        PYTHON_SIDECAR_ENABLED: 'false',
-        EXTERNAL_MODELS_ENABLED: 'false',
+        // Python sidecar/external models enabled. PM2's WMIC monitor path was
+        // the confirmed cmd-window storm source and is patched locally.
+        PYTHON_SIDECAR_ENABLED: 'true',
+        EXTERNAL_MODELS_ENABLED: 'true',
+        PYTHON_SIDECAR_TIMEOUT_MS: '4000',
         LIVE_BSC_ENTRIES_ENABLED: 'true',
         BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: '60',
         BSC_MAX_CONSECUTIVE_LOSSES: '8',
@@ -53,13 +51,11 @@ module.exports = {
         BOT_PROFILE: 'live',
         PORT: '3002',
         DASHBOARD_BIND_HOST: '0.0.0.0',
-        // 2026-05-31 (cmd-window storm fix): see paper block below for full
-        // rationale. python_model_sidecar.py is per-call spawn (~11/15s
-        // observed on live); each spawn contributes to Windows cmd-flash
-        // churn. Disable until refactored into a kept-alive worker.
-        // ml-inference.js falls back to in-process xgboost/RF/lstm code.
-        PYTHON_SIDECAR_ENABLED: 'false',
-        EXTERNAL_MODELS_ENABLED: 'false',
+        // Python sidecar/external models enabled. PM2's WMIC monitor path was
+        // the confirmed cmd-window storm source and is patched locally.
+        PYTHON_SIDECAR_ENABLED: 'true',
+        EXTERNAL_MODELS_ENABLED: 'true',
+        PYTHON_SIDECAR_TIMEOUT_MS: '4000',
         LIVE_BSC_ENTRIES_ENABLED: 'true',
         BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: '60',
         BSC_MAX_CONSECUTIVE_LOSSES: '8',
@@ -121,16 +117,13 @@ module.exports = {
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
-        // 2026-05-31 (cmd-window storm fix): paper's python_model_sidecar.py
-        // is per-call spawn (not a daemon). Each evaluation cycle fired ~22
-        // python.exe spawns per 15s; despite windowsHide:true on the spawn,
-        // each child triggers a hidden conhost wrapper and contributes to
-        // visible churn on Windows. Disable until the sidecar is refactored
-        // into a kept-alive worker. Inference falls back to xgboost / RF /
-        // lstm local fallbacks in ml-inference.js so trading decisions still
-        // run; we lose only the sentiment-engine / external-model paths.
-        PYTHON_SIDECAR_ENABLED: 'false',
-        EXTERNAL_MODELS_ENABLED: 'false',
+        // Python sidecar/external models enabled. Keep paper sidecar bounded
+        // because it can evaluate many tokens per cycle.
+        PYTHON_SIDECAR_ENABLED: 'true',
+        EXTERNAL_MODELS_ENABLED: 'true',
+        PYTHON_SIDECAR_TIMEOUT_MS: '4000',
+        PYTHON_SIDECAR_MAX_CONCURRENT: '1',
+        PYTHON_SIDECAR_MAX_QUEUE: '10',
         SELF_EVOLUTION_AUTO_APPLY: 'false',
         SELF_EVOLUTION_ALLOW_LIVE_APPLY: 'false',
         SELF_EVOLUTION_AUTO_PROMOTE: 'false',
@@ -147,16 +140,13 @@ module.exports = {
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
-        // 2026-05-31 (cmd-window storm fix): paper's python_model_sidecar.py
-        // is per-call spawn (not a daemon). Each evaluation cycle fired ~22
-        // python.exe spawns per 15s; despite windowsHide:true on the spawn,
-        // each child triggers a hidden conhost wrapper and contributes to
-        // visible churn on Windows. Disable until the sidecar is refactored
-        // into a kept-alive worker. Inference falls back to xgboost / RF /
-        // lstm local fallbacks in ml-inference.js so trading decisions still
-        // run; we lose only the sentiment-engine / external-model paths.
-        PYTHON_SIDECAR_ENABLED: 'false',
-        EXTERNAL_MODELS_ENABLED: 'false',
+        // Python sidecar/external models enabled. Keep paper sidecar bounded
+        // because it can evaluate many tokens per cycle.
+        PYTHON_SIDECAR_ENABLED: 'true',
+        EXTERNAL_MODELS_ENABLED: 'true',
+        PYTHON_SIDECAR_TIMEOUT_MS: '4000',
+        PYTHON_SIDECAR_MAX_CONCURRENT: '1',
+        PYTHON_SIDECAR_MAX_QUEUE: '10',
         SELF_EVOLUTION_AUTO_APPLY: 'false',
         SELF_EVOLUTION_ALLOW_LIVE_APPLY: 'false',
         SELF_EVOLUTION_AUTO_PROMOTE: 'false',
