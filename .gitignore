@@ -6,6 +6,7 @@ logs/
 
 # Simulated execution output read by the paper dashboard.
 data/*.json
+data/*.b1p7-backup
 
 # Generated caches and local tools.
 scripts/__pycache__/
