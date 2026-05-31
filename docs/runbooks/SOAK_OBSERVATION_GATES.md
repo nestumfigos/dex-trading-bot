@@ -1,6 +1,6 @@
 # Soak / Observation Gates Runbook
 
-**Purpose:** explicit operator-runtime checklist for the ~50 `[ ]` items in `REFACTOR_CHECKLIST.md` that cannot be closed by editing code. These items require live bots accumulating trade data over wall-clock time.
+**Purpose:** explicit operator-runtime checklist for observation gates that cannot be closed by editing code. These items require live bots accumulating trade data over wall-clock time.
 
 **Why not auto-close them:** marking them `[X]` without observation would deceive future agents and operators. Strategy promotion gates exist exactly to catch the failure mode of "passes backtest, dies live". Bypassing them undoes years of risk discipline.
 
@@ -56,7 +56,7 @@ Status check: open dashboard `/view-observability` → Bull-Flag panel + cumulat
    - health: `GET /api/health-canary?limit=100`
    - trades: `SELECT * FROM dbo.bot_trade_ledger WHERE setup_type = 'X' AND closed_at >= DATEADD(d, -7, SYSUTCDATETIME())`
 2. **Verify the threshold** as documented above. Be honest — a gate that "looks close" is a fail.
-3. **Edit `docs/REFACTOR_CHECKLIST.md`**: change `- [ ]` → `- [X]` + add `— YYYY-MM-DD, <evidence>` note.
+3. **Record the closeout here or in the relevant promotion record** with date, metric source, and evidence.
 4. **Commit** with message `Close W<NN>.<n> gate: <criteria summary>` and push both repos.
 
 ## What blocks all of these
@@ -64,13 +64,16 @@ Status check: open dashboard `/view-observability` → Bull-Flag panel + cumulat
 - Bot must be running continuously on live or paper (depending on gate).
 - AI providers must work (Anthropic + Groq + Gemini keys must be valid — see live error log for "AI brain failure" patterns).
 - SQL telemetry must persist trades (`SQL_ENABLED=true` on live).
-- Dashboard must be reachable (port 3001/3002).
+- Dashboards must be reachable: live `3002`, paper `3003`, perps paper `3004`.
 
-## Snapshot at 2026-05-23
+## Historical Snapshot at 2026-05-23
 
-- **Live bot**: running pid 7304, KuCoin scan ~60 tokens/cycle, 60 consecutive cycles signal-drought on `spot_day_bull_flag` (filters too tight or no setups in current market).
-- **Paper bot**: running pid 3664, scanning solana/bsc/kucoin.
+- **Live bot**: was running pid 7304, KuCoin scan ~60 tokens/cycle, 60 consecutive cycles signal-drought on `spot_day_bull_flag` (filters too tight or no setups in current market).
+- **Paper bot**: was running pid 3664, scanning solana/bsc/kucoin.
 - **AI providers**: groq + gemini + claude failing — keys need rotation per [docs/runbooks/README](README.md).
 - **No new bull-flag, backes, F, G, or Solana-v2 trades closed yet** — all gates remain pending.
 
 Set a calendar reminder for **7 days from 2026-05-23 = 2026-05-30** to do the Plan B (bull-flag) 7-day review.
+
+Do not use this old PID snapshot as current status. Pull current state from the
+health endpoints and SQL before closing any soak item.

@@ -2,7 +2,7 @@
 
 ## 1.2.0 - 2026-05-22 (pending live promotion — awaiting 24h paper canary)
 
-Week-of-2026-05-21 refactor sweep. Source: multi-agent code review 2026-05-21 (`docs/runbooks/REFACTOR_CHECKLIST_bugs.md`).
+Week-of-2026-05-21 refactor sweep. Source: multi-agent code review 2026-05-21; the old checklist file has since been consolidated into `TRADING_SYSTEM.md` and the active runbooks.
 
 ### Security
 - `self-evolution.js`: Gemini API key moved from URL querystring to `x-goog-api-key` header (key leakage via logs/proxies/referers).
@@ -74,7 +74,7 @@ Week-of-2026-05-21 refactor sweep. Source: multi-agent code review 2026-05-21 (`
 
 ### Operations
 - `docs/runbooks/DIVERGENCE.md` — documents intentional live vs paper config divergence (day-trading vs swing profile) — do not sync.
-- `docs/runbooks/REFACTOR_CHECKLIST_bugs.md` — full 7-day plan with completion markers.
+- Historical refactor checklist content consolidated into `TRADING_SYSTEM.md` and active runbooks.
 
 ## 1.1.0 - 2026-05-21
 

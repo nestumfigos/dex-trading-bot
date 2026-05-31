@@ -1,105 +1,81 @@
-# PERPS Bot Bootstrap (WEEK 15)
+# Perps Paper Service And Live Promotion Runbook
 
-**Status (2026-05-23):** Not started. Explicitly out-of-scope for the spot bot repo per checklist header `WEEK 15 — PLAN D TRADERXO PERPS (NEW, SEPARATE REPO)`.
+The perps bot is implemented as a separate paper/research service in
+`C:\Users\User_\Desktop\dex-trading-bot-perps`. It must stay isolated from spot
+execution because margin, leverage, funding, and liquidation risk do not share a
+safe money path with spot.
 
-This runbook documents what an operator (or future Claude session) needs to do to begin the PERPS bot project. Reading-only — no code is shipped here because perpetual-futures trading involves leverage + liquidation risk that demands deliberate, separately-validated implementation.
+## Current Deployment
 
-## Why not stub it in-place
+| Mode | Command source | Port | Notes |
+|---|---|---|---|
+| PM2 local suite | live repo `ecosystem.config.js` | 3004 | Current supervised deployment |
+| Standalone perps repo | `dex-trading-bot-perps\start.bat` | 3010 | Manual local research launcher |
 
-Spot bot money path is `[wallet → buy → sell → wallet]`, all positive-balance. Perp money path is `[margin → notional w/ leverage → reduce-only exits → margin]` with liquidation buffer math that has no analog in spot. Reusing spot code paths "with leverage added" is the single biggest failure mode in this space — empty stubs labeled "perps-*.js" inside the spot repo invite that mistake.
+Required paper env:
 
-## Operator checklist to bootstrap dex-trading-bot-perps
+```text
+PERPS_PAPER_SERVICE_ENABLED=true
+PERPS_PAPER_MARKET_DATA_ENABLED=true
+PERPS_MODE=paper
+PERPS_PAPER_EQUITY_USD=10000
+PERPS_PAPER_LEVERAGE=3
+PERPS_PAPER_SCAN_INTERVAL_MS=900000
+```
 
-1. **Clone + strip**
-   ```
-   cd c:/Users/User_/Desktop/
-   git clone https://github.com/nestumfigos/dex-trading-bot dex-trading-bot-perps
-   cd dex-trading-bot-perps
-   ```
-   Then remove:
-   - `src/exchanges/{kucoin,jupiter,pancakeswap,baseswap}.js`
-   - `src/strategies/{bull-flag-*,backes-*,early-breakout-*}.js`
-   - Strategy lookups + scan paths in `src/cycle/*`
-   - SQL migrations 0009-0023 (perp telemetry will be new schema)
+Health checks:
 
-2. **Reset portfolio shape**
-   Drop `quantity` semantics. New positions carry `{side: 'long'|'short', notional, margin, leverage, liquidationPrice}`. Update `state/portfolio.js`, `state-persistence.js`, all reconciliation paths.
+```powershell
+Invoke-RestMethod http://127.0.0.1:3004/health
+Invoke-RestMethod http://127.0.0.1:3004/api/status
+```
 
-3. **Choose exchange + write adapter**
-   Per checklist D.2 options: Binance Perps / Bybit / OKX. Build `src/exchanges/binance-perps.js` (or chosen):
-   - REST: place/cancel/reduce-only/query, account margin + liquidation price
-   - WebSocket: account updates (margin, position, liq), markPrice (for liq math), aggTrade
-   - All exits must be `reduceOnly: true` (D.10) — never accidentally flip direction
-   - Mock REST + WS fixtures in tests before any live call
+The service must report `liveExecutionEnabled=false` while in paper mode.
 
-4. **Strategy modules (per D.3-D.7)**
-   - `src/strategies/perps-anchors.js` — HTF time anchor levels (PWH/PWL/PDH/PDL/asia/london/NY sessions)
-   - `src/strategies/perps-range-detector.js` — established range detection from anchors
-   - `src/strategies/perps-deviation-reclaim.js` — RH/RL sweep + reclaim pattern
-   - `src/strategies/perps-mss-detector.js` — Market Structure Shift on retest
-   - `src/strategies/perps-l2l-detector.js` — Level-to-level continuation
-   - All pure-fn: `(candles, context) → {qualifies, entry, stop, target1, target2, reasons}`
-   - Tests w/ synthetic fixtures for each pattern + each no-trade scenario
+## Paper Evidence Requirements
 
-5. **Sizing (D.8) — critical leverage math**
-   ```
-   notional = (equity × riskPct) / (stopDistancePct / leverage)
-   liquidationPrice = avgEntry × (1 ± (1/leverage − maintenanceMargin))
-   liquidationBufferPct = abs(liqPrice − entry) / abs(stop − entry)
-   require liquidationBufferPct ≥ 2.0  // hard floor
-   ```
-   Tests must include numeric assertions on liq math, not just shape.
+Before any live perps path is enabled:
 
-6. **Risk gates (D.9)**
-   - Daily max loss: -2R or -2% (whichever fires first)
-   - Weekly max: -5R or -5%
-   - Per-trade R:R minimum: 1:3 planned
-   - Manual cut: 3-5 sideways candles + EMA rhythm break
-   - Breakeven move at 1R or EQ hit
-   - Pre-trade liquidation buffer ≥ 2× stop distance
+1. At least 4 weeks paper runtime.
+2. At least 200 completed paper trades.
+3. Positive net expectancy after fees, slippage, and funding.
+4. No liquidation near-miss where liquidation buffer is below 2x stop distance.
+5. Walk-forward replay passes without changing selected parameters between train and validation windows.
+6. Admission gate evidence is present unless explicitly running a research-only disabled-gate session.
 
-7. **Exits (D.10) — all reduce-only**
-   - Scale 50% at target1 (EQ)
-   - Remainder at target2 (opposite range or next HTF level)
-   - Full close on structure failure (entry invalidation)
-   - Telegram alert on ANY liquidation buffer < 2x
+## Live Canary Requirements
 
-8. **Telemetry (D.11)**
-   Either separate DB or prefix all tables `perps_*`. Track funding cost separately from PnL. Liquidation buffer trend = critical metric.
+Live perps remains blocked unless all paper evidence passes and the operator
+explicitly enables the live adapter.
 
-9. **Paper soak (D.13) — longer than spot**
-   - 4 weeks minimum
-   - ≥200 paper trades
-   - Positive expectancy after FUNDING + fees + slippage
-   - Zero liquidation near-misses (liq < 2× stop)
+Canary rules:
 
-10. **Live canary (D.14) — extreme caution**
-    - Isolated margin
-    - Max 3x leverage (NOT 5x default for canary)
-    - $100 account starting
-    - 1 position max
-    - 1 month observation before scaling
-    - Telegram alert on liquidation buffer < 2x
+- isolated margin only
+- max 3x leverage
+- one open position max
+- $100 starting account floor
+- reduce-only exits on every close
+- client order id on every order
+- immediate halt on liquidation buffer below 2x
+- one month observation before scaling
 
-## Estimate
-- Adapter + tests: 3 days
-- Strategy modules: 4 days
-- Sizing + risk gates + exits: 2 days
-- Telemetry + dashboard: 2 days
-- Paper soak: 4 weeks (passive, but blocks live)
-- Live canary: 1 month (passive)
+Live adapter load requires both:
 
-**Total active development: ~11 days. Time to live: ~9 weeks.**
+```text
+PERPS_LIVE_ENABLED=true
+BINANCE_PERPS_API_KEY=...
+BINANCE_PERPS_API_SECRET=...
+```
 
-## What I did NOT do
+Missing either credential keeps `src/exchanges/binance-perps.js` in guarded
+mode. This is intentional.
 
-This runbook is documentation only. I did not:
-- Create the `dex-trading-bot-perps/` directory
-- Stub any perps-*.js modules
-- Add Binance-perps SDK to package.json
-- Wire ANY perp endpoint into live or paper
+## Operator Checklist
 
-Operator must explicitly start the project. Checklist WEEK 15 items remain `[ ]` to reflect that fact honestly. Closing them as `[X]` based on stubs would be deceptive.
-
-## Reference
-See `docs/REFACTOR_CHECKLIST.md` WEEK 15 section for the original 30-item plan (D.1 - D.14).
+1. Confirm paper health is OK on port 3004.
+2. Confirm `liveExecutionEnabled=false`.
+3. Confirm paper entries are sourced from TraderXO perps strategy paths only.
+4. Confirm replay endpoints are research-only and do not write paper trades.
+5. Review `dex-trading-bot-perps\README.md` and `audit\phase-a\README.md`.
+6. Review paper evidence: expectancy, R multiple, drawdown, funding, slippage, and failed exits.
+7. Only after evidence passes, prepare a separate live-canary change with the env flags above.

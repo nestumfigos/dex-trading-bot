@@ -12,11 +12,12 @@ Single-source doc covering architecture, strategies, risk model, execution, pers
 |---|---|---|---|---|---|
 | LIVE | `dex-trading-bot` | 3002 | `live` | KuCoin only | manual restart |
 | PAPER | `dex-trading-bot-paper` | 3003 (was 3001) | `paper` | all enabled chains | manual restart |
-| PERPS | `dex-trading-bot-perps` | 3010 | `perps` | Binance USD-M (paper) | manual restart |
+| PERPS | `dex-trading-bot-perps` | 3004 (PM2), 3010 (standalone `start.bat`) | `perps` | Binance USD-M / KuCoin-mapped perps paper | manual restart |
 
-PM2 autorestart **disabled** (Windows pid sync drift). Bots started via PowerShell `Start-Process -WindowStyle Hidden` with explicit env hashtable.
-
-**Auto-start removed:** `DexBot PM2 Restore` scheduled task deleted (2026-05-27). PM2 daemons killed; orphan dependencies stop with Claude shutdown.
+PM2 runs the local suite from `ecosystem.config.js`. Cron restarts are disabled
+because Windows PM2 restart churn created duplicate lock contention and visible
+Node windows. The local PM2 daemon also has the missing-WMIC monitor path patched
+to prevent console-window storms.
 
 ---
 
@@ -281,7 +282,7 @@ Feeds back: blacklists avoid tokens (12h), watchlist boosts position sizing, run
 All three: `SQL_ENABLED=true`, `SQL_CONNECTION_STRING=...`, `PRE_TRADE_CONTRACT_MODE=enforce`, `BOT_VERSION=...`.
 - LIVE: `BOT_PROFILE=live`, `PAPER_TRADING=false`, `PORT=3002`
 - PAPER: `BOT_PROFILE=paper`, `PAPER_TRADING=true`, `PORT=3003`
-- PERPS: `BOT_PROFILE=perps`, `PERPS_PAPER_SERVICE_ENABLED=true`, `PERPS_MODE=paper`, `PORT=3010`
+- PERPS: `BOT_PROFILE=perps`, `PERPS_PAPER_SERVICE_ENABLED=true`, `PERPS_MODE=paper`, `PORT=3004` under PM2. The perps repo `start.bat` uses standalone port `3010`.
 
 ### 7.3 RPC endpoints (publicnode chain)
 
@@ -293,9 +294,9 @@ BSC: `https://bsc-rpc.publicnode.com` (~75ms p50). Base: `https://base-rpc.publi
 - `safe-mode-active.md` — manual operator review pause
 - `sql-unhealthy.md` — pool retry storm, capacity, drift
 - `DIVERGENCE.md` — live↔paper threshold drift detection
-- `AI_KEY_ROTATION.md` — Groq/Cerebras/Mistral key rotation
+- `AI_KEY_ROTATION.md` — AI provider, exchange, and notification credential rotation
 - `SOAK_OBSERVATION_GATES.md` — canary observation thresholds
-- `PERPS_BOOTSTRAP.md` — perps live promotion canary plan
+- `PERPS_BOOTSTRAP.md` — perps paper operation and live promotion canary plan
 
 ---
 
@@ -365,7 +366,7 @@ Tests: 202/202 spot green, 49/49 perps green at last check (pre-C-phase; C edits
 - Admin token session TTL enforced (B3.dash.8).
 - Symbol overrides (block list) loaded from SQL on boot, refreshed via TTL.
 
-Key rotation: `SECURITY_PROVIDER_KEY_ROTATION_CHECKLIST.md`.
+Key rotation: `docs/runbooks/AI_KEY_ROTATION.md`.
 
 ---
 
