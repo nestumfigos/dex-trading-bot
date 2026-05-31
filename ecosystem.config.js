@@ -22,6 +22,13 @@ module.exports = {
         BOT_PROFILE: 'live',
         PORT: '3002',
         DASHBOARD_BIND_HOST: '0.0.0.0',
+        // 2026-05-31 (cmd-window storm fix): see paper block below for full
+        // rationale. python_model_sidecar.py is per-call spawn (~11/15s
+        // observed on live); each spawn contributes to Windows cmd-flash
+        // churn. Disable until refactored into a kept-alive worker.
+        // ml-inference.js falls back to in-process xgboost/RF/lstm code.
+        PYTHON_SIDECAR_ENABLED: 'false',
+        EXTERNAL_MODELS_ENABLED: 'false',
         LIVE_BSC_ENTRIES_ENABLED: 'true',
         BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: '60',
         BSC_MAX_CONSECUTIVE_LOSSES: '8',
@@ -46,6 +53,13 @@ module.exports = {
         BOT_PROFILE: 'live',
         PORT: '3002',
         DASHBOARD_BIND_HOST: '0.0.0.0',
+        // 2026-05-31 (cmd-window storm fix): see paper block below for full
+        // rationale. python_model_sidecar.py is per-call spawn (~11/15s
+        // observed on live); each spawn contributes to Windows cmd-flash
+        // churn. Disable until refactored into a kept-alive worker.
+        // ml-inference.js falls back to in-process xgboost/RF/lstm code.
+        PYTHON_SIDECAR_ENABLED: 'false',
+        EXTERNAL_MODELS_ENABLED: 'false',
         LIVE_BSC_ENTRIES_ENABLED: 'true',
         BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: '60',
         BSC_MAX_CONSECUTIVE_LOSSES: '8',
