@@ -243,7 +243,7 @@ function check(ctx = {}) {
  * Convenience: persist a check() result to dbo.trade_rejections.
  * Best-effort; never throws.
  */
-async function recordRejections({ sql, scope, strategy, trade, side, result, botVersion, logger }) {
+async function recordRejections({ sql, scope, strategy, trade, state = {}, side, result, botVersion, logger }) {
   if (!result) return;
   const rows = [...(result.blocked || []), ...(result.warned || []), ...(result.logged || [])];
   if (rows.length === 0) return;

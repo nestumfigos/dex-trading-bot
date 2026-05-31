@@ -40,7 +40,7 @@ async function loadRiskRules(sql, scope) {
     const req = sql.request();
     req.input('scope', scope);
     const r = await req.query(`
-      SELECT name, severity, enabled
+      SELECT name, scope, severity, enabled
         FROM dbo.risk_rules
        WHERE scope IN (@scope, 'global')
     `);
@@ -186,7 +186,7 @@ async function runPreTrade({
 
   // Best-effort persistence — never throws upward.
   if (sql) {
-    recordRejections({ sql, scope, strategy, trade, side, result, botVersion, logger }).catch(() => {});
+    recordRejections({ sql, scope, strategy, trade, state, side, result, botVersion, logger }).catch(() => {});
   }
 
   const blockedCount = result.blocked.length;

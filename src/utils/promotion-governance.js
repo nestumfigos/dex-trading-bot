@@ -14,6 +14,10 @@ function hashValue(value) {
   return crypto.createHash('sha256').update(stableStringify(value)).digest('hex');
 }
 
+function hashText(value) {
+  return crypto.createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex');
+}
+
 function computeStrategyVersionHash({ config = {}, strategies = {}, risk = {} } = {}) {
   return hashValue({
     strategy: config.strategy || {},
@@ -99,6 +103,53 @@ function classifyPromotionImpact(changedFiles = []) {
   };
 }
 
+function validateGeneratedBehaviorApplication(plan = {}) {
+  const changes = Array.isArray(plan.changes) ? plan.changes : [];
+  if (!changes.length) return { allow: true, reason: 'no_changes' };
+  const nonRelaxableEnvKeys = new Set([
+    'MAX_DAILY_LOSS_PCT_BY_CHAIN',
+    'MAX_CONCURRENT_POSITIONS',
+    'MOMENTUM_MAX_CONCURRENT_POSITIONS',
+    'SWING_MAX_CONCURRENT_POSITIONS',
+  ]);
+  const loosensCapitalProtection = changes.some((change) => (
+    change?.type === 'env_set'
+    && nonRelaxableEnvKeys.has(String(change.key || '').toUpperCase())
+  ));
+  if (loosensCapitalProtection) {
+    return { allow: false, reason: 'capital_protections_cannot_be_relaxed_by_generated_behavior' };
+  }
+  if (plan.validation?.preApplyPassed !== true) {
+    return { allow: false, reason: 'pre_apply_validation_required' };
+  }
+  if (plan.approval?.approved !== true) {
+    return { allow: false, reason: 'explicit_approval_required' };
+  }
+  return { allow: true, reason: 'validated_and_approved' };
+}
+
+function validatePromotionCandidate(manifest) {
+  if (!manifest || typeof manifest !== 'object') {
+    return { allow: false, reason: 'candidate_manifest_required' };
+  }
+  if (Array.isArray(manifest.changedEnvKeys) && manifest.changedEnvKeys.length > 0) {
+    return { allow: false, reason: 'environment_changes_are_not_promotable' };
+  }
+  if (manifest.validation?.passed !== true) {
+    return { allow: false, reason: 'candidate_validation_required' };
+  }
+  if (manifest.promotion?.eligible !== true) {
+    return { allow: false, reason: 'candidate_not_eligible' };
+  }
+  if (manifest.promotion?.approved !== true) {
+    return { allow: false, reason: 'promotion_approval_required' };
+  }
+  if (manifest.rollout?.manualApprovalRequired === true && manifest.rollout?.manualApprovalGranted !== true) {
+    return { allow: false, reason: 'manual_approval_required' };
+  }
+  return { allow: true, reason: 'validated_and_approved' };
+}
+
 function normalizeRegimeLabel(raw = '') {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return 'unknown';
@@ -124,9 +175,12 @@ function classifyRegimeFamily(raw = '') {
 module.exports = {
   stableStringify,
   hashValue,
+  hashText,
   computeStrategyVersionHash,
   computeDiscrepancyScore,
   classifyPromotionImpact,
+  validateGeneratedBehaviorApplication,
+  validatePromotionCandidate,
   normalizeRegimeLabel,
   classifyRegimeFamily,
 };

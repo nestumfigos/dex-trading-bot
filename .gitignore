@@ -20,8 +20,11 @@ data/*.lock
 data/learning-backup.json
 data/evolution-candidates/
 data/self-evolution-history.jsonl
+data/rl-pending-validations.jsonl
 
 # Editor/tool/agent caches
+scripts/__pycache__/
+*.pyc
 .claude-flow/
 .serena/
 .vscode/

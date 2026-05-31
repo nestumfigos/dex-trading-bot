@@ -27,7 +27,7 @@ class RLOnlineUpdater {
    * single unlucky trade sequence).
    */
   updateFromTrade(tradeOutcome) {
-    if (!tradeOutcome || !tradeOutcome.symbols || !tradeOutcome.pnl) {
+    if (!tradeOutcome || !(tradeOutcome.symbol || tradeOutcome.symbols) || !Number.isFinite(Number(tradeOutcome.pnl))) {
       return;
     }
 
@@ -47,7 +47,7 @@ class RLOnlineUpdater {
         reward,
         nextState,
         ts: Date.now(),
-        symbols: tradeOutcome.symbols,
+        symbols: tradeOutcome.symbols || [tradeOutcome.symbol],
         pnl: Number(tradeOutcome.pnl || 0),
         sizeUsd: Number(tradeOutcome.sizeUsd || 0),
         strategy: tradeOutcome.strategy || 'unknown',
@@ -150,12 +150,12 @@ class RLOnlineUpdater {
     // Bonus for winning trades
     if (pnl > 0) {
       reward += 5; // +5 for any win
-      if (pnlPercent > 20) reward += 10; // +10 for >20% win
-      if (pnlPercent > 50) reward += 15; // +15 for >50% win
+      if (pnlPercent > 0.20) reward += 10; // +10 for >20% win
+      if (pnlPercent > 0.50) reward += 15; // +15 for >50% win
     } else {
       // Penalty for losing trades
       reward -= 3; // -3 for any loss
-      if (pnlPercent < -10) reward -= 10; // -10 for >10% loss
+      if (pnlPercent < -0.10) reward -= 10; // -10 for >10% loss
     }
 
     // Reward for risk management
@@ -282,8 +282,12 @@ class RLOnlineUpdater {
    * Calculate drawdown from portfolio
    */
   calculateDrawdown(portfolio) {
-    const peakBalance = portfolio.peakBalance || portfolio.balance || 10000;
-    const currentBalance = portfolio.balance || 10000;
+    const parsedCurrent = Number(portfolio.balance);
+    const parsedPeak = Number(portfolio.peakBalance);
+    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
+      ? parsedPeak
+      : (currentBalance > 0 ? currentBalance : 10000);
 
     if (peakBalance <= 0) return 0;
     return ((peakBalance - currentBalance) / peakBalance) * 100;
@@ -304,8 +308,13 @@ class RLOnlineUpdater {
    * Calculate updated drawdown
    */
   calculateUpdatedDrawdown(pnl, portfolio) {
-    const newBalance = (portfolio.balance || 10000) + pnl;
-    const peakBalance = portfolio.peakBalance || portfolio.balance || 10000;
+    const parsedCurrent = Number(portfolio.balance);
+    const parsedPeak = Number(portfolio.peakBalance);
+    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const newBalance = currentBalance + Number(pnl || 0);
+    const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
+      ? parsedPeak
+      : (currentBalance > 0 ? currentBalance : 10000);
 
     if (peakBalance <= 0) return 0;
     return Math.max(0, ((peakBalance - newBalance) / peakBalance) * 100);
@@ -315,7 +324,8 @@ class RLOnlineUpdater {
    * Classify size tier
    */
   classifySize(sizeUsd, portfolio) {
-    const balance = portfolio.balance || 10000;
+    const parsedBalance = Number(portfolio.balance);
+    const balance = Number.isFinite(parsedBalance) && parsedBalance > 0 ? parsedBalance : 10000;
     const sizePct = (sizeUsd / balance) * 100;
 
     if (sizePct > 5) return 'large';

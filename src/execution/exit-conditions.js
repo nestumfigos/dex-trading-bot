@@ -77,6 +77,11 @@ function createExitConditions(deps) {
     if (mut.tierLocalHigh !== undefined) position.tierLocalHigh = mut.tierLocalHigh;
     if (mut.holdExtensionsUsed !== undefined) position.holdExtensionsUsed = mut.holdExtensionsUsed;
     if (mut.holdUntilAt !== undefined) position.holdUntilAt = mut.holdUntilAt;
+    if (mut.stopLoss !== undefined) position.stopLoss = mut.stopLoss;
+    if (mut.profitLockStop !== undefined) position.profitLockStop = mut.profitLockStop;
+    if (mut.profitLockTierIndex !== undefined) position.profitLockTierIndex = mut.profitLockTierIndex;
+    if (mut.profitLockTriggerPct !== undefined) position.profitLockTriggerPct = mut.profitLockTriggerPct;
+    if (mut.profitLockPct !== undefined) position.profitLockPct = mut.profitLockPct;
 
     if (decision.action === 'noop') return;
 

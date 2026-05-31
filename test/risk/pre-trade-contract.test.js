@@ -13,6 +13,7 @@ const {
   checkDailyLossBudget,
   checkConsecutiveLossStreak,
   checkAiCircuit,
+  recordRejections,
 } = require('../../src/risk/pre-trade-contract');
 
 // ─── Catalog sanity ────────────────────────────────────────────────────────
@@ -281,4 +282,31 @@ test('check(): all defaults / minimal ctx → does not throw', () => {
   // No trade data → some gates bail to pass, others may block (size NaN). Important: no throw.
   assert.ok(typeof res === 'object');
   assert.ok(Array.isArray(res.blocked));
+});
+
+test('recordRejections persists walletUsd from state fallback', async () => {
+  const capturedInputs = {};
+  const sql = {
+    request() {
+      return {
+        input(key, value) {
+          capturedInputs[key] = value;
+          return this;
+        },
+        async query() {
+          return { rowsAffected: [1] };
+        },
+      };
+    },
+  };
+  await recordRejections({
+    sql,
+    scope: 'live',
+    strategy: 'momentum',
+    side: 'BUY',
+    trade: { symbol: 'KCS', chain: 'kucoin', sizeUsd: 50, positionValueUsd: 50 },
+    state: { walletUsd: 1000 },
+    result: { blocked: [{ gate: 'daily_loss_budget', severity: 'block', reason: 'daily halt' }] },
+  });
+  assert.equal(capturedInputs.wallet_usd, 1000);
 });

@@ -145,6 +145,38 @@ test('TRAILING_STOP: price > trailingStop -> NOT triggered (price above)', () =>
   assert.notEqual(r.reason, 'TRAILING_STOP');
 });
 
+test('PROFIT_LOCK: winning generic position ratchets stop without exiting', () => {
+  const r = decideExitAction({
+    position: basePosition({ stopLoss: 90, takeProfit: 0 }),
+    tokenData: { price: 108.5 },
+    strategyCfg: baseStrategyCfg({ minHoldHours: 100, maxHoldMinutes: 10000 }),
+    riskCfg: baseRiskCfg({
+      profitLockTiers: [
+        { triggerPct: 4, lockPct: 0 },
+        { triggerPct: 8, lockPct: 3 },
+      ],
+    }),
+    sellTiers: [],
+    now: NOW,
+  });
+  assert.equal(r.action, 'noop');
+  assert.equal(r.mutations.stopLoss, 103);
+  assert.equal(r.mutations.profitLockPct, 3);
+});
+
+test('PROFIT_LOCK: never lowers an existing tighter stop', () => {
+  const r = decideExitAction({
+    position: basePosition({ stopLoss: 105, takeProfit: 0 }),
+    tokenData: { price: 108.5 },
+    strategyCfg: baseStrategyCfg({ minHoldHours: 100, maxHoldMinutes: 10000 }),
+    riskCfg: baseRiskCfg({ profitLockTiers: [{ triggerPct: 8, lockPct: 3 }] }),
+    sellTiers: [],
+    now: NOW,
+  });
+  assert.equal(r.action, 'noop');
+  assert.equal(r.mutations.stopLoss, undefined);
+});
+
 // 3. STOP_LOSS
 
 test('STOP_LOSS: price <= stopLoss -> sell with stopLevel meta', () => {

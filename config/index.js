@@ -240,6 +240,14 @@ const config = {
     // Graduated stale-drift exit: forces out barely-profitable positions that won't move.
     // Without this, slow-bleed winners trap capital indefinitely (never hit TP, never hit SL).
     staleDriftExitEnabled: process.env.STALE_DRIFT_EXIT_ENABLED !== 'false',
+    // Profit-lock ratchet: once a winner reaches configured milestones, raise
+    // stopLoss so the trade cannot round-trip the whole move.
+    profitLockEnabled: process.env.PROFIT_LOCK_ENABLED !== 'false',
+    profitLockTiers: (() => {
+      try {
+        return JSON.parse(process.env.PROFIT_LOCK_TIERS || '[{"triggerPct":4,"lockPct":0},{"triggerPct":8,"lockPct":3},{"triggerPct":15,"lockPct":8}]');
+      } catch { return null; }
+    })(),
     // B2.21 (drift retained intentional): live keeps tighter stale-drift windows
     // (12h/1%) versus paper (24h/3%). Live is more aggressive on cleaning up
     // slow-bleed winners that won't move — operator may sync paper-side later
@@ -512,9 +520,9 @@ const config = {
         { profitMultiplier: 1.15, sellPct: 0.35 },
         { profitMultiplier: 1.25, sellPct: 0.40 },
       ]),
-      // Trailing stop: momentum needs the larger 2x activation since it rides parabolic moves.
-      trailingActivationMultiplier: parseFloat(process.env.MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER || '2.0'),
-      trailingStopPct: parseFloat(process.env.MOMENTUM_TRAILING_STOP_PCT || '15'),
+      // Day-trading momentum needs profit protection early, not only after parabolic moves.
+      trailingActivationMultiplier: parseFloat(process.env.MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER || '1.025'),
+      trailingStopPct: parseFloat(process.env.MOMENTUM_TRAILING_STOP_PCT || '2.5'),
     },
     swing: {
       enabled: process.env.SWING_ENABLED === 'true',
