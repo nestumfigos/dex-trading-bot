@@ -8,7 +8,7 @@ const { runBacktest, runWalkForwardBacktest } = require('./backtest');
 
 function execNode(projectRoot, args, timeout = 20000) {
   return new Promise((resolve) => {
-    execFile(process.execPath, args, { cwd: projectRoot, timeout }, (error, stdout, stderr) => {
+    execFile(process.execPath, args, { cwd: projectRoot, timeout, windowsHide: true }, (error, stdout, stderr) => {
       // Tristate result:
       //   passed     — exit 0, no error
       //   failed     — exit non-zero with a real error from the script (validation FAILED, do not promote)

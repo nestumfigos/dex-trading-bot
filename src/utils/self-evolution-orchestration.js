@@ -400,6 +400,7 @@ ORDER BY ts DESC
       execFileSync(processExecPath, [rollbackScriptPath], {
         cwd: projectRoot,
         stdio: 'inherit',
+        windowsHide: true,
         env: {
           ...process.env,
           ROLLBACK_REASON: 'live_post_promotion_degradation',

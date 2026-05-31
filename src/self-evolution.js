@@ -676,7 +676,7 @@ class SelfEvolutionEngine {
           const tmpCheckPath = path.join(backupRoot, `__syntaxcheck__${change.file.replace(/[\\/]/g, '__')}`);
           await fs.writeFile(tmpCheckPath, after, 'utf8');
           const syntaxResult = await new Promise((resolve) => {
-            execFile(process.execPath, ['--check', tmpCheckPath], { timeout: 10000 }, (err, _stdout, stderr) => {
+            execFile(process.execPath, ['--check', tmpCheckPath], { timeout: 10000, windowsHide: true }, (err, _stdout, stderr) => {
               resolve({ ok: !err, stderr: String(stderr || '') });
             });
           });
@@ -958,7 +958,7 @@ If no safe changes are needed, return: { "reasoning": "...", "changes": [] }`;
               const tmpPath = path.join(os.tmpdir(), `evo-check-${Date.now()}.js`);
               await fs.writeFile(tmpPath, patched, 'utf8');
               await new Promise((resolve) => {
-                execFile(process.execPath, ['--check', tmpPath], { timeout: 8000 }, (err) => {
+                execFile(process.execPath, ['--check', tmpPath], { timeout: 8000, windowsHide: true }, (err) => {
                   if (err) { valid = false; this.logger.warn(`[Evolution/AI] Sandbox check failed for ${filePath}: ${err.message.slice(0, 120)}`); }
                   fs.unlink(tmpPath).catch(() => {});
                   resolve();
@@ -1138,6 +1138,7 @@ If no safe changes are needed, return: { "reasoning": "...", "changes": [] }`;
       execFileSync(process.execPath, [promoteScript], {
         stdio: 'inherit',
         timeout: 120_000,
+        windowsHide: true,
         env: {
           ...process.env,
           ...(candidatePath ? { EVOLUTION_CANDIDATE_PATH: candidatePath } : {}),
