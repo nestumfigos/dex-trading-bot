@@ -194,6 +194,19 @@ function runHistoricalReplay({
       closedTrades.push(trade);
       equityUsd += trade.pnlUsd;
       position = null;
+    } else {
+      const nextStopPrice = Number(management.nextStopPrice);
+      if (Number.isFinite(nextStopPrice) && nextStopPrice > 0) {
+        const currentStop = Number(position.stopPrice);
+        if (
+          !Number.isFinite(currentStop)
+          || (position.side === 'long' && nextStopPrice > currentStop)
+          || (position.side === 'short' && nextStopPrice < currentStop)
+        ) {
+          position.stopPrice = nextStopPrice;
+          position.stopMoveReason = management.stopMoveReason || 'TARGET1_STOP_TO_BREAKEVEN';
+        }
+      }
     }
   };
 

@@ -116,11 +116,16 @@ function evaluatePositionManagement({ position, candle, barsSinceEntry = 0, poli
     && targets.length > 1
     && ((side === 'long' && high >= target1) || (side === 'short' && low <= target1))
   ) {
+    const breakevenStop = side === 'long'
+      ? Math.max(stop, Number(position.entryPrice))
+      : Math.min(stop, Number(position.entryPrice));
     return {
       action: 'PARTIAL_EXIT',
       notionalUsd: Number(position.remainingNotionalUsd) / 2,
       price: target1,
       reason: 'TARGET1_EQ_SCALE',
+      nextStopPrice: breakevenStop,
+      stopMoveReason: 'TARGET1_STOP_TO_BREAKEVEN',
     };
   }
   const manualCutBars = Math.max(1, Number(policy.manualCutBars || 5));

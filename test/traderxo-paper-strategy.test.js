@@ -146,9 +146,11 @@ test('paper management scales at EQ, closes at target two, and cuts stalled trad
     side: 'long', entryPrice: 101, stopPrice: 98, targets: [105, 110],
     remainingNotionalUsd: 1000, notionalUsd: 1000,
   };
-  assert.equal(evaluatePositionManagement({
+  const scaleDecision = evaluatePositionManagement({
     position, candle: candle(1, 103, 105.5, 102, 105), barsSinceEntry: 2,
-  }).action, 'PARTIAL_EXIT');
+  });
+  assert.equal(scaleDecision.action, 'PARTIAL_EXIT');
+  assert.equal(scaleDecision.nextStopPrice, 101);
   assert.equal(evaluatePositionManagement({
     position: { ...position, remainingNotionalUsd: 500 },
     candle: candle(2, 108, 111, 107, 110),
@@ -156,6 +158,33 @@ test('paper management scales at EQ, closes at target two, and cuts stalled trad
   assert.equal(evaluatePositionManagement({
     position, candle: candle(3, 101, 102, 100, 101.2), barsSinceEntry: 5,
   }).reason, 'MANUAL_CUT_NO_FOLLOW_THROUGH');
+});
+
+test('paper adapter moves remaining stop to breakeven after target-one scale', () => {
+  const telemetry = createPaperTelemetry();
+  const adapter = createPaperExecutionAdapter({ telemetry });
+  adapter.openPosition({
+    id: 'breakeven-stop',
+    symbol: 'BTCUSDT',
+    side: 'long',
+    equityUsd: 10000,
+    riskPct: 0.5,
+    entryPrice: 101,
+    stopPrice: 98,
+    targets: [105, 110],
+    leverage: 3,
+    plannedRewardRisk: 3,
+    marginMode: 'isolated',
+  });
+  const opened = adapter.positions.get('breakeven-stop');
+  adapter.reduceOnlyExit({
+    positionId: 'breakeven-stop',
+    notionalUsd: Number(opened.remainingNotionalUsd) / 2,
+    price: 105,
+    reason: 'TARGET1_EQ_SCALE',
+    nextStopPrice: 101,
+  });
+  assert.equal(adapter.positions.get('breakeven-stop').stopPrice, 101);
 });
 
 test('Binance public perps feed reads only completed klines and needs no trading credentials', async () => {

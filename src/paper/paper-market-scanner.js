@@ -63,6 +63,7 @@ function createPaperMarketScanner({
           price: management.price,
           notionalUsd: management.notionalUsd,
           reason: management.reason,
+          nextStopPrice: management.nextStopPrice,
         },
       });
       return { symbol: normalizedSymbol, action: management.action, result };

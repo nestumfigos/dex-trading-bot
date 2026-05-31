@@ -87,6 +87,16 @@ and exit fees, slippage, and elapsed funding. The service reports `/health` as
 unhealthy when its native market scanner has failed, so a stalled data path
 cannot masquerade as valid paper evidence.
 
+## Current architecture map
+
+1. Market data: public Binance USD-M completed klines + mark price feed helpers.
+2. Strategy: anchors -> range -> deviation reclaim or level-to-level -> MSS -> >=3R TraderXO intent.
+3. Sizing: isolated margin only; risk dollars from equity riskPct; leverage changes margin, not stop loss; per-symbol maintenance margin and >=2x liquidation buffer enforced before open.
+4. Risk gates: daily/weekly PnL and R windows, aggregate open risk <=2% equity, mode caps for paper/canary/live.
+5. Execution: paper adapter opens simulated perps positions only after admission and gates; every exit is reduce-only and idempotent by client order id.
+6. Accounting: PnL includes modeled entry/exit fees, depth-aware slippage, and discrete 8h funding boundaries.
+7. Evidence: telemetry persists one atomic state snapshot for trades, positions, and signal ids; dashboard/server reads from that evidence only.
+
 Paper persistence uses `data/perps-paper-state.json` as one authoritative,
 atomically replaced snapshot for trades, open positions, and processed signal
 IDs. The older per-file JSON ledgers are imported once for compatibility; old

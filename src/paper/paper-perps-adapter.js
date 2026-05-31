@@ -149,6 +149,7 @@ function createPaperExecutionAdapter({ telemetry, entryAdmission = null, mode = 
     fundingUsd = 0,
     feeUsd = 0,
     slippageUsd = 0,
+    nextStopPrice = null,
     signalId = null,
   } = {}, { signalEvent = null } = {}) {
     const position = positions.get(String(positionId));
@@ -268,7 +269,12 @@ function createPaperExecutionAdapter({ telemetry, entryAdmission = null, mode = 
       heldHours,
       closed,
     };
-    const nextPosition = closed ? null : { ...position, remainingNotionalUsd };
+    const updatedStopPrice = getImprovedStopPrice(position, nextStopPrice);
+    const nextPosition = closed ? null : {
+      ...position,
+      remainingNotionalUsd,
+      ...(updatedStopPrice !== null ? { stopPrice: updatedStopPrice, stopMoveReason: 'TARGET1_STOP_TO_BREAKEVEN' } : {}),
+    };
     const acceptedSignalEvent = signalEvent ? { ...signalEvent, accepted: true, reasons: [] } : null;
     if (typeof telemetry?.commitExecution === 'function') {
       telemetry.commitExecution({
@@ -291,6 +297,16 @@ function createPaperExecutionAdapter({ telemetry, entryAdmission = null, mode = 
   }
 
   return { openPosition, reduceOnlyExit, positions };
+}
+
+function getImprovedStopPrice(position, candidateStopPrice) {
+  const candidate = Number(candidateStopPrice);
+  if (!Number.isFinite(candidate) || candidate <= 0) return null;
+  const current = Number(position.stopPrice);
+  if (!Number.isFinite(current) || current <= 0) return candidate;
+  if (position.side === 'long') return candidate > current ? candidate : null;
+  if (position.side === 'short') return candidate < current ? candidate : null;
+  return null;
 }
 
 module.exports = { createPaperExecutionAdapter };
