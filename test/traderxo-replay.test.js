@@ -19,15 +19,19 @@ function candle(openTime, open, high, low, close, volume = 100) {
   return { openTime, open, high, low, close, volume };
 }
 
-function fixtureCandles(exitCandle, neutralBars = 3) {
+function nearlyEqual(actual, expected, tolerance = 1e-9) {
+  assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} !== ${expected}`);
+}
+
+function fixtureCandles(exitCandle, neutralBars = 3, start = 0) {
   return {
-    candles5m: Array.from({ length: 30 }, (_, index) => candle(index * M5, 100, 101, 99, 100)),
+    candles5m: Array.from({ length: 30 }, (_, index) => candle(start + (index * M5), 100, 101, 99, 100)),
     candles15m: [
-      ...Array.from({ length: neutralBars }, (_, index) => candle(index * M15, 100, 100.5, 99.5, 100)),
+      ...Array.from({ length: neutralBars }, (_, index) => candle(start + (index * M15), 100, 100.5, 99.5, 100)),
       exitCandle,
     ],
-    candles1h: Array.from({ length: 14 }, (_, index) => candle(index * H1 - (12 * H1), 100, 110, 90, 100)),
-    dailyCandles: [candle(-D1, 100, 101, 99, 100), candle(0, 100, 101, 99, 100)],
+    candles1h: Array.from({ length: 14 }, (_, index) => candle(start + (index * H1) - (12 * H1), 100, 110, 90, 100)),
+    dailyCandles: [candle(start - D1, 100, 101, 99, 100), candle(start, 100, 101, 99, 100)],
   };
 }
 
@@ -81,6 +85,34 @@ test('historical replay records a completed winner with explicit costs and no pa
   assert.ok(replay.summary.stressedPnlUsd < replay.summary.pnlUsd);
   assert.equal(replay.summary.byRegime.volatile.trades, 1);
   assert.equal(replay.summary.bySetup.deviation_reclaim.trades, 1);
+  const trade = replay.trades[0];
+  nearlyEqual(
+    replay.summary.stressedPnlUsd,
+    trade.grossPnlUsd - trade.fundingUsd - trade.feesUsd - (2 * trade.slippageUsd),
+    1e-6,
+  );
+});
+
+test('historical replay charges funding only on actual 8h settlement boundaries', () => {
+  const start = Date.parse('2026-05-25T07:00:00.000Z');
+  const replay = runHistoricalReplay({
+    symbol: 'BTCUSDT',
+    ...fixtureCandles(candle(start + (3 * M15), 100, 104, 100, 103), 3, start),
+    feeBps: 0,
+    slippageBps: 0,
+    fundingBpsPerEightHours: 10,
+    evaluateEntry: entryOnce(),
+    detectRange: rangeAlways,
+    calculateAnchors: anchorsAlways,
+  });
+
+  assert.equal(replay.summary.completedTrades, 1);
+  const trade = replay.trades[0];
+  assert.equal(trade.openedAt, '2026-05-25T07:45:00.000Z');
+  assert.equal(trade.closedAt, '2026-05-25T08:00:00.000Z');
+  const notionalUsd = trade.grossPnlUsd / 0.03;
+  nearlyEqual(trade.fundingUsd, notionalUsd * 0.001, 1e-6);
+  nearlyEqual(trade.costsUsd, trade.fundingUsd, 1e-9);
 });
 
 test('historical replay includes stop-loss outcomes and drawdown', () => {

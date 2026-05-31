@@ -57,7 +57,13 @@ function summarizeCompletedTrades(trades, { startingEquityUsd, totalSignals, rej
   const grossLoss = trades.reduce((sum, trade) => sum + Math.min(0, trade.pnlUsd), 0);
   const pnlUsd = grossProfit + grossLoss;
   const costsUsd = trades.reduce((sum, trade) => sum + trade.feesUsd + trade.slippageUsd + trade.fundingUsd, 0);
-  const stressedPnlUsd = trades.reduce((sum, trade) => sum + trade.grossPnlUsd - (2 * trade.costsUsd), 0);
+  const stressedPnlUsd = trades.reduce((sum, trade) => (
+    sum
+    + Number(trade.grossPnlUsd || 0)
+    - Number(trade.fundingUsd || 0)
+    - Number(trade.feesUsd || 0)
+    - (2 * Number(trade.slippageUsd || 0))
+  ), 0);
   let peak = startingEquityUsd;
   let equity = startingEquityUsd;
   let maxDrawdownPct = 0;
@@ -140,6 +146,25 @@ function runHistoricalReplay({
   const reject = (reason) => {
     rejectReasons[reason] = Number(rejectReasons[reason] || 0) + 1;
   };
+  const countFundingSettlements = (openedAtMs, closedAtMs) => {
+    const openMs = Number(openedAtMs);
+    const closeMs = Number(closedAtMs);
+    if (!Number.isFinite(openMs) || !Number.isFinite(closeMs) || closeMs <= openMs) return 0;
+    const fundingHours = [0, 8, 16];
+    const startUtc = new Date(openMs);
+    const endUtc = new Date(closeMs);
+    const cursor = new Date(Date.UTC(startUtc.getUTCFullYear(), startUtc.getUTCMonth(), startUtc.getUTCDate()));
+    const sentinel = new Date(Date.UTC(endUtc.getUTCFullYear(), endUtc.getUTCMonth(), endUtc.getUTCDate() + 1));
+    let count = 0;
+    while (cursor < sentinel) {
+      for (const hour of fundingHours) {
+        const boundary = Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate(), hour, 0, 0);
+        if (boundary > openMs && boundary <= closeMs) count += 1;
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return count;
+  };
   const rollingRisk = (timestamp) => {
     const rowsIn = (milliseconds) => closedTrades.filter((trade) => timestamp - trade.closedAtMs <= milliseconds);
     const summarize = (rows) => ({
@@ -160,7 +185,7 @@ function runHistoricalReplay({
     const feesUsd = (notionalUsd * feeRate) + (position.entryFeeUsd * entryAllocation);
     const slippageUsd = (notionalUsd * slippageRate) + (position.entrySlippageUsd * entryAllocation);
     const heldHours = Math.max(0, timestamp - position.openedAtMs) / HOUR_MS;
-    const fundingUsd = notionalUsd * fundingRate * (heldHours / 8);
+    const fundingUsd = notionalUsd * fundingRate * countFundingSettlements(position.openedAtMs, timestamp);
     const costsUsd = feesUsd + slippageUsd + fundingUsd;
     const fill = { grossPnlUsd, feesUsd, slippageUsd, fundingUsd, costsUsd, pnlUsd: grossPnlUsd - costsUsd };
     position.fills.push(fill);
