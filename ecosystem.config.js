@@ -141,8 +141,17 @@ module.exports = {
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
         PERPS_PAPER_MARKPRICE_WS_ENABLED: 'true',
-        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'true',
-        PERPS_PAPER_SYMBOLS: 'BTCUSDT,ETHUSDT,SOLUSDT',
+        // 2026-05-31 (operator request): execute paper trades on raw signals
+        // without waiting for per-symbol historical backtest evidence to
+        // accumulate. Admission gate stays enforced when promoting to live —
+        // this opt-out is paper-only by virtue of liveExecutionEnabled=false
+        // being hardcoded in paper-perps-adapter / server. Set to 'true' to
+        // re-enable admission.
+        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'false',
+        // PERPS_PAPER_SYMBOLS intentionally OMITTED: when unset, src/index.js
+        // falls through to load all canonical symbols from
+        // config/kucoin-perps-universe.json (~602 KuCoin perps). To restrict
+        // back to a small list, set PERPS_PAPER_SYMBOLS='BTCUSDT,ETHUSDT,...'.
       },
       env_production: {
         NODE_ENV: 'production',
@@ -153,8 +162,8 @@ module.exports = {
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
         PERPS_PAPER_MARKPRICE_WS_ENABLED: 'true',
-        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'true',
-        PERPS_PAPER_SYMBOLS: 'BTCUSDT,ETHUSDT,SOLUSDT',
+        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'false',
+        // PERPS_PAPER_SYMBOLS omitted — falls through to full universe.
       },
     },
   ],
