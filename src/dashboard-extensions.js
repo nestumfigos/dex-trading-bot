@@ -38,6 +38,20 @@ function sigmaStats(values) {
   return { count: vs.length, mean: Number(mean.toFixed(4)), stdev: Number(stdev.toFixed(4)) };
 }
 
+// 2026-05-31 audit (cycle-2 P2): constant-time token compare. The previous
+// plain `match[1] !== expected` leaked the token byte-by-byte through
+// response-timing differences — main dashboard already uses
+// `crypto.timingSafeEqual` (src/dashboard.js:538-557); this brings the
+// extensions surface to parity. timingSafeEqual throws on unequal length, so
+// we pre-check length and short-circuit to false to avoid that.
+const { timingSafeEqual } = require('crypto');
+function safeTokenEqual(provided, expected) {
+  const a = Buffer.from(String(provided || ''));
+  const b = Buffer.from(String(expected || ''));
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 function requireAdmin(req, res, next) {
   const expected = process.env.DASHBOARD_ADMIN_TOKEN;
   if (!expected) {
@@ -45,7 +59,7 @@ function requireAdmin(req, res, next) {
   }
   const auth = String(req.headers.authorization || '');
   const match = auth.match(/^Bearer\s+(.+)$/);
-  if (!match || match[1] !== expected) {
+  if (!match || !safeTokenEqual(match[1], expected)) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
   next();

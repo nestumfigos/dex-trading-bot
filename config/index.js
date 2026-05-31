@@ -284,11 +284,21 @@ const config = {
     }),
     minTradesForKpiGate: parseInt(process.env.MIN_TRADES_FOR_KPI_GATE || '50', 10),
     minProfitFactor: parseFloat(process.env.MIN_PROFIT_FACTOR || '1.15'),
-    maxPortfolioHeatPct: parseFloat(process.env.MAX_PORTFOLIO_HEAT_PCT || '45'),
-    maxGlobalExposurePct: parseFloat(process.env.MAX_GLOBAL_EXPOSURE_PCT || '90'),
+    // 2026-05-31 audit (cycle-2 P2): tightened caps for small-wallet live mode
+    // ($68 capital). 45/90 was inherited from a much larger account profile
+    // and gave the strategy permission to deploy almost the whole wallet into
+    // correlated names. The new caps still allow a meaningful book without
+    // letting a single regime flush wipe it. Operators on larger accounts can
+    // raise via env explicitly.
+    maxPortfolioHeatPct: parseFloat(process.env.MAX_PORTFOLIO_HEAT_PCT || '25'),
+    maxGlobalExposurePct: parseFloat(process.env.MAX_GLOBAL_EXPOSURE_PCT || '60'),
     kucoinMomentumHeatAllowancePct: parseFloat(process.env.KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT || '60'),
     kucoinSwingHeatAllowancePct: parseFloat(process.env.KUCOIN_SWING_HEAT_ALLOWANCE_PCT || '95'),
-    heatExemptSymbols: (process.env.HEAT_EXEMPT_SYMBOLS || 'BANANAS31').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+    // 2026-05-31 audit (cycle-2 P2): removed hard-coded BANANAS31 default.
+    // Heat-exempt entries waive the portfolio-heat cap entirely for the named
+    // symbol — that's a special-case carve-out that does not belong as a
+    // default. Operators who actually want an exemption set HEAT_EXEMPT_SYMBOLS.
+    heatExemptSymbols: (process.env.HEAT_EXEMPT_SYMBOLS || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
     bscMomentumHeatAllowancePct: parseFloat(process.env.BSC_MOMENTUM_HEAT_ALLOWANCE_PCT || '60'),
     portfolioHeatReservePctBySleeve: toFiniteNumberMap({
       'bsc:momentum': parseFloat(process.env.BSC_MOMENTUM_HEAT_RESERVE_PCT || '12'),
@@ -718,7 +728,10 @@ const config = {
 
   rl: {
     enabled: process.env.RL_ENABLED !== 'false',
-    liveInferenceEnabled: process.env.RL_LIVE_INFERENCE_ENABLED !== 'false',
+    // 2026-05-31 audit (cycle-2 P1): default-OFF in live to match paper. Live had
+    // been default-ON while paper kept it OFF, which let real capital execute
+    // an entry path that paper never canaried. Explicit opt-in only.
+    liveInferenceEnabled: process.env.RL_LIVE_INFERENCE_ENABLED === 'true',
     paperTrainingEnabled: process.env.RL_PAPER_TRAINING_ENABLED !== 'false',
     trainingIntervalMinutes: parseInt(process.env.RL_TRAINING_INTERVAL_MINUTES || '45', 10),
     trainingSeriesLimit: parseInt(process.env.RL_TRAINING_SERIES_LIMIT || '12', 10),
@@ -732,7 +745,11 @@ const config = {
 
   hybridAgent: {
     enabled: process.env.HYBRID_AGENT_ENABLED !== 'false',
-    allowDirectEntryFromHybrid: process.env.HYBRID_AGENT_ALLOW_DIRECT_ENTRY !== 'false',
+    // 2026-05-31 audit (cycle-2 P1): default-OFF in live to match paper. Live had
+    // been default-ON while paper kept it OFF, which let the hybrid agent
+    // promote non-BUY evaluations to BUY on the real wallet without canary.
+    // Vetoes stay default-ON: blocking trades is always safe.
+    allowDirectEntryFromHybrid: process.env.HYBRID_AGENT_ALLOW_DIRECT_ENTRY === 'true',
     allowVetoFromHybrid: process.env.HYBRID_AGENT_ALLOW_VETO !== 'false',
     minConfidence: parseFloat(process.env.HYBRID_AGENT_MIN_CONFIDENCE || '0.28'),
     specialistFrameworkEnabled: process.env.HYBRID_AGENT_SPECIALISTS_ENABLED !== 'false',

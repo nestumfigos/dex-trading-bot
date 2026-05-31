@@ -142,7 +142,11 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
-    const sizeUsd = applyPositionJitter(calculatedSizeUsd, 15);
+    // 2026-05-31 audit (cycle-2 P2): clamp jitter to never EXCEED the
+    // calculated risk-budgeted size. Paper already did Math.min here; live
+    // did not, so the 15% jitter could swing the order ABOVE the size the
+    // risk engine signed off on. Floor stays free to swing downward.
+    const sizeUsd = Math.min(calculatedSizeUsd, applyPositionJitter(calculatedSizeUsd, 15));
 
     try {
       const { getPool } = require('../utils/sqlServer');
@@ -180,13 +184,20 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
-    // B3.exec.8: TTL must exceed execTimeoutMs + buffer so a slow exchange
-    // can't release the lock before execution actually completes. Default
-    // execTimeoutMs is ~45s; pin lock TTL >= execTimeoutMs + 10s. Honors
-    // SQL_LOCK_TTL_MS override but floors against the buffer.
-    const execTimeoutMsForLock = Math.max(15000, Number(config.execution?.timeoutMs || 45000));
+    // B3.exec.8 + 2026-05-31 audit (cycle-2 P1): TTL must exceed the ACTUAL
+    // execTimeoutMs passed to executeBuyViaVenue plus a buffer, so a slow
+    // exchange can't release the lock before execution completes (would risk
+    // duplicate live buys). The previous formula derived TTL from
+    // `config.execution.timeoutMs || 45000` but the buy path uses
+    // `execTimeoutMs || buyTimeoutMs || 30000` — if an operator raised
+    // `buyTimeoutMs` past 45s without touching `timeoutMs`, the lock would
+    // expire mid-order. Single source of truth: same expression as line below.
+    const execTimeoutMs = Math.max(
+      15000,
+      Number(config.execution?.execTimeoutMs || config.execution?.buyTimeoutMs || 30000)
+    );
     const requestedLockTtl = Number(process.env.SQL_LOCK_TTL_MS || 30000);
-    const lockTtlMs = Math.max(requestedLockTtl, execTimeoutMsForLock + 10000);
+    const lockTtlMs = Math.max(requestedLockTtl, execTimeoutMs + 10000);
     const lockKey = `buy:${String(chainName || '').toLowerCase()}:${String(tokenData?.symbol || tokenData?.address || '').toUpperCase()}`.slice(0, 200);
     const dist = await sqlCoordination.acquireLock(lockKey, { ttlMs: lockTtlMs, waitMs: 0 });
     if (!dist.ok) {
@@ -242,7 +253,8 @@ function createExecutionOrchestrator(deps) {
       try {
         let txResult;
         const expectedEntryPrice = Number(tokenData.price);
-        const execTimeoutMs = Math.max(15000, Number(config.execution?.execTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+        // execTimeoutMs already computed above (lock-TTL derivation) — reusing
+        // ensures the lock TTL >= actual venue timeout. Do NOT redeclare.
         txResult = await executeBuyViaVenue({
           chainName,
           exchange,
