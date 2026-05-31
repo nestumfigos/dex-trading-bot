@@ -261,13 +261,14 @@ class RLOnlineUpdater {
   calculateDrawdown(portfolio) {
     const parsedCurrent = Number(portfolio.balance);
     const parsedPeak = Number(portfolio.peakBalance);
-    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const currentBalance = Number.isFinite(parsedCurrent) && parsedCurrent >= 0 ? parsedCurrent : null;
     const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
       ? parsedPeak
-      : (currentBalance > 0 ? currentBalance : 10000);
+      : (currentBalance > 0 ? currentBalance : 0);
 
+    if (currentBalance === null) return peakBalance > 0 ? 100 : 0;
     if (peakBalance <= 0) return 0;
-    return ((peakBalance - currentBalance) / peakBalance) * 100;
+    return Math.max(0, ((peakBalance - currentBalance) / peakBalance) * 100);
   }
 
   /**
@@ -287,11 +288,12 @@ class RLOnlineUpdater {
   calculateUpdatedDrawdown(pnl, portfolio) {
     const parsedCurrent = Number(portfolio.balance);
     const parsedPeak = Number(portfolio.peakBalance);
-    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
-    const newBalance = currentBalance + Number(pnl || 0);
+    const currentBalance = Number.isFinite(parsedCurrent) && parsedCurrent >= 0 ? parsedCurrent : null;
+    const baselineCurrent = currentBalance ?? 0;
+    const newBalance = baselineCurrent + Number(pnl || 0);
     const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
       ? parsedPeak
-      : (currentBalance > 0 ? currentBalance : 10000);
+      : (baselineCurrent > 0 ? baselineCurrent : 0);
 
     if (peakBalance <= 0) return 0;
     return Math.max(0, ((peakBalance - newBalance) / peakBalance) * 100);
@@ -302,7 +304,8 @@ class RLOnlineUpdater {
    */
   classifySize(sizeUsd, portfolio) {
     const parsedBalance = Number(portfolio.balance);
-    const balance = Number.isFinite(parsedBalance) && parsedBalance > 0 ? parsedBalance : 10000;
+    const balance = Number.isFinite(parsedBalance) && parsedBalance > 0 ? parsedBalance : null;
+    if (balance === null) return Number(sizeUsd) > 0 ? 'large' : 'small';
     const sizePct = (sizeUsd / balance) * 100;
 
     if (sizePct > 5) return 'large';
