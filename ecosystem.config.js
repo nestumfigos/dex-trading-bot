@@ -58,24 +58,36 @@ module.exports = {
       name: 'dex-bot-paper',
       cwd: PAPER_WORKTREE_PATH,
       script: 'src/index.js',
-      // STOPGAP (2026-05-30, not a leak fix): paper runs the heavy experimental
-      // ML superset (rl-online-updater, bayesian-network, python-sidecar,
-      // hybrid-orchestrator) and leaks memory, hard-OOM-crashing ~every 30-45min
-      // at node's ~2GB heap ceiling (pm2 max_memory_restart can't see memory on
-      // Windows, so it never fires). Give V8 4GB headroom (machine has 30GB) and
-      // recycle cleanly every 30min so it recycles BEFORE OOM instead of crashing.
-      // Real fix = heap-profile the superset to find the leak.
+      // 2026-05-31: cron_restart REMOVED. Original (2026-05-30) reason was OOM
+      // mitigation for paper's heavy ML superset (rl-online-updater,
+      // bayesian-network, python-sidecar, hybrid-orchestrator) hitting node's
+      // ~2GB heap ceiling. Two problems with the cron approach on Windows pm2:
+      //   1. Each cron-restart triggered a lock-contention respawn loop with
+      //      the singleton's pm2-quirk delayed-exit: new spawn detects lock,
+      //      sleeps 15s, exits; pm2 autorestarts; loop continues until the
+      //      old paper actually releases the lock — bot looked stable but
+      //      restart counter climbed by ~4/min and cmd.exe windows flashed
+      //      constantly, disrupting the operator's machine.
+      //   2. pm2-Windows fork mode opens a visible console wrapper for each
+      //      cron-spawned child. Removing cron removes the flashing.
+      // Memory mitigation now relies on:
+      //   - 4GB V8 heap (--max-old-space-size=4096) — machine has 30GB.
+      //   - Operator memory monitoring (Task Manager / Get-Process). If RSS
+      //     climbs past ~3GB, manually `pm2 restart dex-bot-paper` once.
+      //   - Future: heap-profile the ML superset to find the actual leak.
+      // If automatic recycling becomes necessary again, prefer a long
+      // interval (e.g. '0 */4 * * *' = every 4h) AND bump kill_timeout to
+      // 30s so the old process drains fully before the new spawn lands.
       node_args: '--max-old-space-size=4096',
-      cron_restart: '0,30 * * * *',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
-      kill_timeout: 10000,
-      listen_timeout: 15000,
+      kill_timeout: 30000,
+      listen_timeout: 60000,
       max_restarts: 10,
       min_uptime: '10s',
       watch: false,
-      max_memory_restart: '500M',
+      max_memory_restart: '3500M',
       env: {
         NODE_ENV: 'production',
         PAPER_TRADING: 'true',
@@ -116,18 +128,19 @@ module.exports = {
       // ecosystem config. To enable POST writes: set PERPS_ADMIN_TOKEN in the
       // shell env that runs pm2 (or in pm2 module env), then `pm2 restart
       // dex-bot-perps --update-env`. GET routes work without the token.
-      // cron_restart offset to :15/:45 to avoid overlap with paper's :00/:30.
       // 2GB heap (lighter than paper's 4GB) — perps is narrower-scope.
+      // 2026-05-31: cron_restart REMOVED — same pm2-Windows churn rationale
+      // as paper above. If memory becomes an issue, prefer long interval +
+      // bumped kill_timeout (see paper comment).
       name: 'dex-bot-perps',
       cwd: PERPS_REPO_PATH,
       script: 'src/index.js',
       node_args: '--max-old-space-size=2048',
-      cron_restart: '15,45 * * * *',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
-      kill_timeout: 10000,
-      listen_timeout: 15000,
+      kill_timeout: 30000,
+      listen_timeout: 60000,
       max_restarts: 10,
       min_uptime: '10s',
       watch: false,
