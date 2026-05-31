@@ -48,3 +48,10 @@ test('zero portfolio balance remains full drawdown', () => {
   const updater = makeUpdater();
   assert.equal(updater.calculateDrawdown({ balance: 0, peakBalance: 100 }), 100);
 });
+
+test('online updater treats invalid portfolio balance conservatively', () => {
+  const updater = makeUpdater();
+  assert.equal(updater.calculateDrawdown({ balance: undefined, peakBalance: 100 }), 100);
+  assert.equal(updater.calculateUpdatedDrawdown(-5, { balance: undefined, peakBalance: 100 }), 105);
+  assert.equal(updater.classifySize(1, { balance: undefined }), 'large');
+});

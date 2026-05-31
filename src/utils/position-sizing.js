@@ -27,7 +27,7 @@ class PositionSizingEngine {
       volumeSpike: Number(tokenData?.volumeSpike || 0),
       buyRatio: Number(tokenData?.buyRatioRecentPct || 0),
       priceChange24h: Number(tokenData?.priceChange24h || 0),
-      confidence: Number(tokenData?.confidence || 0.5),
+      confidence: Number(tokenData?.confidence ?? 0.5),
     };
 
     const recentTrades = this.getRecentTradesForSymbol(portfolio, tokenData?.symbol);
@@ -100,12 +100,20 @@ class PositionSizingEngine {
   /**
    * Scale position size based on AI confidence
    */
+  normalizeConfidence(confidence) {
+    const value = Number(confidence);
+    if (!Number.isFinite(value)) return 0.5;
+    const normalized = value > 1 ? value / 100 : value;
+    return Math.min(1, Math.max(0, normalized));
+  }
+
   getConfidenceScaling(confidence) {
-    if (confidence >= 0.85) return 1.3; // High confidence: scale up
-    if (confidence >= 0.75) return 1.15;
-    if (confidence >= 0.65) return 1.0;
-    if (confidence >= 0.50) return 0.85;
-    if (confidence >= 0.40) return 0.65;
+    const normalizedConfidence = this.normalizeConfidence(confidence);
+    if (normalizedConfidence >= 0.85) return 1.3; // High confidence: scale up
+    if (normalizedConfidence >= 0.75) return 1.15;
+    if (normalizedConfidence >= 0.65) return 1.0;
+    if (normalizedConfidence >= 0.50) return 0.85;
+    if (normalizedConfidence >= 0.40) return 0.65;
     return 0.4; // Low confidence: scale way down
   }
 
@@ -113,9 +121,7 @@ class PositionSizingEngine {
    * Scale based on market regime and portfolio health
    */
   getMarketRegimeScaling(portfolio, metrics) {
-    const recentTrades = Object.values(portfolio.closedTrades || {})
-      .filter((t) => Date.now() - (t.closedAt || 0) < 24 * 3600 * 1000)
-      .slice(-20);
+    const recentTrades = this.getRecentClosedSellTrades(portfolio, 24 * 3600 * 1000, 20);
 
     const drawdown = this.calculateDrawdown(portfolio);
     const recentWinRate = recentTrades.length > 0
@@ -177,6 +183,19 @@ class PositionSizingEngine {
       .slice(-10);
   }
 
+  getRecentClosedSellTrades(portfolio, cutoffMs = 24 * 3600 * 1000, limit = 20) {
+    const now = Date.now();
+    const trades = Array.isArray(portfolio?.trades) ? portfolio.trades : [];
+    return trades
+      .filter((trade) => {
+        if (!trade || String(trade.type || '').toUpperCase() !== 'SELL') return false;
+        const ts = trade.timestamp ? Date.parse(trade.timestamp) : (trade.closedAt || 0);
+        if (!Number.isFinite(ts) || ts <= 0) return true;
+        return (now - ts) < cutoffMs;
+      })
+      .slice(-Math.max(1, Number(limit) || 20));
+  }
+
   /**
    * Calculate current drawdown
    *
@@ -190,13 +209,14 @@ class PositionSizingEngine {
   calculateDrawdown(portfolio) {
     const parsedPeak = Number(portfolio.peakBalance);
     const parsedCurrent = Number(portfolio.balance);
-    const currentBalance = Number.isFinite(parsedCurrent) ? parsedCurrent : 10000;
+    const currentBalance = Number.isFinite(parsedCurrent) && parsedCurrent >= 0 ? parsedCurrent : null;
     const peakBalance = Number.isFinite(parsedPeak) && parsedPeak > 0
       ? parsedPeak
-      : (currentBalance > 0 ? currentBalance : 10000);
+      : (currentBalance > 0 ? currentBalance : 0);
 
+    if (currentBalance === null) return peakBalance > 0 ? 100 : 0;
     if (peakBalance <= 0) return 0;
-    return ((peakBalance - currentBalance) / peakBalance) * 100;
+    return Math.max(0, ((peakBalance - currentBalance) / peakBalance) * 100);
   }
 
   /**
@@ -209,7 +229,7 @@ class PositionSizingEngine {
    */
   getAvailableBalance(portfolio) {
     const parsedBalance = Number(portfolio.balance);
-    const totalBalance = Number.isFinite(parsedBalance) ? parsedBalance : 10000;
+    const totalBalance = Number.isFinite(parsedBalance) && parsedBalance > 0 ? parsedBalance : 0;
     const reservePercent = Number(this.config.risk?.minBalanceCoverage ?? 0.5);
     const reservedAmount = (totalBalance * reservePercent) / 100;
     return Math.max(0, totalBalance - reservedAmount);
@@ -221,7 +241,8 @@ class PositionSizingEngine {
   getMinPositionSize(portfolio) {
     const minSizeUsd = this.config.risk?.minPositionSizeUsd || 5;
     const parsedBalance = Number(portfolio.balance);
-    const totalBalance = Number.isFinite(parsedBalance) ? parsedBalance : 10000;
+    const totalBalance = Number.isFinite(parsedBalance) && parsedBalance > 0 ? parsedBalance : 0;
+    if (totalBalance <= 0) return 0;
     return Math.max(minSizeUsd, totalBalance * 0.001); // At least 0.1% of balance
   }
 

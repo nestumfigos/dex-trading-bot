@@ -27,7 +27,30 @@ test('position sizing treats real zero cash as exhausted capital and full drawdo
   });
   const portfolio = { balance: 0, peakBalance: 100, positions: {}, trades: [] };
   assert.equal(engine.getAvailableBalance(portfolio), 0);
+  assert.equal(engine.getMinPositionSize(portfolio), 0);
   assert.equal(engine.calculateDrawdown(portfolio), 100);
+});
+
+test('position sizing fails closed on invalid cash balance', () => {
+  const engine = new PositionSizingEngine({
+    logger: console,
+    config: { risk: { maxPositionSizePct: 20, minPositionSizeUsd: 5 } },
+  });
+  const portfolio = { balance: undefined, peakBalance: 100, positions: {}, trades: [] };
+  assert.equal(engine.getAvailableBalance(portfolio), 0);
+  assert.equal(engine.getMinPositionSize(portfolio), 0);
+  assert.equal(engine.calculateDrawdown(portfolio), 100);
+  assert.equal(engine.calculateSmallIterationSize({ symbol: 'BAD', confidence: 100 }, portfolio), 0);
+});
+
+test('position sizing normalizes percent and decimal confidence inputs', () => {
+  const engine = new PositionSizingEngine({
+    logger: console,
+    config: { risk: { maxPositionSizePct: 20, minPositionSizeUsd: 5 } },
+  });
+  assert.equal(engine.normalizeConfidence(75), 0.75);
+  assert.equal(engine.getConfidenceScaling(75), engine.getConfidenceScaling(0.75));
+  assert.equal(engine.getConfidenceScaling(95), 1.3);
 });
 
 test('position sizing learns from sell trades when closedTrades is a numeric count', () => {
@@ -49,6 +72,29 @@ test('position sizing learns from sell trades when closedTrades is a numeric cou
 
   assert.equal(engine.getRecentTradesForSymbol(portfolio, 'AAA').length, 2);
   assert.equal(engine.getIterationNumber(portfolio, 'AAA'), 3);
+});
+
+test('market regime scaling reads recent sell trade ledger', () => {
+  const now = new Date().toISOString();
+  const engine = new PositionSizingEngine({
+    logger: console,
+    config: { risk: { maxPositionSizePct: 10, minPositionSizeUsd: 5 } },
+  });
+  const portfolio = {
+    balance: 1000,
+    peakBalance: 1000,
+    positions: {},
+    closedTrades: 5,
+    trades: Array.from({ length: 5 }, (_, index) => ({
+      type: 'SELL',
+      symbol: `LOSS${index}`,
+      pnl: -1,
+      timestamp: now,
+    })),
+  };
+
+  assert.equal(engine.getRecentClosedSellTrades(portfolio).length, 5);
+  assert.equal(engine.getMarketRegimeScaling(portfolio, { rsi: 50, volumeSpike: 1 }), 0.4);
 });
 
 test('reduce sizing preserves fractional token quantities', () => {
