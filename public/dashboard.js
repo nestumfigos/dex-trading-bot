@@ -2,7 +2,10 @@
 // Uses real endpoints: /api/status, /api/tracked-tokens, /api/ohlcv,
 // /api/market-indicators, Week 6 observability.
 
-const portBot = window.location.port === '3001' ? 'paper' : 'live';
+// 2026-05-31: paper port moved 3001 -> 3003 (ecosystem.config.js parity). Both
+// historical (3001) and current (3003) map to 'paper' so existing bookmarks
+// pointing at :3001 don't silently flip the UI into live-mode.
+const portBot = (window.location.port === '3001' || window.location.port === '3003') ? 'paper' : 'live';
 const savedBot = localStorage.getItem('dt.bot');
 const hasExplicitBotSelection = localStorage.getItem('dt.botExplicit') === 'true';
 
@@ -34,7 +37,8 @@ const fmtUptime = (sec) => {
 
 // ─── Base URL: switch port by selected bot ────────────────────────────────
 function getBaseUrl() {
-  const port = STATE.bot === 'live' ? '3002' : '3001';
+  // 2026-05-31: paper now on 3003 (was 3001).
+  const port = STATE.bot === 'live' ? '3002' : '3003';
   return `${window.location.protocol}//${window.location.hostname}:${port}`;
 }
 
@@ -58,7 +62,8 @@ async function api(path) {
 async function paperApi(path) {
   const t0 = performance.now();
   try {
-    const url = `${window.location.protocol}//${window.location.hostname}:3001${path}`;
+    // 2026-05-31: paper now on 3003 (was 3001).
+    const url = `${window.location.protocol}//${window.location.hostname}:3003${path}`;
     const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
     const ms = Math.round(performance.now() - t0);
     el('sb-latency').textContent = `${ms} ms`;
@@ -72,7 +77,8 @@ async function paperApi(path) {
 async function paperPost(path, body) {
   const t0 = performance.now();
   try {
-    const url = `${window.location.protocol}//${window.location.hostname}:3001${path}`;
+    // 2026-05-31: paper now on 3003 (was 3001).
+    const url = `${window.location.protocol}//${window.location.hostname}:3003${path}`;
     const token = localStorage.getItem('dt.adminToken') || '';
     const res = await fetch(url, {
       method: 'POST',
@@ -1101,7 +1107,7 @@ async function refreshAll() {
   const switcher = el('bot-switcher');
   if (!status) {
     switcher.classList.add('bot-down');
-    el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3001'}`;
+    el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3003'}`;
     renderPositions([]);
     renderTrades([]);
     renderSignals([]);

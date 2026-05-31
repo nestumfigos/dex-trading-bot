@@ -391,7 +391,10 @@ function startDashboard(portfolio, ctx) {
         const parsed = new URL(origin);
         allowOrigin = parsed.protocol === `${req.protocol}:`
           && parsed.hostname.toLowerCase() === String(req.hostname || '').toLowerCase()
-          && ['3001', '3002'].includes(parsed.port);
+          // 2026-05-31: paper port 3001 -> 3003. Keep 3001 in allowlist for
+          // legacy bookmark tolerance (no-op since paper no longer binds 3001
+          // but a CORS preflight from an old tab still needs an Allow-Origin).
+          && ['3001', '3002', '3003'].includes(parsed.port);
       } catch (_) {
         allowOrigin = false;
       }
