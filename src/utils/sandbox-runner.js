@@ -33,7 +33,7 @@ async function isDockerAvailable() {
   if (process.env.SANDBOX_DOCKER_DISABLED === 'true') return false;
   if (_dockerAvailable !== null) return _dockerAvailable;
   _dockerAvailable = await new Promise((resolve) => {
-    execFile('docker', ['version', '--format', '{{.Server.Version}}'], { timeout: 3000 }, (err) => {
+    execFile('docker', ['version', '--format', '{{.Server.Version}}'], { timeout: 3000, windowsHide: true }, (err) => {
       resolve(!err);
     });
   });
@@ -67,7 +67,7 @@ function runDirect(projectRoot, scriptRelPath, { timeoutMs, fallbackReason = nul
   // child does not pollute production logs/combined-*.log with mock errors.
   const childEnv = { ...process.env, BOT_TEST_RUNNER: '1', NODE_ENV: 'test' };
   return new Promise((resolve) => {
-    execFile(process.execPath, [absPath], { cwd: projectRoot, timeout: timeoutMs, env: childEnv }, (err, stdout, stderr) => {
+    execFile(process.execPath, [absPath], { cwd: projectRoot, timeout: timeoutMs, env: childEnv, windowsHide: true }, (err, stdout, stderr) => {
       const result = classifyResult(err);
       resolve({
         ok: result.status === 'passed',
@@ -109,7 +109,7 @@ function runViaDocker(projectRoot, scriptRelPath, { timeoutMs } = {}) {
       DOCKER_IMAGE,
       'node', scriptInContainer,
     ];
-    execFile('docker', args, { timeout: dockerTimeoutMs }, (err, stdout, stderr) => {
+    execFile('docker', args, { timeout: dockerTimeoutMs, windowsHide: true }, (err, stdout, stderr) => {
       const result = classifyResult(err);
       // If docker itself failed to start (image pull error etc.), mark as unreliable so caller
       // can decide whether to fall back to direct mode.
