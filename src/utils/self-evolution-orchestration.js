@@ -432,7 +432,7 @@ ORDER BY ts DESC
       // blocking all self-evolution. Delta mode only fails on NEW regressions
       // introduced by the patch.
       let baseline = null;
-      if (config.paperTrading) {
+      if (config.paperTrading && config.selfEvolution?.autoApply === true) {
         try {
           const cap = await evolutionValidator.captureBaseline({ changedFiles: [] });
           baseline = cap.map;
