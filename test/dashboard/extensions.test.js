@@ -165,6 +165,21 @@ test('GET /api/risk-rules uses the configured SQL pool provider', async () => {
   assert.equal(body.data[0].name, 'max_size');
 });
 
+test('GET /api/health-canary degrades cleanly when SQL is unavailable', async () => {
+  const app = makeFakeApp();
+  mountWeek6Routes(app, { getPool: async () => null });
+  const route = app._routes.find((r) => r.method === 'GET' && r.path === '/api/health-canary');
+  let status = 200; let body;
+  await route.handlers[0](
+    { query: {} },
+    { status(s) { status = s; return this; }, json(b) { body = b; return this; } },
+  );
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.sqlUnavailable, true);
+  assert.deepEqual(body.data, []);
+});
+
 test('POST /api/symbol-overrides without auth → 503', async () => {
   delete process.env.DASHBOARD_ADMIN_TOKEN;
   const app = makeFakeApp();

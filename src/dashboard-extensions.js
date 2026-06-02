@@ -74,6 +74,14 @@ async function withPool(getPool, fn, res) {
   } catch (e) { return jsonErr(res, e); }
 }
 
+async function withPoolFallback(getPool, fn, fallback, res) {
+  try {
+    const pool = await getPool();
+    if (!pool) return res.json(fallback);
+    return await fn(pool);
+  } catch (e) { return jsonErr(res, e); }
+}
+
 function mountWeek6Routes(app, { getPool, logger }) {
   if (!app || typeof app.get !== 'function') {
     throw new Error('mountWeek6Routes: app must be an Express-compatible router');
@@ -222,7 +230,7 @@ function mountWeek6Routes(app, { getPool, logger }) {
 
   // ─── /api/health-canary ────────────────────────────────────────────────
   app.get('/api/health-canary', async (req, res) => {
-    return withPool(getPool, async (pool) => {
+    return withPoolFallback(getPool, async (pool) => {
       const limit = parseLimit(req, 100, 500);
       const failuresOnly = req.query.failuresOnly === 'true';
       const r = pool.request();
@@ -233,12 +241,12 @@ function mountWeek6Routes(app, { getPool, logger }) {
       q += ' ORDER BY checked_at DESC';
       const result = await r.query(q);
       res.json({ ok: true, count: result.recordset.length, data: result.recordset });
-    }, res);
+    }, { ok: true, count: 0, data: [], sqlUnavailable: true, warning: 'SQL pool unavailable; runtime canary may still be healthy' }, res);
   });
 
   // ─── /api/health-canary/sparklines (W16.4) ─────────────────────────────
   app.get('/api/health-canary/sparklines', async (req, res) => {
-    return withPool(getPool, async (pool) => {
+    return withPoolFallback(getPool, async (pool) => {
       const perCheck = Math.max(5, Math.min(60, Number(req.query.perCheck) || 20));
       const result = await pool.request().input('perCheck', perCheck).query(`
         WITH ranked AS (
@@ -268,7 +276,7 @@ function mountWeek6Routes(app, { getPool, logger }) {
         out[check] = { series: agg.series, stats, sigmaBadge };
       }
       res.json({ ok: true, perCheck, data: out });
-    }, res);
+    }, { ok: true, perCheck: Math.max(5, Math.min(60, Number(req.query.perCheck) || 20)), data: {}, sqlUnavailable: true, warning: 'SQL pool unavailable; runtime canary may still be healthy' }, res);
   });
 
   // ─── /api/ml-models ────────────────────────────────────────────────────
