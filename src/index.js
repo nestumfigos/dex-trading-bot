@@ -4132,6 +4132,7 @@ const scanChain = _momentumScanner.scanChain;
 const { getTokenByAddressWithCache } = require('./utils/tokens-cache');
 
 async function processToken(chainName, exchange, tokenAddress, options = {}) {
+  const scanStrategy = String(options.scanStrategy || '').toLowerCase();
   const tokenDataFetchTimeoutMs = Math.max(1000, Number(config.risk?.tokenDataFetchTimeoutMs || 5000));
   const tokenData = await getTokenByAddressWithCache(
     chainName,
@@ -4146,6 +4147,11 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     return null;
   });
   if (!tokenData || !tokenData.price) {
+    const cycleStats = scanStrategy ? filterStatsState.currentCycle?.[scanStrategy] : null;
+    if (cycleStats) {
+      cycleStats.technicalBlocked += 1;
+      classifyFilterReason(cycleStats, 'token_data_unavailable');
+    }
     return;
   }
 
@@ -4163,7 +4169,6 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     }
   }
 
-  const scanStrategy = String(options.scanStrategy || '').toLowerCase();
   const trackInsufficient = (reason, strategyName = null) => {
     const statsStrategy = String(strategyName || scanStrategy || '').toLowerCase();
     const cycleStats = statsStrategy ? filterStatsState.currentCycle?.[statsStrategy] : null;
