@@ -52,6 +52,8 @@ test('paper dashboard exposes research-only perps replays and walk-forward valid
   assert.match(dashboardSource, /app\.post\('\/api\/perps\/backtests\/traderxo', requireWriteAccess/);
   assert.match(dashboardSource, /app\.post\('\/api\/perps\/backtests\/traderxo\/study', requireWriteAccess/);
   assert.match(dashboardSource, /app\.post\('\/api\/perps\/backtests\/traderxo\/walk-forward', requireWriteAccess/);
+  assert.match(dashboardSource, /PERPS_PAPER_API_URL \|\| 'http:\/\/127\.0\.0\.1:3004'/);
+  assert.match(dashboardSource, /headers\['X-Admin-Token'\] = perpsAdminToken/);
   assert.match(dashboardSource, /app\.get\('\/api\/perps\/backtests\/traderxo\/study\/latest'/);
   assert.match(dashboardSource, /app\.get\('\/api\/perps\/backtests\/traderxo\/walk-forward\/latest'/);
   assert.match(dashboardSource, /app\.post\('\/api\/perps\/backtests\/traderxo\/benchmark', requireWriteAccess/);
@@ -59,10 +61,19 @@ test('paper dashboard exposes research-only perps replays and walk-forward valid
   assert.match(dashboardSource, /persistsPaperTrades:\s*false/);
   assert.match(frontendSource, /paperPost\('\/api\/perps\/backtests\/traderxo'/);
   assert.match(frontendSource, /\.\.\.\(token \? \{ Authorization: `Bearer \$\{token\}` \} : \{\}\)/);
+  assert.match(frontendSource, /res\.status === 401 \|\| res\.status === 403/);
+  assert.match(frontendSource, /required for protected dashboard actions/);
   assert.match(frontendSource, /runPerpWalkForward/);
   assert.match(frontendSource, /runPerpBenchmark/);
   assert.match(htmlSource, /data-view="perp-backtests"/);
   assert.match(htmlSource, /Historical replay never creates paper trades or enables live perps\./);
+});
+
+test('bull-flag dashboard stats include spot and Solana variants', () => {
+  assert.match(dashboardSource, /new Set\(\['spot_day_bull_flag', 'solana_bull_flag_v2'\]\)/);
+  assert.match(dashboardSource, /t\?\.setupType, t\?\.structureType, t\?\.strategyVariant, t\?\.strategy/);
+  assert.match(dashboardSource, /bySetupType/);
+  assert.match(dashboardSource, /state\?\.config\?\.strategies\?\.solana_bull_flag_v2\?\.enabled/);
 });
 
 test('dashboard does not claim operational status during an active incident', () => {

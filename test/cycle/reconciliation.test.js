@@ -293,7 +293,7 @@ test('reconcileWalletPositions: KuCoin untracked position auto-adopted', async (
   assert.equal(d.portfolio.untrackedWalletPositions.length, 0);
 });
 
-test('reconcileWalletPositions: adoption skipped when valueUsd < min threshold', async () => {
+test('reconcileWalletPositions: wallet-only dust ignored instead of reported as untracked', async () => {
   const d = walletDeps({
     exchanges: {
       kucoin: {
@@ -306,8 +306,52 @@ test('reconcileWalletPositions: adoption skipped when valueUsd < min threshold',
   const recon = create(d);
   await recon.reconcileWalletPositions();
   assert.equal(d.portfolio.positions['kucoin:dust'], undefined);
+  assert.equal(d.portfolio.untrackedWalletPositions.length, 0);
+  assert.equal(d.portfolio.untrackedWalletPositionValueUsd, 0);
+  assert.equal(d.portfolio.stateReconciliation.discrepancies.length, 0);
+  assert.equal(d.portfolio.stateReconciliation.ignoredDustWalletPositions.length, 1);
+  assert.equal(d.portfolio.stateReconciliation.ignoredDustWalletPositions[0].symbol, 'DUST');
+});
+
+test('reconcileWalletPositions: adoption skipped when valueUsd < min threshold but above dust', async () => {
+  process.env.RECONCILE_ADOPT_MIN_VALUE_USD = '10';
+  const d = walletDeps({
+    exchanges: {
+      kucoin: {
+        getWalletPositions: async () => [{
+          address: 'SMALL', symbol: 'SMALL', lastPrice: 0.06, quantity: 100, valueUsd: 6,
+        }],
+      },
+    },
+  });
+  const recon = create(d);
+  await recon.reconcileWalletPositions();
+  assert.equal(d.portfolio.positions['kucoin:small'], undefined);
   assert.equal(d.portfolio.untrackedWalletPositions.length, 1);
-  assert.equal(d.portfolio.untrackedWalletPositions[0].symbol, 'DUST');
+  assert.equal(d.portfolio.untrackedWalletPositions[0].symbol, 'SMALL');
+  delete process.env.RECONCILE_ADOPT_MIN_VALUE_USD;
+});
+
+test('reconcileWalletPositions: KuCoin below base min and adoption floor treated as residual dust', async () => {
+  process.env.RECONCILE_ADOPT_MIN_VALUE_USD = '3';
+  const d = walletDeps({
+    config: { risk: { reconciliationDustUsd: 1, stopLossPct: 8 } },
+    exchanges: {
+      kucoin: {
+        getWalletPositions: async () => [{
+          address: 'H/USDT', symbol: 'H', lastPrice: 0.6, quantity: 2, valueUsd: 1.2, minBaseSize: 10, minFunds: 0.1,
+        }],
+      },
+    },
+  });
+  const recon = create(d);
+  await recon.reconcileWalletPositions();
+  assert.equal(d.portfolio.positions['kucoin:h/usdt'], undefined);
+  assert.equal(d.portfolio.untrackedWalletPositions.length, 0);
+  assert.equal(d.portfolio.untrackedWalletPositionValueUsd, 0);
+  assert.equal(d.portfolio.stateReconciliation.discrepancies.length, 0);
+  assert.equal(d.portfolio.stateReconciliation.ignoredDustWalletPositions[0].reason, 'kucoin_below_base_min_and_adoption_floor');
+  delete process.env.RECONCILE_ADOPT_MIN_VALUE_USD;
 });
 
 test('reconcileWalletPositions: untracked position with no price skipped (no adopt)', async () => {

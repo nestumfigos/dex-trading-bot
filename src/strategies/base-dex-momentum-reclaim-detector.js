@@ -24,6 +24,9 @@ function detectBaseDexMomentumReclaim({ tokenData = {}, candles = [], config = {
       polePctMin: num(config.polePctMin, 5),
       breakoutVolMinRatio: minVolumeSpike,
       flagDepthMaxPct: num(config.flagDepthMaxPct, 50),
+      latestVolumeMinRatio: 0,
+      minSixtyMinuteMovePct: 0,
+      maxSixtyMinuteMovePct: 0,
     })
     : { qualifies: false };
   if (flag.qualifies) {

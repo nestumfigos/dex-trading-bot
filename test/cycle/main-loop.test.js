@@ -264,6 +264,39 @@ test('restartLoopSchedulers: creates dynamic paper strategy timers when enabled'
   ml.clearLoopSchedulers({ state, deps });
 });
 
+test('restartLoopSchedulers: solana bull-flag uses bull-flag cadence with isolated timers', () => {
+  const state = makeState();
+  const calls = [];
+  const deps = baseDeps({
+    strategyNames: ['solana_bull_flag_v2'],
+    config: {
+      ...baseDeps().config,
+      bot: {
+        ...baseDeps().config.bot,
+        momentumScanIntervalSeconds: 75,
+        bullFlagScanIntervalSeconds: 90,
+        momentumExitCheckMinutes: 15,
+        bullFlagExitCheckMinutes: 6,
+      },
+      strategies: {
+        solana_bull_flag_v2: { enabled: true },
+      },
+    },
+    runStrategyScanCycle: async (strategyName) => { calls.push(`scan:${strategyName}`); },
+    runStrategyExitCycle: async (strategyName) => { calls.push(`exit:${strategyName}`); },
+  });
+  ml.restartLoopSchedulers({ state, deps, loopLocks: makeLoopLocks() });
+  assert.equal(state.bullFlagScanTimer, null);
+  assert.equal(state.bullFlagExitTimer, null);
+  assert.ok(state.strategyScanTimers.solana_bull_flag_v2);
+  assert.ok(state.strategyExitTimers.solana_bull_flag_v2);
+  assert.equal(state.strategyScanTimers.solana_bull_flag_v2._idleTimeout, 90_000);
+  assert.equal(state.strategyExitTimers.solana_bull_flag_v2._idleTimeout, 360_000);
+  assert.ok(calls.includes('scan:solana_bull_flag_v2'));
+  assert.ok(calls.includes('exit:solana_bull_flag_v2'));
+  ml.clearLoopSchedulers({ state, deps });
+});
+
 test('restartLoopSchedulers: skips realtimeStopTimer when realtimeStopLossEnabled=false', () => {
   const state = makeState();
   const deps = baseDeps({

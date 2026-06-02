@@ -1081,6 +1081,9 @@ class KuCoinExchange {
       // any wallet asset that happens not to be in the ticker cache (e.g. low-volume names
       // that fetchTickers omitted) gets silently dropped — making the wallet look empty.
       for (const { asset, symbol, total } of candidates) {
+        const market = this.exchange?.markets?.[symbol] || null;
+        const minBaseSize = Number(market?.limits?.amount?.min || 0);
+        const minFunds = Number(market?.limits?.cost?.min || 0);
         let last = Number(this.tickerCache?.[symbol]?.last || 0);
         if (!Number.isFinite(last) || last <= 0) {
           try {
@@ -1105,6 +1108,8 @@ class KuCoinExchange {
           quantity: total,
           valueUsd,
           lastPrice: last,
+          minBaseSize,
+          minFunds,
         });
       }
 

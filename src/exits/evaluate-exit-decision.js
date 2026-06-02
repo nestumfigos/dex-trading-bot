@@ -50,7 +50,7 @@ function decideExitAction({
   // 0) BULL-FLAG SETUP — structural stop, measured-move target, manual-cut
   //    deadline. Branches run BEFORE generic trailing/stop logic so the
   //    setup's own invariants govern the exit.
-  if (position.setupType === 'spot_day_bull_flag') {
+  if (isBullFlagSetup(position.setupType)) {
     const structuralStop = Number(position.structuralStopPrice || 0);
     if (structuralStop > 0 && price <= structuralStop) {
       return sell({
@@ -66,6 +66,27 @@ function decideExitAction({
         reason: 'BULL_FLAG_MEASURED_MOVE',
         sellPct: 1,
         meta: { targetLevel: measuredMoveTarget, currentProfit },
+      });
+    }
+
+    const flagHigh = Number(position.flagHighPrice || position.flagHigh || 0);
+    const lastClosedPrice = Number(tokenData.lastClosedPrice ?? tokenData.closePrice ?? tokenData.closedPrice ?? NaN);
+    if (flagHigh > 0 && Number.isFinite(lastClosedPrice) && lastClosedPrice <= flagHigh) {
+      return sell({
+        reason: 'BULL_FLAG_CLOSE_BACK_INSIDE_FLAG',
+        sellPct: 1,
+        meta: { flagHigh, lastClosedPrice, currentProfit },
+      });
+    }
+
+    const volumeCollapse = tokenData.bullFlagVolumeCollapse === true
+      || tokenData.volumeCollapse === true
+      || Number(tokenData.breakoutFollowThroughVolumeRatio ?? tokenData.followThroughVolumeRatio ?? NaN) < 0.7;
+    if (volumeCollapse && currentProfit < 0.01) {
+      return sell({
+        reason: 'BULL_FLAG_VOLUME_COLLAPSE_STALL',
+        sellPct: 1,
+        meta: { currentProfit, followThroughVolumeRatio: tokenData.breakoutFollowThroughVolumeRatio ?? tokenData.followThroughVolumeRatio ?? null },
       });
     }
 
@@ -421,6 +442,10 @@ function sell({ reason, sellPct = 1, meta = {}, mutations = {} }) {
 
 function noop({ reason = 'noop', meta = {}, mutations = {} } = {}) {
   return { action: 'noop', reason, sellPct: 0, tierIndex: null, meta, mutations };
+}
+
+function isBullFlagSetup(setupType) {
+  return setupType === 'spot_day_bull_flag' || setupType === 'solana_bull_flag_v2';
 }
 
 function sellTierBatch({ tierIndex, totalTiers, reason, sellPct, nextLocalHigh, meta }) {

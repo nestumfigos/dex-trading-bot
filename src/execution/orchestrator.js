@@ -35,6 +35,27 @@ function createExecutionOrchestrator(deps) {
     recoverFailedSellExecutionFromExchange,
   } = deps;
 
+  function isBullFlagSetupType(setupType) {
+    return setupType === 'spot_day_bull_flag' || setupType === 'solana_bull_flag_v2';
+  }
+
+  function bullFlagDailyLossR(fallbackRiskUsd = 0) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const startMs = startOfDay.getTime();
+    return (Array.isArray(portfolio?.trades) ? portfolio.trades : [])
+      .filter((trade) => String(trade?.type || '').toUpperCase() === 'SELL')
+      .filter((trade) => isBullFlagSetupType(trade?.setupType))
+      .filter((trade) => (Date.parse(trade?.timestamp || '') || 0) >= startMs)
+      .reduce((sum, trade) => {
+        const pnl = Number(trade.pnl);
+        if (!Number.isFinite(pnl) || pnl >= 0) return sum;
+        const riskUsd = Number(trade.setupRiskUsd || fallbackRiskUsd || 0);
+        if (!(riskUsd > 0)) return sum;
+        return sum + (Math.abs(pnl) / riskUsd);
+      }, 0);
+  }
+
   async function executeBuy(chainName, exchange, tokenData, strategyName = 'momentum') {
     if (!config.paperTrading && chainName !== 'kucoin') {
       logger.info(`Buy blocked: live bot restricted to KuCoin, ${chainName} not allowed`);
@@ -44,14 +65,30 @@ function createExecutionOrchestrator(deps) {
     // Bull-flag sizing (Week 12 B.7): flat %-equity risk divided by stop distance.
     // Quantity = (equity × riskPct%) ÷ stopDistanceAbs. Bypasses iteration engine.
     let calculatedSizeUsd;
-    if (strategyName === 'spot_day_bull_flag' && tokenData.setupType === 'spot_day_bull_flag' && Number(tokenData.structuralStopPrice) > 0) {
+    if (isBullFlagSetupType(tokenData.setupType) && Number(tokenData.structuralStopPrice) > 0) {
+      const bullFlagCfg = config.strategies?.[strategyName] || config.strategies?.spot_day_bull_flag || {};
+      const openBullFlags = Object.values(portfolio?.positions || {})
+        .filter((position) => position?.setupType === tokenData.setupType || position?.strategy === strategyName);
+      const maxConcurrent = Math.max(1, Number(bullFlagCfg.maxConcurrentPositions || 2));
+      if (openBullFlags.length >= maxConcurrent) {
+        logger.info(`[bull-flag] max concurrent positions reached (${openBullFlags.length}/${maxConcurrent}), skipping ${tokenData.symbol}`);
+        return;
+      }
+
       const equity = Number(portfolio?.balance || 0);
-      const riskPct = Number(tokenData._bullFlagRiskPct || config.strategies?.spot_day_bull_flag?.riskPctBase || 0.35);
+      const riskPct = Number(tokenData._bullFlagRiskPct || bullFlagCfg.riskPctBase || config.strategies?.spot_day_bull_flag?.riskPctBase || 0.35);
       const entryPrice = Number(tokenData.price || tokenData.breakoutClosePrice || 0);
       const stopPrice = Number(tokenData.structuralStopPrice);
       const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
       if (equity > 0 && stopDistanceFrac > 0) {
         const riskDollars = equity * (riskPct / 100);
+        const maxDailyLossR = Number(bullFlagCfg.maxDailyLossR || config.strategies?.spot_day_bull_flag?.maxDailyLossR || 3);
+        const todayLossR = bullFlagDailyLossR(riskDollars);
+        if (maxDailyLossR > 0 && todayLossR >= maxDailyLossR) {
+          logger.warn(`[bull-flag] daily R loss halt active (${todayLossR.toFixed(2)}R/${maxDailyLossR}R), skipping ${tokenData.symbol}`);
+          return;
+        }
+        tokenData._bullFlagRiskUsd = riskDollars;
         calculatedSizeUsd = riskDollars / stopDistanceFrac;
         // Cap at max position size config to prevent runaway sizing on tiny stops
         const maxPctCap = Number(config.risk?.maxPositionSizePct || 3) / 100;
@@ -142,6 +179,10 @@ function createExecutionOrchestrator(deps) {
       return;
     }
 
+    // 2026-05-31 audit (cycle-2 P2): clamp jitter to never EXCEED the
+    // calculated risk-budgeted size. Paper already did Math.min here; live
+    // did not, so the 15% jitter could swing the order ABOVE the size the
+    // risk engine signed off on. Floor stays free to swing downward.
     const sizeUsd = Math.min(calculatedSizeUsd, applyPositionJitter(calculatedSizeUsd, 15));
 
     try {
@@ -171,18 +212,29 @@ function createExecutionOrchestrator(deps) {
         return;
       }
     } catch (e) {
-      logger.error(`[pre-trade-contract] BUY check failed closed: ${e?.message || e}`);
+      // Fail CLOSED on entry: if the pre-trade risk contract can't run (e.g. SQL
+      // pool down), we cannot confirm daily-loss / consecutive-loss / duplicate-
+      // order / AI-circuit limits — so we must NOT open new risk. Worst case is a
+      // skipped buy, never a forced one. SELL stays fail-OPEN (below) — an infra
+      // error must never block an exit. Brings live to parity with paper.
+      logger.warn(`[pre-trade-contract] BUY check threw: ${e?.message || e} — failing closed (skipping entry)`);
       return;
     }
 
-    // TTL must exceed the ACTUAL buy timeout plus a buffer so a slow exchange
-    // cannot release the distributed lock before execution completes.
-    const execTimeoutMsForLock = Math.max(
+    // B3.exec.8 + 2026-05-31 audit (cycle-2 P1): TTL must exceed the ACTUAL
+    // execTimeoutMs passed to executeBuyViaVenue plus a buffer, so a slow
+    // exchange can't release the lock before execution completes (would risk
+    // duplicate live buys). The previous formula derived TTL from
+    // `config.execution.timeoutMs || 45000` but the buy path uses
+    // `execTimeoutMs || buyTimeoutMs || 30000` — if an operator raised
+    // `buyTimeoutMs` past 45s without touching `timeoutMs`, the lock would
+    // expire mid-order. Single source of truth: same expression as line below.
+    const execTimeoutMs = Math.max(
       15000,
       Number(config.execution?.execTimeoutMs || config.execution?.buyTimeoutMs || 30000)
     );
     const requestedLockTtl = Number(process.env.SQL_LOCK_TTL_MS || 30000);
-    const lockTtlMs = Math.max(requestedLockTtl, execTimeoutMsForLock + 10000);
+    const lockTtlMs = Math.max(requestedLockTtl, execTimeoutMs + 10000);
     const lockKey = `buy:${String(chainName || '').toLowerCase()}:${String(tokenData?.symbol || tokenData?.address || '').toUpperCase()}`.slice(0, 200);
     const dist = await sqlCoordination.acquireLock(lockKey, { ttlMs: lockTtlMs, waitMs: 0 });
     if (!dist.ok) {
@@ -214,6 +266,7 @@ function createExecutionOrchestrator(deps) {
 
     const release = await positionMutex.lock();
     // Day 6 wire: register in-flight $-exposure for heat-per-chain tracking.
+    // Released in finally so a throw mid-flight cannot leak a phantom heat allocation.
     if (typeof risk?.registerInFlightOrder === 'function') {
       try { risk.registerInFlightOrder(chainName, sizeUsd); } catch (_) { /* swallow */ }
     }
@@ -237,7 +290,8 @@ function createExecutionOrchestrator(deps) {
       try {
         let txResult;
         const expectedEntryPrice = Number(tokenData.price);
-        const execTimeoutMs = Math.max(15000, Number(config.execution?.execTimeoutMs || config.execution?.buyTimeoutMs || 30000));
+        // execTimeoutMs already computed above (lock-TTL derivation) — reusing
+        // ensures the lock TTL >= actual venue timeout. Do NOT redeclare.
         txResult = await executeBuyViaVenue({
           chainName,
           exchange,
@@ -317,6 +371,10 @@ function createExecutionOrchestrator(deps) {
   }
 
   async function executeSell(chainName, exchange, tokenData, position, sellPct = 1, reason = 'EXIT') {
+    // B1.4: acquire positionMutex BEFORE any other check so two concurrent callers
+    // serialize. The boolean exitInProgress flag alone could not prevent two callers
+    // from racing past the check; the mutex makes the second wait until the first
+    // releases (and at that point the position will either be closed or the flag set).
     const release = await positionMutex.lock();
     try {
       if (position?.exitInProgress) {

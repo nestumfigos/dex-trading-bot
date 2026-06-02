@@ -104,7 +104,6 @@ function createExecutionFlow(deps = {}) {
     buildDecisionReflection,
     updateAdaptiveSleevePerformance,
     updateBrainProfileFromClosedTrade,
-    triggerLearningSync,
     strategyBrain,
     agentMemory,
     symbolPnLMemory,
@@ -130,12 +129,6 @@ function createExecutionFlow(deps = {}) {
   }
 
   function runBuyPreflightChecks({ chainName, tokenData, strategyName }) {
-    const existingKey = buildTokenKey(chainName, tokenData.address);
-    if (portfolio.positions[existingKey]) {
-      logger.debug(`Duplicate position guard: already holding ${tokenData.symbol} on ${chainName}, skipping buy`);
-      return { ok: false };
-    }
-
     const globalPositions = Object.keys(portfolio.positions).length;
     if (globalPositions >= config.risk.maxConcurrentPositions) {
       logger.debug(`Global position limit reached at buy time for ${tokenData.symbol}, skipping`);
@@ -212,7 +205,7 @@ function createExecutionFlow(deps = {}) {
 
     const strictIncompleteFillMode = config.execution?.failClosedOnIncompleteFill !== false
       && !config.paperTrading
-      && (chainName === 'bsc' || chainName === 'base' || chainName === 'solana');
+      && (chainName === 'bsc' || chainName === 'base');
     if (strictIncompleteFillMode && !hasExchangeFilledData) {
       const reason = `Incomplete fill evidence for live ${chainName.toUpperCase()} BUY ${tokenData.symbol}; fail-closed to avoid balance drift`;
       if (txResult?.txid) {
@@ -252,8 +245,11 @@ function createExecutionFlow(deps = {}) {
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQuoteUsd, filledQuoteUsd);
     const entryFeeProfile = (config.execution?.feeProfile || {})[chainName]
       || (config.execution?.feeProfile || {}).default
-      || { entryBps: 10 };
-    const entryFeePaidUsd = filledQuoteUsd * (Number(entryFeeProfile.entryBps ?? 10) / 10000);
+      || { entryBps: 10, exitBps: 10, netInQuote: false };
+    const entryNetInQuote = entryFeeProfile.netInQuote === true;
+    const entryFeePaidUsd = entryNetInQuote
+      ? 0
+      : filledQuoteUsd * (Number(entryFeeProfile.entryBps ?? 10) / 10000);
     const totalEntryDebitUsd = filledQuoteUsd + entryFeePaidUsd;
     if (config.paperTrading && Number(portfolio.balance) < totalEntryDebitUsd) {
       const reason = `Insufficient paper cash for BUY ${tokenData.symbol}: balance=${Number(portfolio.balance).toFixed(2)}, cost=${totalEntryDebitUsd.toFixed(2)}`;
@@ -261,26 +257,14 @@ function createExecutionFlow(deps = {}) {
       return { aborted: true, reason: 'insufficient_paper_cash' };
     }
 
-    const ebStopLossPct = tokenData?.isEarlyBreakout && Number.isFinite(Number(tokenData?._earlyBreakoutStopLossPct))
-      ? Number(tokenData._earlyBreakoutStopLossPct)
-      : null;
-    const computedStopLoss = ebStopLossPct !== null
-      ? realizedEntryPrice * (1 - ebStopLossPct / 100)
-      : risk.stopLossPrice(realizedEntryPrice, strategyName);
-    const computedTakeProfit = risk.takeProfitPrice(realizedEntryPrice, strategyName);
-    if (!Number.isFinite(computedStopLoss) || computedStopLoss <= 0 || computedStopLoss >= realizedEntryPrice) {
-      const reason = `Invalid stopLoss ${computedStopLoss} for entryPrice ${realizedEntryPrice} on ${tokenData.symbol} — aborting buy to prevent unprotected position`;
-      logger.error(reason);
-      await sendErrorAlert(reason);
-      return { aborted: true };
-    }
-    if (!Number.isFinite(computedTakeProfit) || computedTakeProfit <= realizedEntryPrice) {
-      const reason = `Invalid takeProfit ${computedTakeProfit} for entryPrice ${realizedEntryPrice} on ${tokenData.symbol} — aborting buy to prevent unexitable position`;
-      logger.error(reason);
-      await sendErrorAlert(reason);
-      return { aborted: true };
-    }
+    // B1.6: detect scale-in BEFORE overwriting. We snapshot the old position so
+    // the post-assignment merge can compute weighted-average entry, cumulative
+    // cost-basis, and preserve open-position bookkeeping (realizedPnl, tier
+    // state, openedAt, trailing stop).
+    const existingPosition = portfolio.positions[tokenKey];
+    const isScaleIn = existingPosition && Number(existingPosition.quantity || 0) > 0;
 
+    portfolio.balance -= totalEntryDebitUsd;
     portfolio.positions[tokenKey] = {
       key: tokenKey,
       address: tokenData.address,
@@ -294,14 +278,15 @@ function createExecutionFlow(deps = {}) {
       quantity,
       initialSizeUsd: filledQuoteUsd,
       costBasisUsd: filledQuoteUsd,
+      entryFeePaidUsd,
+      exchangeFeeUsdEntry: entryFeePaidUsd,
       requestedEntryUsd: requestedQuoteUsd,
       filledEntryUsd: filledQuoteUsd,
-      entryFeePaidUsd,
       requestedEntryQuantity: realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity,
       filledEntryQuantity: quantity,
       entryFillDiscrepancyPct: fillDiscrepancyPct,
-      stopLoss: computedStopLoss,
-      takeProfit: computedTakeProfit,
+      stopLoss: risk.stopLossPrice(realizedEntryPrice, strategyName),
+      takeProfit: risk.takeProfitPrice(realizedEntryPrice, strategyName),
       openedAt: new Date().toISOString(),
       txid: txResult.txid,
       entryBlockNumber: Number.isFinite(Number(txResult?.blockNumber)) ? Number(txResult.blockNumber) : null,
@@ -316,8 +301,6 @@ function createExecutionFlow(deps = {}) {
       aiConfidence: tokenData.aiConfidence || 0,
       patternAnalysis: tokenData.patternAnalysis || null,
       pairAddress: tokenData.pairAddress || null,
-      executionProfile: txResult?.executionProfile || null,
-      entryScalePlanUsd: Array.isArray(tokenData?._entryScalePlanUsd) ? tokenData._entryScalePlanUsd.slice(0, 5) : null,
       entryLiquidityUsd: Number(tokenData.liquidityUsd || 0),
       entryTopHoldersPct: tokenData.topHoldersPct === null || tokenData.topHoldersPct === undefined ? null : Number(tokenData.topHoldersPct),
       entryBuyRatioPct10m: (() => {
@@ -329,17 +312,6 @@ function createExecutionFlow(deps = {}) {
       entryRecentWindowMinutes: Number(tokenData.recentTxWindowMinutes || 0) || null,
       entryBuyRatioRecentPct: Number(tokenData.buyRatioRecentPct || 0) || null,
       entryHolderCount: Number(tokenData.holderCount || 0),
-      // ── Per-indicator learning capture ────────────────────────────────────
-      entryRsi: Number(tokenData.rsi ?? tokenData.indicators?.rsi ?? 0) || null,
-      entryVolumeSpike: Number(tokenData.volumeSpike ?? tokenData.indicators?.volumeSpike ?? 0) || null,
-      entryNetBuyFlow: Number(tokenData.netBuyFlowUsd10m || 0) || null,
-      entryMacdBias: tokenData.indicators?.macdBias || tokenData.macdBias || null,
-      entryEmaState: tokenData.indicators?.emaState
-        || (Number.isFinite(Number(tokenData.indicators?.fastEma)) && Number.isFinite(Number(tokenData.indicators?.slowEma))
-          ? (Number(tokenData.indicators.fastEma) >= Number(tokenData.indicators.slowEma) ? 'fast_above_slow' : 'fast_below_slow')
-          : null),
-      entryPattern: tokenData.patternAnalysis?.strongestPattern?.pattern || null,
-      entryPatternBias: tokenData.patternAnalysis?.bias || tokenData.patternAnalysis?.strongestPattern?.bias || null,
       tokenAgeBucket: tokenData.tokenAgeBucket || 'unknown',
       highestPrice: realizedEntryPrice,
       antiPatternInfo: {
@@ -357,7 +329,8 @@ function createExecutionFlow(deps = {}) {
       exitInProgress: false,
       realizedPnlByTier: {},
       realizedPnl: 0,
-      // Bull-flag setup metadata (Week 12 B.5).
+      // Bull-flag setup metadata (Week 12 B.5). Persists structural stop +
+      // measured-move target so exit logic can branch on setupType.
       setupType: tokenData.setupType || null,
       structureType: tokenData.structureType || null,
       structuralStopPrice: Number.isFinite(Number(tokenData.structuralStopPrice)) ? Number(tokenData.structuralStopPrice) : null,
@@ -367,45 +340,73 @@ function createExecutionFlow(deps = {}) {
       macroRegime: tokenData.macroRegime || null,
       breakoutClosePrice: Number.isFinite(Number(tokenData.breakoutClosePrice)) ? Number(tokenData.breakoutClosePrice) : null,
       manualCutDeadlineAt: tokenData.manualCutDeadlineAt || null,
+      flagHighPrice: Number.isFinite(Number(tokenData.flagHighPrice)) ? Number(tokenData.flagHighPrice) : null,
+      flagLowPrice: Number.isFinite(Number(tokenData.flagLowPrice)) ? Number(tokenData.flagLowPrice) : null,
+      poleStartPrice: Number.isFinite(Number(tokenData.poleStartPrice)) ? Number(tokenData.poleStartPrice) : null,
+      poleHighPrice: Number.isFinite(Number(tokenData.poleHighPrice)) ? Number(tokenData.poleHighPrice) : null,
+      setupRiskUsd: Number.isFinite(Number(tokenData._bullFlagRiskUsd)) ? Number(tokenData._bullFlagRiskUsd) : null,
+      setupRiskPct: Number.isFinite(Number(tokenData._bullFlagRiskPct)) ? Number(tokenData._bullFlagRiskPct) : null,
+      expectedFeesBps: Number.isFinite(Number(tokenData.expectedFeesBps)) ? Number(tokenData.expectedFeesBps) : null,
+      expectedSlippageBps: Number.isFinite(Number(tokenData.expectedSlippageBps)) ? Number(tokenData.expectedSlippageBps) : null,
+      expectedSpreadBps: Number.isFinite(Number(tokenData.expectedSpreadBps)) ? Number(tokenData.expectedSpreadBps) : null,
     };
 
-    portfolio.strategies[strategyName].positions[tokenKey] = portfolio.positions[tokenKey];
-    if (portfolio.balance < totalEntryDebitUsd) {
-      const reason = `Balance would go negative after BUY for ${tokenData.symbol}: balance=${portfolio.balance.toFixed(2)}, cost=${totalEntryDebitUsd.toFixed(2)}`;
-      logger.error(reason);
-      if (!portfolio.safeMode && !config.paperTrading) {
-        await sendErrorAlert(reason);
-        await enterSafeMode(reason);
-      }
+    if (isScaleIn) {
+      const oldQty = Number(existingPosition.quantity || 0);
+      const oldCostBasis = Number(existingPosition.costBasisUsd || 0);
+      const newTotalQty = oldQty + quantity;
+      const newCostBasis = oldCostBasis + filledQuoteUsd;
+      const cumulativeEntryFee = Number(existingPosition.exchangeFeeUsdEntry || existingPosition.entryFeePaidUsd || 0) + entryFeePaidUsd;
+      const weightedEntry = newTotalQty > 0 ? newCostBasis / newTotalQty : realizedEntryPrice;
+      const newPos = portfolio.positions[tokenKey];
+      newPos.entryPrice = weightedEntry;
+      newPos.quantity = newTotalQty;
+      newPos.costBasisUsd = newCostBasis;
+      newPos.initialSizeUsd = newCostBasis;
+      newPos.filledEntryUsd = Number(existingPosition.filledEntryUsd || 0) + filledQuoteUsd;
+      newPos.entryFeePaidUsd = cumulativeEntryFee;
+      newPos.exchangeFeeUsdEntry = cumulativeEntryFee;
+      newPos.filledEntryQuantity = Number(existingPosition.filledEntryQuantity || 0) + quantity;
+      newPos.requestedEntryUsd = Number(existingPosition.requestedEntryUsd || 0) + requestedQuoteUsd;
+      newPos.requestedEntryQuantity = Number(existingPosition.requestedEntryQuantity || 0)
+        + (realizedEntryPrice > 0 ? requestedQuoteUsd / realizedEntryPrice : quantity);
+      newPos.stopLoss = risk.stopLossPrice(weightedEntry, strategyName);
+      newPos.takeProfit = risk.takeProfitPrice(weightedEntry, strategyName);
+      newPos.highestPrice = Math.max(Number(existingPosition.highestPrice || 0), realizedEntryPrice);
+      newPos.tierLocalHigh = Math.max(Number(existingPosition.tierLocalHigh || 0), realizedEntryPrice);
+      newPos.openedAt = existingPosition.openedAt || newPos.openedAt;
+      newPos.scaleInCount = Number(existingPosition.scaleInCount || 0) + 1;
+      newPos.lastScaleInTxid = txResult.txid;
+      newPos.lastScaleInAt = new Date().toISOString();
+      newPos.lastScaleInEntryPrice = realizedEntryPrice;
+      newPos.realizedPnl = Number(existingPosition.realizedPnl || 0);
+      newPos.realizedPnlByTier = existingPosition.realizedPnlByTier || {};
+      newPos.triggeredSellTiers = existingPosition.triggeredSellTiers || {};
+      newPos.tierDelayedAt = existingPosition.tierDelayedAt || {};
+      newPos.trailingStop = existingPosition.trailingStop || null;
+      logger.info(
+        `Scale-in for ${tokenData.symbol}: ${oldQty.toFixed(6)}@${Number(existingPosition.entryPrice || 0).toFixed(8)} + ${quantity.toFixed(6)}@${realizedEntryPrice.toFixed(8)} ` +
+        `→ ${newTotalQty.toFixed(6)}@${weightedEntry.toFixed(8)} (cost-basis $${newCostBasis.toFixed(2)})`
+      );
     }
-    portfolio.balance -= totalEntryDebitUsd;
+
+    portfolio.strategies[strategyName].positions[tokenKey] = portfolio.positions[tokenKey];
     ensureLiquiditySentinel(chainName, tokenData.pairAddress);
 
-    {
-      const minFillCfgByChain = {
-        bsc: Number(config.execution?.bscMinFillPctOfExpected || 0),
-        base: Number(config.execution?.baseMinFillPctOfExpected || 0),
-        solana: Number(config.execution?.solanaMinFillPctOfExpected || 0),
-      };
-      const minFillPctOfExpected = Math.max(0, Math.min(100, Number(minFillCfgByChain[chainName] || 0)));
-      if (minFillPctOfExpected > 0) {
-        const requestedEntryQuantity = realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity;
-        const realizedFillPct = requestedEntryQuantity > 0 ? (quantity / requestedEntryQuantity) * 100 : 100;
-        if (requestedEntryQuantity > 0 && realizedFillPct < minFillPctOfExpected) {
-          const reason = `entry fill ${realizedFillPct.toFixed(2)}% below minimum ${minFillPctOfExpected.toFixed(2)}%`;
-          logger.error(`${chainName.toUpperCase()} catastrophic fill detected for ${tokenData.symbol}: ${reason}`);
-          markTokenBadPattern(tokenData, `catastrophic_fill:${reason}`, { hardBan: true });
-          recordTradeBlockState(chainName, tokenData, strategyName, tokenData.signalSource || 'BUY', tokenData.signalSource || 'technical', reason, {
-            riskFlags: ['entry_fill_below_minimum'],
-          });
-          await sendErrorAlert(`${chainName.toUpperCase()} catastrophic fill for ${tokenData.symbol}: ${reason}`);
-          try {
-            await deps.executeSell(chainName, exchange, tokenData, portfolio.positions[tokenKey], 1, 'ENTRY_FILL_GUARD');
-          } catch (sellErr) {
-            logger.error(`ENTRY_FILL_GUARD dump-sell failed for ${tokenData.symbol}: ${sellErr.message}`);
-          }
-          return { aborted: true };
-        }
+    if (chainName === 'bsc') {
+      const requestedEntryQuantity = realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity;
+      const realizedFillPct = requestedEntryQuantity > 0 ? (quantity / requestedEntryQuantity) * 100 : 100;
+      const minFillPctOfExpected = Math.max(0, Math.min(100, Number(config.execution?.bscMinFillPctOfExpected || 0)));
+      if (requestedEntryQuantity > 0 && realizedFillPct < minFillPctOfExpected) {
+        const reason = `entry fill ${realizedFillPct.toFixed(2)}% below minimum ${minFillPctOfExpected.toFixed(2)}%`;
+        logger.error(`BSC catastrophic fill detected for ${tokenData.symbol}: ${reason}`);
+        markTokenBadPattern(tokenData, `catastrophic_fill:${reason}`, { hardBan: true });
+        recordTradeBlockState(chainName, tokenData, strategyName, tokenData.signalSource || 'BUY', tokenData.signalSource || 'technical', reason, {
+          riskFlags: ['entry_fill_below_minimum'],
+        });
+        await sendErrorAlert(`BSC catastrophic fill for ${tokenData.symbol}: ${reason}`);
+        await deps.executeSell(chainName, exchange, tokenData, portfolio.positions[tokenKey], 1, 'ENTRY_FILL_GUARD');
+        return { aborted: true };
       }
     }
 
@@ -433,7 +434,9 @@ function createExecutionFlow(deps = {}) {
       setupStopPrice: tokenData.structuralStopPrice || null,
       setupTargetPrice: tokenData.measuredMoveTargetPrice || null,
       setupIsAPlus: tokenData._bullFlagIsAPlus === true ? true : undefined,
+      setupRiskUsd: tokenData._bullFlagRiskUsd || null,
     }, strategyName);
+
     telemetry.logFill({
       fill_id: telemetryUuid(),
       order_id: orderId,
@@ -451,7 +454,6 @@ function createExecutionFlow(deps = {}) {
         confirmations: txResult?.confirmations,
         privateRouteUsed: txResult?.privateRouteUsed,
         hasExchangeFilledData,
-        executionProfile: txResult?.executionProfile || null,
       },
     });
     telemetry.logOrder({ order_id: orderId, status: 'filled' });
@@ -477,7 +479,6 @@ function createExecutionFlow(deps = {}) {
           signalSource: pos.signalSource || null,
           discoveryLane: tokenData.discoveryLane || null,
           txid: txResult.txid || null,
-          executionProfile: txResult?.executionProfile || null,
         },
       });
       telemetry.logDecision({
@@ -579,17 +580,7 @@ function createExecutionFlow(deps = {}) {
 
     const positionQuantityBefore = Number(position?.quantity || 0);
     if (!Number.isFinite(positionQuantityBefore) || positionQuantityBefore <= 0) {
-      logger.warn(
-        `Skipping SELL finalization for ${tokenData?.symbol || position?.symbol || position?.address}: ` +
-        'position is already closed or quantity is zero'
-      );
-      return {
-        proceedsUsd: 0,
-        pnl: 0,
-        filledBaseQty: 0,
-        fullyClosed: true,
-        skipped: true,
-      };
+      throw new Error(`Cannot finalize SELL for ${tokenData?.symbol || position?.symbol || position?.address}: no position quantity`);
     }
 
     const requestedQty = Number(quantityRequested || (positionQuantityBefore * requestedFraction) || 0);
@@ -608,14 +599,6 @@ function createExecutionFlow(deps = {}) {
       tokenData,
       chainName,
     );
-    if (requestedQty > 0 && filledBaseQty < requestedQty * 0.8) {
-      logger.warn(
-        `Significant underfill on SELL for ${tokenData.symbol} on ${chainName}: ` +
-        `requested=${requestedQty.toFixed(8)}, filled=${filledBaseQty.toFixed(8)} ` +
-        `(${((filledBaseQty / requestedQty) * 100).toFixed(1)}%). Position quantity may diverge from exchange.`
-      );
-    }
-
     const costBasisPortion = Number(position.costBasisUsd || 0) * filledFraction;
     const exitSlippageBps = calcSlippageBps(expectedExitPrice, realizedExitPrice);
     if (exitSlippageBps !== null) {
@@ -623,19 +606,46 @@ function createExecutionFlow(deps = {}) {
     }
 
     const proceedsUsd = filledQuoteUsd;
-    // Fee accounting: deduct realistic round-trip costs the exchanges already took
-    // out of the cash flow but are not reflected in PnL math. Without this, every
-    // closed trade's PnL is overstated by ~0.2-0.4% which masks the real edge.
+    // B2.18: fee double-subtraction guard.
+    //
+    // The previous code applied `feeProfile` bps unconditionally. That's correct
+    // ONLY when `filledQuoteUsd` is GROSS (exchange-reported fill notional before
+    // fees). If a venue returns NET (gross minus exchange fee already netted into
+    // the cash flow — common on Jupiter/aggregator paths), then balance was
+    // already debited/credited net, costBasisUsd is net, and adding feeProfile
+    // again subtracts the fee TWICE → realized PnL understated by ~0.2-0.4%.
+    //
+    // Per-chain `feeProfile.netInQuote=true` opts the chain into "net" semantics
+    // and we SKIP modeled bps. Default (false) preserves prior behavior. Position
+    // also carries the exchange-reported entry-fee when available, so the SELL
+    // path can subtract the actual entry-fee paid instead of a modeled estimate.
     const feeProfile = (config.execution?.feeProfile || {})[chainName]
       || (config.execution?.feeProfile || {}).default
-      || { entryBps: 10, exitBps: 10 };
-    const entryFeeUsd = costBasisPortion * (Number(feeProfile.entryBps ?? 10) / 10000);
-    const exitFeeUsd = proceedsUsd * (Number(feeProfile.exitBps ?? 10) / 10000);
+      || { entryBps: 10, exitBps: 10, netInQuote: false };
+    const netInQuote = feeProfile.netInQuote === true;
+    const entryFeeRecorded = Number(position.exchangeFeeUsdEntry || 0);
+    const entryFeeUsd = netInQuote
+      ? 0 // already deducted in BUY-side cash flow
+      : (entryFeeRecorded > 0
+        ? entryFeeRecorded * filledFraction
+        : costBasisPortion * (Number(feeProfile.entryBps || 10) / 10000));
+    const exitFeeUsd = netInQuote
+      ? 0 // exchange will report net; balance += proceedsUsd is post-fee already
+      : proceedsUsd * (Number(feeProfile.exitBps || 10) / 10000);
     const totalFeesUsd = entryFeeUsd + exitFeeUsd;
     const pnl = proceedsUsd - costBasisPortion - totalFeesUsd;
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQty, filledBaseQty);
 
-    portfolio.balance += proceedsUsd - exitFeeUsd;
+    portfolio.balance += netInQuote ? proceedsUsd : (proceedsUsd - exitFeeUsd);
+    portfolio.stats.totalPnl += pnl;
+    strategyStats.totalPnl += pnl;
+    if (pnl >= 0) {
+      portfolio.stats.grossProfit += pnl;
+      strategyStats.grossProfit += pnl;
+    } else {
+      portfolio.stats.grossLoss += Math.abs(pnl);
+      strategyStats.grossLoss += Math.abs(pnl);
+    }
 
     position.quantity = Math.max(0, Number(position.quantity || 0) - filledBaseQty);
     position.costBasisUsd = Math.max(0, Number(position.costBasisUsd || 0) - costBasisPortion);
@@ -646,11 +656,7 @@ function createExecutionFlow(deps = {}) {
     const costBasisDustThreshold = Math.max(0.01, Number(position.initialSizeUsd || 0) * 0.0001);
     const nearFullSellRequested = requestedFraction >= 0.999999;
 
-    const isTierSell = String(reason || '').startsWith('SELL_TIER_');
-    const underfilled = requestedQty > 0 && filledBaseQty < requestedQty * 0.8;
-    position.partialFillRetry = Boolean(
-      (nearFullSellRequested || isTierSell) && underfilled && position.quantity > quantityDustThreshold
-    );
+    position.partialFillRetry = Boolean(nearFullSellRequested && position.quantity > quantityDustThreshold);
     position.lastExitReconciliation = {
       reason,
       timestamp: new Date().toISOString(),
@@ -679,33 +685,14 @@ function createExecutionFlow(deps = {}) {
 
     const fullyClosed = position.quantity <= quantityDustThreshold || position.costBasisUsd <= costBasisDustThreshold;
     let closedTradePnl = null;
-    if (!fullyClosed && pnl > 0 && String(reason || '').startsWith('SELL_TIER_')) {
-      // A profitable partial exit should relieve a loss-streak lockout, but it is not
-      // counted as a closed trade until the whole position is closed.
-      portfolio.stats.consecutiveLosses = Math.max(0, Number(portfolio.stats.consecutiveLosses || 0) - 1);
-      strategyStats.consecutiveLosses = Math.max(0, Number(strategyStats.consecutiveLosses || 0) - 1);
-      position.lastProfitablePartialExitAt = new Date().toISOString();
-    }
     if (fullyClosed) {
       position.partialFillRetry = false;
       const positionKey = position.key || buildTokenKey(chainName, tokenData.address);
       const finalTradePnl = Number(position.realizedPnl || 0);
       closedTradePnl = finalTradePnl;
-      portfolio.stats.totalPnl += finalTradePnl;
-      strategyStats.totalPnl += finalTradePnl;
-      if (finalTradePnl >= 0) {
-        portfolio.stats.grossProfit += finalTradePnl;
-        strategyStats.grossProfit += finalTradePnl;
-      } else {
-        portfolio.stats.grossLoss += Math.abs(finalTradePnl);
-        strategyStats.grossLoss += Math.abs(finalTradePnl);
-      }
       delete portfolio.positions[positionKey];
       delete portfolio.strategies[strategyName].positions[positionKey];
       releaseLiquiditySentinel(chainName, position.pairAddress);
-      if (risk && typeof risk.invalidateHoneypotCache === 'function') {
-        risk.invalidateHoneypotCache(tokenData.address, chainName);
-      }
       strategy.clearHistory(position.strategyKey || positionKey);
       portfolio.stats.closedTrades += 1;
       strategyStats.closedTrades += 1;
@@ -746,16 +733,11 @@ function createExecutionFlow(deps = {}) {
       );
 
       setImmediate(() => {
-        agentMemory.generateLessonWithAI(position, finalTradePnl).catch((err) => {
-          logger.warn(`[AgentMemory] generateLessonWithAI failed: ${err.message}`);
-        });
+        agentMemory.generateLessonWithAI(position, finalTradePnl).catch(() => {});
       });
       strategyBrain.recordClosedTrade(position, finalTradePnl);
       updateBrainProfileFromClosedTrade(position, finalTradePnl);
       updateAdaptiveSleevePerformance(position, finalTradePnl);
-      if (typeof triggerLearningSync === 'function') {
-        triggerLearningSync('position_close');
-      }
     }
 
     const sellOrderId = telemetryUuid();
@@ -775,7 +757,6 @@ function createExecutionFlow(deps = {}) {
       metadata: {
         requestedFraction,
         fullyClosed,
-        closedTradePnl,
         recoveredFromTradeHistory: Boolean(txResult?.recoveredFromTradeHistory),
       },
     });
@@ -844,17 +825,20 @@ function createExecutionFlow(deps = {}) {
       structureType: position.structureType || null,
       setupStopPrice: position.structuralStopPrice || null,
       setupTargetPrice: position.measuredMoveTargetPrice || null,
-      fullyClosed,
-      closedTradePnl,
-      exitCategory: position.exitClassification || undefined,
+      setupRiskUsd: position.setupRiskUsd || null,
     }, strategyName);
+
     // Record trade outcome to symbol memory and RL updater for learning
     if (fullyClosed && symbolPnLMemory && rlOnlineUpdater) {
-      const openedAtMs = Date.parse(position.openedAt || position.entryAt || 0);
-      const holdMinutes = Number.isFinite(openedAtMs) && openedAtMs > 0
-        ? Math.max(0, (Date.now() - openedAtMs) / 60_000)
+      // Older positions only carry `openedAt`; new ones may carry `entryAt`.
+      // Prefer whichever is present so closed-trade learning records the real
+      // hold time instead of 0 (which silently disabled learning before).
+      const entryTimestamp = position.entryAt || position.openedAt;
+      const entryParsed = entryTimestamp ? Date.parse(entryTimestamp) : NaN;
+      const holdMinutes = Number.isFinite(entryParsed)
+        ? Math.max(0, (Date.now() - entryParsed) / 60_000)
         : 0;
-      const pnlPercent = position.initialSizeUsd > 0 ? ((closedTradePnl ?? pnl) / position.initialSizeUsd) * 100 : 0;
+      const pnlPercent = position.initialSizeUsd > 0 ? (pnl / position.initialSizeUsd) * 100 : 0;
 
       // Record to symbol memory for penalty tracking
       symbolPnLMemory.recordTrade(tokenData.symbol, chainName, strategyName, pnl, pnlPercent, holdMinutes);
@@ -864,7 +848,7 @@ function createExecutionFlow(deps = {}) {
         symbol: tokenData.symbol,
         chain: chainName,
         strategy: strategyName,
-        pnl: Number(closedTradePnl ?? pnl),
+        pnl,
         pnlPct: pnlPercent,
         confidence: Number(position.confidence || 0.5),
         holdMinutes,
@@ -902,7 +886,8 @@ function createExecutionFlow(deps = {}) {
     deps.recordExchangeFailure(chainName, error.message);
     logger.error(`SELL execution failed for ${tokenData.symbol}: ${error.message}`);
 
-    // POSITION_DUST: estimated exit value below exchange quoteMinSize. Mark as written-off.
+    // POSITION_DUST: estimated exit value below exchange quoteMinSize. Cannot be sold via API.
+    // Mark as written-off so future exit cycles SKIP it instead of retrying forever.
     if (error?.code === 'POSITION_DUST' && position) {
       if (!portfolio.writtenOffPositions || typeof portfolio.writtenOffPositions !== 'object') {
         portfolio.writtenOffPositions = {};
@@ -917,19 +902,21 @@ function createExecutionFlow(deps = {}) {
           estimatedFunds: Number(error.dustEstimatedFunds || 0),
           minFunds: Number(error.dustMinFunds || 0),
           reason: 'dust_below_quoteMinSize',
-          originalPosition: {
+        };
+        logger.warn(`[Dust] WRITE-OFF ${tokenData.symbol} on ${chainName} — value $${Number(error.dustEstimatedFunds || 0).toFixed(4)} below exchange minimum. Future exit attempts SKIPPED.`);
+      }
+      // Remove from active positions so exit-cycle stops scheduling sells.
+      if (position && portfolio.positions) {
+        const posKey = buildTokenKey(chainName, tokenData.address);
+        if (portfolio.positions[posKey]) {
+          // Move to writtenOff bucket, keep original entry data for accounting
+          portfolio.writtenOffPositions[writeOffKey].originalPosition = {
             entryPrice: position.entryPrice,
             quantity: position.quantity,
             costBasisUsd: position.costBasisUsd,
             openedAt: position.openedAt,
             strategy: position.strategy,
-          },
-        };
-        logger.warn(`[Dust] WRITE-OFF ${tokenData.symbol} on ${chainName} — value $${Number(error.dustEstimatedFunds || 0).toFixed(4)} below exchange minimum. Future exit attempts SKIPPED.`);
-      }
-      if (portfolio.positions) {
-        const posKey = buildTokenKey(chainName, tokenData.address);
-        if (portfolio.positions[posKey]) {
+          };
           delete portfolio.positions[posKey];
           logger.warn(`[Dust] Removed ${tokenData.symbol} from active positions (kept in writtenOffPositions for ledger).`);
         }
@@ -937,26 +924,6 @@ function createExecutionFlow(deps = {}) {
       return; // do NOT mark as stuck or schedule retries
     }
 
-    const failureKey = `${chainName}:${String(tokenData.address || tokenData.symbol || '').toLowerCase()}`;
-    const runtime = portfolio.runtime = portfolio.runtime || {};
-    runtime.sellFailureHistory = runtime.sellFailureHistory || {};
-    const now = Date.now();
-    const windowMs = Math.max(60_000, Number(config.execution?.sellFailureEscalationWindowMs || 30 * 60 * 1000));
-    const threshold = Math.max(2, Number(config.execution?.sellFailureSafeModeThreshold || 3));
-    const previousFailures = Array.isArray(runtime.sellFailureHistory[failureKey])
-      ? runtime.sellFailureHistory[failureKey]
-      : [];
-    const failures = previousFailures
-      .filter((entry) => now - Number(entry.ts || 0) <= windowMs)
-      .concat([{ ts: now, reason: errorText.slice(0, 240) }])
-      .slice(-10);
-    runtime.sellFailureHistory[failureKey] = failures;
-    if (!config.paperTrading && failures.length >= threshold && !portfolio.safeMode) {
-      const escalationReason = `Repeated SELL failures for ${tokenData.symbol} on ${chainName} (${failures.length}/${threshold})`;
-      logger.error(escalationReason);
-      await sendErrorAlert(escalationReason);
-      await enterSafeMode(escalationReason);
-    }
     if (/transfer_from_failed|execution reverted|honeypot|cannot sell|insufficient output|sell execution timed out/i.test(errorText)) {
       const hardBan = /transfer_from_failed|honeypot|cannot sell/i.test(errorText);
       markTokenBadPattern(tokenData, `sell_failed:${errorText}`, { hardBan });
@@ -1019,6 +986,30 @@ function createExecutionFlow(deps = {}) {
       });
     }
     await sendErrorAlert(`SELL failed for ${tokenData.symbol}: ${error.message}`);
+
+    // Repeated SELL failures across the portfolio indicate something is
+    // systemically broken (auth, balance corruption, venue rejecting orders).
+    // Track recent failures inside the running window and escalate to safe mode
+    // before the bot keeps trying to flatten positions it cannot actually sell.
+    if (!config?.paperTrading) {
+      const threshold = Math.max(0, Number(config?.execution?.sellFailureSafeModeThreshold || 0));
+      const windowMs = Math.max(1000, Number(config?.execution?.sellFailureEscalationWindowMs || 60000));
+      if (threshold > 0) {
+        const runtime = portfolio.runtime || (portfolio.runtime = {});
+        if (!Array.isArray(runtime.recentSellFailures)) runtime.recentSellFailures = [];
+        const now = Date.now();
+        runtime.recentSellFailures.push({ ts: now, symbol: tokenData?.symbol || null, reason: errorText.slice(0, 200) });
+        runtime.recentSellFailures = runtime.recentSellFailures.filter((entry) => (now - entry.ts) <= windowMs);
+        if (runtime.recentSellFailures.length >= threshold && !portfolio.safeMode) {
+          const safeReason = `Repeated SELL failures: ${runtime.recentSellFailures.length} within ${Math.round(windowMs / 1000)}s window (last error: ${errorText.slice(0, 120)})`;
+          try {
+            await enterSafeMode(safeReason);
+          } catch (safeError) {
+            logger.error(`enterSafeMode after repeated SELL failures failed: ${safeError?.message || safeError}`);
+          }
+        }
+      }
+    }
   }
 
   return {

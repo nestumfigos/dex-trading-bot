@@ -12,6 +12,7 @@ function pos(overrides = {}) {
     structuralStopPrice: 95,
     measuredMoveTargetPrice: 110,
     breakoutClosePrice: 100,
+    flagHighPrice: 99,
     manualCutDeadlineAt: new Date(Date.now() + 60_000).toISOString(),
     trailingStop: 0,
     stopLoss: 0,
@@ -64,6 +65,33 @@ test('bull-flag: price between stop and target → noop bull_flag_hold', () => {
   });
   assert.equal(result.action, 'noop');
   assert.equal(result.reason, 'bull_flag_hold');
+});
+
+test('bull-flag: Solana paper setup uses structural exit branch', () => {
+  const result = decideExitAction({
+    position: pos({ setupType: 'solana_bull_flag_v2' }),
+    tokenData: { price: 94 },
+  });
+  assert.equal(result.action, 'sell');
+  assert.equal(result.reason, 'BULL_FLAG_STRUCTURAL_STOP');
+});
+
+test('bull-flag: closed candle back inside flag exits immediately', () => {
+  const result = decideExitAction({
+    position: pos({ flagHighPrice: 101 }),
+    tokenData: { price: 101.2, lastClosedPrice: 100.8 },
+  });
+  assert.equal(result.action, 'sell');
+  assert.equal(result.reason, 'BULL_FLAG_CLOSE_BACK_INSIDE_FLAG');
+});
+
+test('bull-flag: volume collapse while stalled exits', () => {
+  const result = decideExitAction({
+    position: pos(),
+    tokenData: { price: 100.2, breakoutFollowThroughVolumeRatio: 0.5 },
+  });
+  assert.equal(result.action, 'sell');
+  assert.equal(result.reason, 'BULL_FLAG_VOLUME_COLLAPSE_STALL');
 });
 
 test('bull-flag: exitSignal.shouldExit still respected', () => {

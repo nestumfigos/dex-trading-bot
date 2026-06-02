@@ -8,16 +8,18 @@ require('dotenv').config();
 // stderr before exit so operator can diagnose instead of guessing OOM/timeout.
 // Intentional process.exit(1) preserves the "die-and-be-supervised" pattern;
 // only the cause is logged, no swallowing.
-process.on('uncaughtException', (err) => {
+function earlyUncaughtExceptionHandler(err) {
   // eslint-disable-next-line no-console
   console.error(`[paper] uncaughtException: ${err?.stack || err?.message || err}`);
   process.exit(1);
-});
-process.on('unhandledRejection', (reason) => {
+}
+function earlyUnhandledRejectionHandler(reason) {
   // eslint-disable-next-line no-console
   console.error(`[paper] unhandledRejection: ${reason?.stack || reason?.message || reason}`);
   process.exit(1);
-});
+}
+process.on('uncaughtException', earlyUncaughtExceptionHandler);
+process.on('unhandledRejection', earlyUnhandledRejectionHandler);
 const cron = require('node-cron');
 const { ethers } = require('ethers');
 const config = require('../config');
@@ -1667,6 +1669,22 @@ const strategy = {
       logger.debug(`[OrderBook] Analysis failed for ${tokenData?.symbol}: ${err.message}`);
     }
 
+    if (signal === 'BUY' && ['spot_day_bull_flag', 'solana_bull_flag_v2'].includes(strategyName) && orderbookAnalysis) {
+      const bidDepth = Number(orderbookAnalysis.bidDepth || 0);
+      const askDepth = Number(orderbookAnalysis.askDepth || 0);
+      const maxAskBidDepthRatio = Math.max(1, Number(strategyCfg.maxAskBidDepthRatio || 1.35));
+      const minDepthImbalance = Number(strategyCfg.minOrderBookDepthImbalance ?? -0.15);
+      const depthImbalance = Number(orderbookAnalysis.depthImbalance);
+      const askBidDepthRatio = bidDepth > 0 ? askDepth / bidDepth : null;
+      if (askBidDepthRatio && askBidDepthRatio > maxAskBidDepthRatio) {
+        signal = 'HOLD';
+        reasons.push(`bull_flag_ask_wall:${askBidDepthRatio.toFixed(2)}>${maxAskBidDepthRatio}`);
+      } else if (Number.isFinite(depthImbalance) && depthImbalance < minDepthImbalance) {
+        signal = 'HOLD';
+        reasons.push(`bull_flag_orderbook_depth_imbalance:${depthImbalance.toFixed(2)}<${minDepthImbalance}`);
+      }
+    }
+
     // ── Multi-timeframe confluence (1h + 4h alignment) ──────────────────
     let confluenceBoost = 0;
     let confluenceAnalysis = null;
@@ -2924,6 +2942,9 @@ function getHealthStatus() {
   const isRuntimeStrategyEnabled = (strategyName) => strategyName === 'momentum'
     ? config.strategies?.momentum?.enabled !== false
     : config.strategies?.[strategyName]?.enabled === true;
+  const isBullFlagRuntimeStrategy = (strategyName) => (
+    strategyName === 'spot_day_bull_flag' || strategyName === 'solana_bull_flag_v2'
+  );
   const enabledRuntimeStrategyNames = RUNTIME_STRATEGY_NAMES.filter(isRuntimeStrategyEnabled);
   const getScanLockKey = (strategyName) => {
     if (strategyName === 'spot_day_bull_flag') return 'bullFlagScan';
@@ -2959,12 +2980,12 @@ function getHealthStatus() {
   };
   const getStrategyScanIntervalMs = (strategyName) => {
     if (strategyName === 'momentum') return momentumScanMs;
-    if (strategyName === 'spot_day_bull_flag') return bullFlagScanMs;
+    if (isBullFlagRuntimeStrategy(strategyName)) return bullFlagScanMs;
     if (strategyName === 'backes_swing') return Math.max(10 * 60_000, Number(config.strategies?.backes_swing?.scanIntervalMinutes || 30) * 60_000);
     return Math.max(60_000, Number(config.strategies?.[strategyName]?.scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
   };
   const getStrategyExitIntervalMs = (strategyName) => {
-    if (strategyName === 'spot_day_bull_flag') return bullFlagExitMs;
+    if (isBullFlagRuntimeStrategy(strategyName)) return bullFlagExitMs;
     if (strategyName === 'backes_swing') return Math.max(30 * 60_000, Number(config.strategies?.backes_swing?.exitCheckMinutes || 60) * 60_000);
     return momentumExitMs;
   };
@@ -3655,6 +3676,7 @@ function logTrade(type, tokenData, quantity, valueUsd, txid, pnl = null, signalS
     structureType: tokenData.structureType || executionMeta.structureType || null,
     setupStopPrice: Number.isFinite(Number(executionMeta.setupStopPrice)) ? round(executionMeta.setupStopPrice, 8) : null,
     setupTargetPrice: Number.isFinite(Number(executionMeta.setupTargetPrice)) ? round(executionMeta.setupTargetPrice, 8) : null,
+    setupRiskUsd: Number.isFinite(Number(executionMeta.setupRiskUsd)) ? round(executionMeta.setupRiskUsd) : null,
     setupIsAPlus: executionMeta.setupIsAPlus === true ? true : undefined,
     brainProfileKey: executionMeta.brainProfileKey || undefined,
     brainMultiplier: Number.isFinite(Number(executionMeta.brainMultiplier)) ? round(executionMeta.brainMultiplier, 4) : undefined,
@@ -4272,13 +4294,24 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
 
     // Bull-flag setup propagation (Week 12 B.5): structural stop, measured-move
     // target, and manual-cut deadline travel with the tokenData into execution-flow.
-    if (strategyName === 'spot_day_bull_flag' && evaluation.details.setupType === 'spot_day_bull_flag') {
-      tokenData.setupType = 'spot_day_bull_flag';
+    if (['spot_day_bull_flag', 'solana_bull_flag_v2'].includes(strategyName)
+      && ['spot_day_bull_flag', 'solana_bull_flag_v2'].includes(evaluation.details.setupType)) {
+      tokenData.setupType = evaluation.details.setupType;
+      tokenData.strategyVariant = evaluation.details.setupType;
+      tokenData.structureType = evaluation.details.structureType || evaluation.details.setupType;
       tokenData.structuralStopPrice = Number(evaluation.details.stopPrice) || null;
       tokenData.measuredMoveTargetPrice = Number(evaluation.details.targetPrice) || null;
       tokenData.breakoutClosePrice = Number(evaluation.details.breakoutClose) || null;
-      const cutCandles = Number(config.strategies?.spot_day_bull_flag?.manualCutCandlesNoFollowThrough || 3);
-      const cutTimeframeMin = Number(config.strategies?.spot_day_bull_flag?.manualCutTimeframeMinutes || 5);
+      tokenData.flagHighPrice = Number(evaluation.details.flagHigh) || null;
+      tokenData.flagLowPrice = Number(evaluation.details.flagLow) || null;
+      tokenData.poleStartPrice = Number(evaluation.details.poleStartPrice) || null;
+      tokenData.poleHighPrice = Number(evaluation.details.poleHighPrice) || null;
+      tokenData.expectedFeesBps = Number(evaluation.details.expectedFeesBps) || null;
+      tokenData.expectedSlippageBps = Number(evaluation.details.expectedSlippageBps) || null;
+      tokenData.expectedSpreadBps = Number(evaluation.details.expectedSpreadBps) || null;
+      const activeBullFlagCfg = config.strategies?.[strategyName] || config.strategies?.spot_day_bull_flag || {};
+      const cutCandles = Number(activeBullFlagCfg.manualCutCandlesNoFollowThrough || config.strategies?.spot_day_bull_flag?.manualCutCandlesNoFollowThrough || 3);
+      const cutTimeframeMin = Number(activeBullFlagCfg.manualCutTimeframeMinutes || config.strategies?.spot_day_bull_flag?.manualCutTimeframeMinutes || 5);
       tokenData.manualCutDeadlineAt = new Date(Date.now() + cutCandles * cutTimeframeMin * 60_000).toISOString();
       tokenData._bullFlagRiskPct = Number(evaluation.details.riskPct) || null;
       tokenData._bullFlagIsAPlus = Boolean(evaluation.details.isAPlus);
@@ -5405,6 +5438,8 @@ lifecycle.installSignalHandlers();
 // Error handlers extracted to src/boot/error-handlers.js (Week 1b, 2026-05-16).
 // Uses errors/isTransient() taxonomy — ignores EADDRINUSE, ECONNRESET,
 // ETIMEDOUT, EPIPE, EHOSTUNREACH. Anything else → shutdownAndExit(1).
+process.removeListener('uncaughtException', earlyUncaughtExceptionHandler);
+process.removeListener('unhandledRejection', earlyUnhandledRejectionHandler);
 installErrorHandlers({ logger, shutdownAndExit });
 
 main().catch((error) => {

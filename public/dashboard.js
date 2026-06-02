@@ -74,12 +74,12 @@ async function paperApi(path) {
   }
 }
 
-async function paperPost(path, body) {
+async function paperPost(path, body, retryOnAuthFailure = true) {
   const t0 = performance.now();
   try {
     // 2026-05-31: paper now on 3003 (was 3001).
     const url = `${window.location.protocol}//${window.location.hostname}:3003${path}`;
-    const token = localStorage.getItem('dt.adminToken') || '';
+    const token = getAdminToken();
     const res = await fetch(url, {
       method: 'POST',
       cache: 'no-store',
@@ -93,6 +93,11 @@ async function paperPost(path, body) {
     const ms = Math.round(performance.now() - t0);
     el('sb-latency').textContent = `${ms} ms`;
     const payload = await res.json().catch(() => null);
+    if ((res.status === 401 || res.status === 403) && retryOnAuthFailure) {
+      const nextToken = promptAdminToken();
+      if (!nextToken) return { error: 'no admin token' };
+      return paperPost(path, body, false);
+    }
     return res.ok ? payload : { error: payload?.error || `request_failed_${res.status}` };
   } catch (_) {
     return { error: 'perps_research_unavailable' };
@@ -896,7 +901,7 @@ function getAdminToken() {
 }
 function promptAdminToken() {
   const cur = getAdminToken();
-  const next = window.prompt('Admin token (DASHBOARD_ADMIN_TOKEN) — required to edit risk rules:', cur);
+  const next = window.prompt('Admin token (DASHBOARD_ADMIN_TOKEN) — required for protected dashboard actions:', cur);
   if (next != null) localStorage.setItem('dt.adminToken', String(next));
   return getAdminToken();
 }
