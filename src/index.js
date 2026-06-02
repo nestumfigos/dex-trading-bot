@@ -4173,9 +4173,16 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     }
   }
 
+  const scanStrategy = String(options.scanStrategy || '').toLowerCase();
   const trackInsufficient = (reason, strategyName = null) => {
+    const statsStrategy = String(strategyName || scanStrategy || '').toLowerCase();
+    const cycleStats = statsStrategy ? filterStatsState.currentCycle?.[statsStrategy] : null;
+    if (cycleStats) {
+      cycleStats.technicalBlocked += 1;
+      classifyFilterReason(cycleStats, reason || 'eligibility_rejected');
+    }
     updateTrackedToken(chainName, tokenData, {
-      strategy: strategyName,
+      strategy: statsStrategy || strategyName,
       technicalSignal: 'INSUFFICIENT DATA',
       finalSignal: 'INSUFFICIENT DATA',
       signalSource: 'eligibility',
@@ -4186,7 +4193,6 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     }, { recordSignal: false });
   };
 
-  const scanStrategy = String(options.scanStrategy || '').toLowerCase();
   updateTokenScanState(chainName, tokenAddress, tokenData, scanStrategy);
   recordStrategyTick(tokenKey, Number(tokenData.price), Number(tokenData.volume24h || 0));
 
