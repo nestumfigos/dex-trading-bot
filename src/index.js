@@ -4133,7 +4133,12 @@ const { getTokenByAddressWithCache } = require('./utils/tokens-cache');
 
 async function processToken(chainName, exchange, tokenAddress, options = {}) {
   const scanStrategy = String(options.scanStrategy || '').toLowerCase();
-  const tokenDataFetchTimeoutMs = Math.max(1000, Number(config.risk?.tokenDataFetchTimeoutMs || 5000));
+  const defaultTokenDataFetchTimeoutMs = chainName === 'solana'
+    ? Number(config.risk?.solanaTokenDataFetchTimeoutMs || config.risk?.dexTokenDataFetchTimeoutMs || 15000)
+    : chainName === 'base'
+      ? Number(config.risk?.baseTokenDataFetchTimeoutMs || config.risk?.dexTokenDataFetchTimeoutMs || 15000)
+      : Number(config.risk?.tokenDataFetchTimeoutMs || 5000);
+  const tokenDataFetchTimeoutMs = Math.max(1000, defaultTokenDataFetchTimeoutMs);
   const tokenData = await getTokenByAddressWithCache(
     chainName,
     tokenAddress,

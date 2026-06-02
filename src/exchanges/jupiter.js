@@ -35,6 +35,14 @@ const DISCOVERY_FEEDS = [
   'https://api.dexscreener.com/token-boosts/top/v1',
 ];
 
+function withTimeoutValue(promise, timeoutMs, fallback = null) {
+  const ms = Math.max(1, Number(timeoutMs) || 1);
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 class JupiterExchange {
   constructor(cache) {
     this.connection = new Connection(config.solana.rpcUrl, 'confirmed');
@@ -182,7 +190,13 @@ class JupiterExchange {
 
     try {
       const requests = [
-        axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`, { timeout: 10000 }),
+        dexscreenerClient.throttledFetch(
+          `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`,
+          {
+            timeoutMs: Math.max(1000, Number(config.risk?.dexscreenerTokenLookupTimeoutMs || 5000)),
+            cacheTtlMs: Math.max(1000, Number(config.risk?.dexscreenerTokenCacheTtlMs || 60_000)),
+          }
+        ),
       ];
       const birdeyeOnCooldown = Date.now() < this._birdeyeCooldownUntil;
       if (config.birdeye.apiKey && !birdeyeOnCooldown && this.consumeBirdeyeQuota()) {
@@ -204,15 +218,16 @@ class JupiterExchange {
       }
 
       // All external calls wrapped in allSettled so one failure can't crash the whole lookup
+      const onchainTimeoutMs = Math.max(250, Number(config.risk?.solanaOptionalMetricsTimeoutMs || 1200));
       const [responses, onchainResults] = await Promise.all([
         Promise.allSettled(requests),
-        Promise.allSettled([
+        withTimeoutValue(Promise.allSettled([
           getTokenHolders(mintAddress, 10),
           getTokenInfo(mintAddress),
-        ]),
+        ]), onchainTimeoutMs, []),
       ]);
 
-      const pairs = responses[0].status === 'fulfilled' ? responses[0].value.data?.pairs || [] : [];
+      const pairs = responses[0].status === 'fulfilled' ? responses[0].value?.pairs || [] : [];
       const dexPair = pairs.find((pair) => pair.chainId === 'solana') || pairs[0] || null;
 
       // Handle Birdeye result — 404/400 expected for fresh tokens or rate-limits
@@ -238,8 +253,8 @@ class JupiterExchange {
       }
 
       // Extract onchain results (all allSettled, so always safe)
-      const holders = onchainResults[0].status === 'fulfilled' ? onchainResults[0].value : null;
-      const tokenInfo = onchainResults[1].status === 'fulfilled' ? onchainResults[1].value : null;
+      const holders = onchainResults[0]?.status === 'fulfilled' ? onchainResults[0].value : null;
+      const tokenInfo = onchainResults[1]?.status === 'fulfilled' ? onchainResults[1].value : null;
 
       const listingAgeDays = dexPair?.pairCreatedAt ? (Date.now() - dexPair.pairCreatedAt) / 86400000 : 30;
       let tvl = null;
@@ -260,12 +275,13 @@ class JupiterExchange {
         topHoldersPct = total > 0 ? (topSum / total) * 100 : 0;
       }
 
-      const metrics = await getTokenMetrics(
+      const metricsTimeoutMs = Math.max(250, Number(config.risk?.tokenMetricsLookupTimeoutMs || 1200));
+      const metrics = await withTimeoutValue(getTokenMetrics(
         mintAddress,
         'solana',
         birdeye?.symbol || dexPair?.baseToken?.symbol,
         birdeye?.name || dexPair?.baseToken?.name
-      );
+      ), metricsTimeoutMs, null);
       const result = {
         address: mintAddress,
         symbol: birdeye?.symbol || dexPair?.baseToken?.symbol || 'UNKNOWN',

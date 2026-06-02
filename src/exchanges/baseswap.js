@@ -18,6 +18,14 @@ function tokenDataCacheTtl(listingAgeDays) {
   return Math.round(Number(config.birdeye?.cacheTtlMs ?? 60_000) / 1000);
 }
 
+function withTimeoutValue(promise, timeoutMs, fallback = null) {
+  const ms = Math.max(1, Number(timeoutMs) || 1);
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 // Tracks the next pending nonce to prevent nonce reuse across concurrent txs.
 class NonceManager {
   constructor(provider, address) {
@@ -157,15 +165,23 @@ class BaseSwapExchange {
     if (cached) return cached;
 
     try {
-      const [dexRes] = await Promise.allSettled([
-        axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`, { timeout: 10000 }),
-        this.provider.getBlockNumber(),
-      ]);
+      const dexData = await dexscreenerClient.throttledFetch(
+        `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+        {
+          timeoutMs: Math.max(1000, Number(config.risk?.dexscreenerTokenLookupTimeoutMs || 5000)),
+          cacheTtlMs: Math.max(1000, Number(config.risk?.dexscreenerTokenCacheTtlMs || 60_000)),
+        }
+      ).catch(() => null);
 
-      const pairs = dexRes.status === 'fulfilled' ? dexRes.value.data?.pairs || [] : [];
+      const pairs = Array.isArray(dexData?.pairs) ? dexData.pairs : [];
       const pair = pairs.find((item) => item.chainId === 'base') || pairs[0] || null;
       if (!pair) return null;
-      const metrics = await getTokenMetrics(tokenAddress, 'base', pair.baseToken?.symbol, pair.baseToken?.name);
+      const metricsTimeoutMs = Math.max(250, Number(config.risk?.tokenMetricsLookupTimeoutMs || 1200));
+      const metrics = await withTimeoutValue(
+        getTokenMetrics(tokenAddress, 'base', pair.baseToken?.symbol, pair.baseToken?.name),
+        metricsTimeoutMs,
+        null
+      );
 
       const result = {
         address: tokenAddress,
