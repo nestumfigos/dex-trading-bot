@@ -1124,14 +1124,14 @@ class KuCoinExchange {
     return this.symbols;
   }
 
-  async getSwingCandidates() {
+  async getBackesCandidates() {
     if (!this.exchange) return [];
 
     if (!this.tickerCache || Object.keys(this.tickerCache).length === 0) {
       await this.refreshTickers();
     }
 
-    const swingLimit = Math.max(10, Number(config.bot?.kucoinSwingCandidateLimit || 80));
+    const backesLimit = Math.max(10, Number(config.bot?.kucoinBackesCandidateLimit || config.bot?.kucoinSwingCandidateLimit || 80));
 
     const ranked = Object.entries(this.tickerCache || {})
       .filter(([, ticker]) => ticker && Number(ticker.last || 0) > 0 && Number(ticker.quoteVolume || 0) > 0)
@@ -1141,10 +1141,14 @@ class KuCoinExchange {
     const filtered = ranked.filter((sym) => !LEVERAGED_TOKEN_PATTERN.test(sym.replace('/USDT', '')));
     const excluded = ranked.length - filtered.length;
     if (excluded > 0) {
-      logger.debug(`KuCoin leveraged-token filter excluded ${excluded} swing symbols this cycle`);
+      logger.debug(`KuCoin leveraged-token filter excluded ${excluded} Backes symbols this cycle`);
     }
 
-    return filtered.slice(0, swingLimit);
+    return filtered.slice(0, backesLimit);
+  }
+
+  async getSwingCandidates() {
+    return this.getBackesCandidates();
   }
 
   async getNewListings() {

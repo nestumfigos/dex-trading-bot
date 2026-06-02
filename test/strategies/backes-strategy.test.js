@@ -206,7 +206,7 @@ test('Backes evaluator returns BUY contract with setup and macro details', async
     { config: { enabled: true, enabledChains: ['kucoin'], minLiquidityUsd: 500_000, min24hVolumeUsd: 100_000 }, chainKey: 'kucoin' },
   );
   assert.equal(result.signal, 'BUY');
-  assert.equal(result.details.setupType, 'swing');
+  assert.equal(result.details.setupType, 'backes');
   assert.equal(result.details.strategyMode, 'backes_htf_swing');
   assert.ok(result.details.structureType);
   assert.ok(result.details.invalidationPrice < result.details.entryPrice);
@@ -318,7 +318,7 @@ for (let index = 0; index < 15; index += 1) {
       { config: { enabled: true, enabledChains: ['kucoin'], minLiquidityUsd: 500_000, min24hVolumeUsd: 100_000, macroCacheKey: `fixture-${index}` }, chainKey: 'kucoin' },
     );
     assert.equal(result.signal, 'BUY');
-    assert.equal(result.details.setupType, 'swing');
+    assert.equal(result.details.setupType, 'backes');
     assert.equal(result.details.structureType, '56d_retest');
     assert.ok(result.details.stopDistancePct > 0);
   });

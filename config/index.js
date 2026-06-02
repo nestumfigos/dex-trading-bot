@@ -228,9 +228,10 @@ const config = {
   ai: {
     narrativeMinScore: parseFloat(process.env.AI_NARRATIVE_MIN_SCORE) || 65,
     decisionCacheMs: parseInt(process.env.AI_DECISION_CACHE_MS || '300000', 10),
-    // Per-strategy AI cache freshness — momentum prices move fast, swing tolerates longer caching.
+    // Per-strategy AI cache freshness — momentum prices move fast, Backes tolerates longer caching.
     momentumDecisionCacheMs: parseInt(process.env.AI_MOMENTUM_DECISION_CACHE_MS || '300000', 10), // 5 min
-    swingDecisionCacheMs: parseInt(process.env.AI_SWING_DECISION_CACHE_MS || '1800000', 10),     // 30 min
+    backesDecisionCacheMs: parseIntEnv(['AI_BACKES_DECISION_CACHE_MS', 'AI_SWING_DECISION_CACHE_MS'], 1800000),
+    swingDecisionCacheMs: parseIntEnv(['AI_BACKES_DECISION_CACHE_MS', 'AI_SWING_DECISION_CACHE_MS'], 1800000),
   },
 
   telegram: {
@@ -322,7 +323,8 @@ const config = {
     // (45% sol + 45% bsc + 45% kucoin = 135% gross). Ported from main 2026-05-30.
     maxGlobalExposurePct: parseFloat(process.env.MAX_GLOBAL_EXPOSURE_PCT || '90'),
     kucoinMomentumHeatAllowancePct: parseFloat(process.env.KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT || '60'),
-    kucoinSwingHeatAllowancePct: parseFloat(process.env.KUCOIN_SWING_HEAT_ALLOWANCE_PCT || '95'),
+    kucoinBackesHeatAllowancePct: parseFloatEnv(['KUCOIN_BACKES_HEAT_ALLOWANCE_PCT', 'KUCOIN_SWING_HEAT_ALLOWANCE_PCT'], 95),
+    kucoinSwingHeatAllowancePct: parseFloatEnv(['KUCOIN_BACKES_HEAT_ALLOWANCE_PCT', 'KUCOIN_SWING_HEAT_ALLOWANCE_PCT'], 95),
     heatExemptSymbols: (process.env.HEAT_EXEMPT_SYMBOLS || 'BANANAS31').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
     bscMomentumHeatAllowancePct: parseFloat(process.env.BSC_MOMENTUM_HEAT_ALLOWANCE_PCT || '60'),
     portfolioHeatReservePctBySleeve: toFiniteNumberMap({
@@ -442,12 +444,14 @@ const config = {
   bot: {
     scanIntervalSeconds: parseInt(process.env.SCAN_INTERVAL_SECONDS) || defaultScanIntervalSeconds,
     momentumScanIntervalSeconds: parseInt(process.env.MOMENTUM_SCAN_INTERVAL_SECONDS || process.env.SCAN_INTERVAL_SECONDS || '45', 10),
-    swingScanIntervalMinutes: parseInt(process.env.SWING_SCAN_INTERVAL_MINUTES || '15', 10),
+    backesScanIntervalMinutes: parseIntEnv(['BACKES_SCAN_INTERVAL_MINUTES', 'SWING_SCAN_INTERVAL_MINUTES'], 15),
+    swingScanIntervalMinutes: parseIntEnv(['BACKES_SCAN_INTERVAL_MINUTES', 'SWING_SCAN_INTERVAL_MINUTES'], 15),
     bullFlagScanIntervalSeconds: parseInt(process.env.BULL_FLAG_SCAN_INTERVAL_SECONDS || '90', 10),
     kucoinScanAllSymbols: process.env.KUCOIN_SCAN_ALL_SYMBOLS !== 'false',
     kucoinMaxTokensPerCycle: parseIntEnv('KUCOIN_MAX_TOKENS_PER_CYCLE', 120),
     kucoinRankedScanLimit: Math.max(40, Math.min(200, parseIntEnv('KUCOIN_RANKED_SCAN_LIMIT', 150))),
-    kucoinSwingCandidateLimit: Math.max(10, Math.min(120, parseIntEnv('KUCOIN_SWING_CANDIDATE_LIMIT', 80))),
+    kucoinBackesCandidateLimit: Math.max(10, Math.min(120, parseIntEnv(['KUCOIN_BACKES_CANDIDATE_LIMIT', 'KUCOIN_SWING_CANDIDATE_LIMIT'], 80))),
+    kucoinSwingCandidateLimit: Math.max(10, Math.min(120, parseIntEnv(['KUCOIN_BACKES_CANDIDATE_LIMIT', 'KUCOIN_SWING_CANDIDATE_LIMIT'], 80))),
     kucoinFastPrefilterEnabled: process.env.KUCOIN_FAST_PREFILTER_ENABLED !== 'false',
     kucoinFastPrefilterLimit: Math.max(8, Math.min(60, parseIntEnv('KUCOIN_FAST_PREFILTER_LIMIT', 24))),
     kucoinFastPrefilterBreakoutReserve: Math.max(0, Math.min(30, parseIntEnv('KUCOIN_FAST_PREFILTER_BREAKOUT_RESERVE', 8))),
@@ -457,9 +461,11 @@ const config = {
     kucoinBatchSize: parseInt(process.env.KUCOIN_BATCH_SIZE || '8', 10),
     kucoinBatchDelayMs: parseInt(process.env.KUCOIN_BATCH_DELAY_MS || '250', 10),
     momentumExitCheckMinutes: parseInt(process.env.MOMENTUM_EXIT_CHECK_MINUTES || '15', 10),
-    swingExitCheckMinutes: parseInt(process.env.SWING_EXIT_CHECK_MINUTES || '60', 10),
+    backesExitCheckMinutes: parseIntEnv(['BACKES_EXIT_CHECK_MINUTES', 'SWING_EXIT_CHECK_MINUTES'], 60),
+    swingExitCheckMinutes: parseIntEnv(['BACKES_EXIT_CHECK_MINUTES', 'SWING_EXIT_CHECK_MINUTES'], 60),
     bullFlagExitCheckMinutes: parseInt(process.env.BULL_FLAG_EXIT_CHECK_MINUTES || process.env.MOMENTUM_EXIT_CHECK_MINUTES || '15', 10),
-    swingWatchlistRefreshHours: parseInt(process.env.SWING_WATCHLIST_REFRESH_HOURS || '24', 10),
+    backesWatchlistRefreshHours: parseIntEnv(['BACKES_WATCHLIST_REFRESH_HOURS', 'SWING_WATCHLIST_REFRESH_HOURS'], 24),
+    swingWatchlistRefreshHours: parseIntEnv(['BACKES_WATCHLIST_REFRESH_HOURS', 'SWING_WATCHLIST_REFRESH_HOURS'], 24),
     walletBalanceRefreshSeconds: parseInt(process.env.WALLET_BALANCE_REFRESH_SECONDS || '60', 10),
     discoveryMode: String(process.env.DISCOVERY_MODE || 'hybrid').toLowerCase(), // watchlist | new | hybrid
     port: parseInt(process.env.PORT) || 3002,
@@ -638,40 +644,40 @@ const config = {
       trailingActivationMultiplier: parseFloatEnv('MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER', 1.025),
       trailingStopPct: parseFloatEnv('MOMENTUM_TRAILING_STOP_PCT', 2.5),
     },
-    swing: {
+    backes: {
       enabled: (() => {
-        const raw = firstEnvValue(['SWING_ENABLED', 'BACKES_SWING_ENABLED']);
+        const raw = firstEnvValue(['BACKES_ENABLED', 'SWING_ENABLED', 'BACKES_SWING_ENABLED']);
         return raw != null ? String(raw).toLowerCase() === 'true' : isPaperTrading;
       })(),
-      enabledChains: String(firstEnvValue(['SWING_ENABLED_CHAINS', 'BACKES_SWING_ENABLED_CHAINS']) || 'kucoin').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
+      enabledChains: String(firstEnvValue(['BACKES_ENABLED_CHAINS', 'SWING_ENABLED_CHAINS', 'BACKES_SWING_ENABLED_CHAINS']) || 'kucoin').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
       mode: 'backes_htf_swing',
-      maxConcurrentPositions: parseIntEnv(['SWING_MAX_CONCURRENT_POSITIONS', 'BACKES_SWING_MAX_CONCURRENT_POSITIONS'], 3),
-      maDailyPeriod: parseIntEnv(['SWING_MA_DAILY_PERIOD', 'BACKES_SWING_MA_DAILY_PERIOD'], 56),
-      maWeeklyFast: parseIntEnv(['SWING_MA_WEEKLY_FAST', 'BACKES_SWING_MA_WEEKLY_FAST'], 8),
-      maWeeklySupport: parseIntEnv(['SWING_MA_WEEKLY_SUPPORT', 'BACKES_SWING_MA_WEEKLY_SUPPORT'], 21),
-      weeklyRsiPeriod: parseIntEnv(['SWING_WEEKLY_RSI_PERIOD', 'BACKES_SWING_WEEKLY_RSI_PERIOD'], 14),
-      weeklyRsiOversold: parseFloatEnv(['SWING_WEEKLY_RSI_OVERSOLD', 'BACKES_SWING_WEEKLY_RSI_OVERSOLD'], 30),
-      rangeLookbackDays: parseIntEnv(['SWING_RANGE_LOOKBACK_DAYS', 'BACKES_SWING_RANGE_LOOKBACK_DAYS'], 60),
-      dailyVolumeSpikeMultiplier: parseFloatEnv(['SWING_DAILY_VOLUME_SPIKE_MULTIPLIER', 'BACKES_SWING_DAILY_VOLUME_SPIKE_MULTIPLIER'], 1.5),
-      fourHourVolumeSpikeMultiplier: parseFloatEnv(['SWING_4H_VOLUME_SPIKE_MULTIPLIER', 'BACKES_SWING_4H_VOLUME_SPIKE_MULTIPLIER'], 1.3),
-      maxEntryDistanceFromSupportAtr: parseFloatEnv(['SWING_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR', 'BACKES_SWING_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR'], 0.75),
-      riskPct: parseFloatEnv(['SWING_RISK_PCT', 'BACKES_SWING_RISK_PCT'], 0.5),
-      capitulationRiskPct: parseFloatEnv(['SWING_CAPITULATION_RISK_PCT', 'BACKES_SWING_CAPITULATION_RISK_PCT'], 0.2),
-      maxSwingExposurePct: parseFloatEnv(['SWING_MAX_EXPOSURE_PCT', 'BACKES_SWING_MAX_EXPOSURE_PCT'], 25),
-      hardMaxLossPct: parseFloatEnv(['SWING_HARD_MAX_LOSS_PCT', 'BACKES_SWING_HARD_MAX_LOSS_PCT'], 10),
-      minLiquidityUsd: parseFloatEnv(['SWING_MIN_LIQUIDITY_USD', 'BACKES_SWING_MIN_LIQUIDITY_USD'], 500000),
-      min24hVolumeUsd: parseFloatEnv(['SWING_MIN_24H_VOLUME_USD', 'BACKES_SWING_MIN_24H_VOLUME_USD'], 5000000),
-      preferred24hVolumeUsd: parseFloatEnv(['SWING_PREFERRED_24H_VOLUME_USD', 'BACKES_SWING_PREFERRED_24H_VOLUME_USD'], 20000000),
-      minTokenAgeDays: parseIntEnv(['SWING_MIN_TOKEN_AGE_DAYS', 'BACKES_SWING_MIN_TOKEN_AGE_DAYS'], 30),
-      minPriceChange24hPctAll: parseFloatEnv(['SWING_MIN_PRICE_CHANGE_24H_PCT_ALL', 'BACKES_SWING_MIN_PRICE_CHANGE_24H_PCT_ALL'], -20),
-      maxPriceChange24hPctAll: parseFloatEnv(['SWING_MAX_PRICE_CHANGE_24H_PCT_ALL', 'BACKES_SWING_MAX_PRICE_CHANGE_24H_PCT_ALL'], 40),
-      minPriceChange24hPctKucoin: parseFloatEnv(['SWING_MIN_PRICE_CHANGE_24H_PCT_KUCOIN', 'BACKES_SWING_MIN_PRICE_CHANGE_24H_PCT_KUCOIN'], -20),
-      maxPriceChange24hPctKucoin: parseFloatEnv(['SWING_MAX_PRICE_CHANGE_24H_PCT_KUCOIN', 'BACKES_SWING_MAX_PRICE_CHANGE_24H_PCT_KUCOIN'], 40),
-      stopLossPct: parseFloatEnv(['SWING_STOP_LOSS_PCT', 'BACKES_SWING_STOP_LOSS_PCT'], 10),
-      takeProfitPct: parseFloatEnv(['SWING_TAKE_PROFIT_PCT', 'BACKES_SWING_TAKE_PROFIT_PCT'], 24),
-      scanIntervalMinutes: parseIntEnv(['SWING_SCAN_INTERVAL_MINUTES', 'BACKES_SWING_SCAN_INTERVAL_MINUTES'], 30),
-      exitCheckMinutes: parseIntEnv(['SWING_EXIT_CHECK_MINUTES', 'BACKES_SWING_EXIT_CHECK_MINUTES'], 60),
-      sellTiers: parseJsonArrayEnv(firstEnvValue(['SWING_SELL_TIERS', 'BACKES_SWING_SELL_TIERS']), [
+      maxConcurrentPositions: parseIntEnv(['BACKES_MAX_CONCURRENT_POSITIONS', 'SWING_MAX_CONCURRENT_POSITIONS', 'BACKES_SWING_MAX_CONCURRENT_POSITIONS'], 3),
+      maDailyPeriod: parseIntEnv(['BACKES_MA_DAILY_PERIOD', 'SWING_MA_DAILY_PERIOD', 'BACKES_SWING_MA_DAILY_PERIOD'], 56),
+      maWeeklyFast: parseIntEnv(['BACKES_MA_WEEKLY_FAST', 'SWING_MA_WEEKLY_FAST', 'BACKES_SWING_MA_WEEKLY_FAST'], 8),
+      maWeeklySupport: parseIntEnv(['BACKES_MA_WEEKLY_SUPPORT', 'SWING_MA_WEEKLY_SUPPORT', 'BACKES_SWING_MA_WEEKLY_SUPPORT'], 21),
+      weeklyRsiPeriod: parseIntEnv(['BACKES_WEEKLY_RSI_PERIOD', 'SWING_WEEKLY_RSI_PERIOD', 'BACKES_SWING_WEEKLY_RSI_PERIOD'], 14),
+      weeklyRsiOversold: parseFloatEnv(['BACKES_WEEKLY_RSI_OVERSOLD', 'SWING_WEEKLY_RSI_OVERSOLD', 'BACKES_SWING_WEEKLY_RSI_OVERSOLD'], 30),
+      rangeLookbackDays: parseIntEnv(['BACKES_RANGE_LOOKBACK_DAYS', 'SWING_RANGE_LOOKBACK_DAYS', 'BACKES_SWING_RANGE_LOOKBACK_DAYS'], 60),
+      dailyVolumeSpikeMultiplier: parseFloatEnv(['BACKES_DAILY_VOLUME_SPIKE_MULTIPLIER', 'SWING_DAILY_VOLUME_SPIKE_MULTIPLIER', 'BACKES_SWING_DAILY_VOLUME_SPIKE_MULTIPLIER'], 1.5),
+      fourHourVolumeSpikeMultiplier: parseFloatEnv(['BACKES_4H_VOLUME_SPIKE_MULTIPLIER', 'SWING_4H_VOLUME_SPIKE_MULTIPLIER', 'BACKES_SWING_4H_VOLUME_SPIKE_MULTIPLIER'], 1.3),
+      maxEntryDistanceFromSupportAtr: parseFloatEnv(['BACKES_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR', 'SWING_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR', 'BACKES_SWING_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR'], 0.75),
+      riskPct: parseFloatEnv(['BACKES_RISK_PCT', 'SWING_RISK_PCT', 'BACKES_SWING_RISK_PCT'], 0.5),
+      capitulationRiskPct: parseFloatEnv(['BACKES_CAPITULATION_RISK_PCT', 'SWING_CAPITULATION_RISK_PCT', 'BACKES_SWING_CAPITULATION_RISK_PCT'], 0.2),
+      maxSwingExposurePct: parseFloatEnv(['BACKES_MAX_EXPOSURE_PCT', 'SWING_MAX_EXPOSURE_PCT', 'BACKES_SWING_MAX_EXPOSURE_PCT'], 25),
+      hardMaxLossPct: parseFloatEnv(['BACKES_HARD_MAX_LOSS_PCT', 'SWING_HARD_MAX_LOSS_PCT', 'BACKES_SWING_HARD_MAX_LOSS_PCT'], 10),
+      minLiquidityUsd: parseFloatEnv(['BACKES_MIN_LIQUIDITY_USD', 'SWING_MIN_LIQUIDITY_USD', 'BACKES_SWING_MIN_LIQUIDITY_USD'], 500000),
+      min24hVolumeUsd: parseFloatEnv(['BACKES_MIN_24H_VOLUME_USD', 'SWING_MIN_24H_VOLUME_USD', 'BACKES_SWING_MIN_24H_VOLUME_USD'], 5000000),
+      preferred24hVolumeUsd: parseFloatEnv(['BACKES_PREFERRED_24H_VOLUME_USD', 'SWING_PREFERRED_24H_VOLUME_USD', 'BACKES_SWING_PREFERRED_24H_VOLUME_USD'], 20000000),
+      minTokenAgeDays: parseIntEnv(['BACKES_MIN_TOKEN_AGE_DAYS', 'SWING_MIN_TOKEN_AGE_DAYS', 'BACKES_SWING_MIN_TOKEN_AGE_DAYS'], 30),
+      minPriceChange24hPctAll: parseFloatEnv(['BACKES_MIN_PRICE_CHANGE_24H_PCT_ALL', 'SWING_MIN_PRICE_CHANGE_24H_PCT_ALL', 'BACKES_SWING_MIN_PRICE_CHANGE_24H_PCT_ALL'], -20),
+      maxPriceChange24hPctAll: parseFloatEnv(['BACKES_MAX_PRICE_CHANGE_24H_PCT_ALL', 'SWING_MAX_PRICE_CHANGE_24H_PCT_ALL', 'BACKES_SWING_MAX_PRICE_CHANGE_24H_PCT_ALL'], 40),
+      minPriceChange24hPctKucoin: parseFloatEnv(['BACKES_MIN_PRICE_CHANGE_24H_PCT_KUCOIN', 'SWING_MIN_PRICE_CHANGE_24H_PCT_KUCOIN', 'BACKES_SWING_MIN_PRICE_CHANGE_24H_PCT_KUCOIN'], -20),
+      maxPriceChange24hPctKucoin: parseFloatEnv(['BACKES_MAX_PRICE_CHANGE_24H_PCT_KUCOIN', 'SWING_MAX_PRICE_CHANGE_24H_PCT_KUCOIN', 'BACKES_SWING_MAX_PRICE_CHANGE_24H_PCT_KUCOIN'], 40),
+      stopLossPct: parseFloatEnv(['BACKES_STOP_LOSS_PCT', 'SWING_STOP_LOSS_PCT', 'BACKES_SWING_STOP_LOSS_PCT'], 10),
+      takeProfitPct: parseFloatEnv(['BACKES_TAKE_PROFIT_PCT', 'SWING_TAKE_PROFIT_PCT', 'BACKES_SWING_TAKE_PROFIT_PCT'], 24),
+      scanIntervalMinutes: parseIntEnv(['BACKES_SCAN_INTERVAL_MINUTES', 'SWING_SCAN_INTERVAL_MINUTES', 'BACKES_SWING_SCAN_INTERVAL_MINUTES'], 30),
+      exitCheckMinutes: parseIntEnv(['BACKES_EXIT_CHECK_MINUTES', 'SWING_EXIT_CHECK_MINUTES', 'BACKES_SWING_EXIT_CHECK_MINUTES'], 60),
+      sellTiers: parseJsonArrayEnv(firstEnvValue(['BACKES_SELL_TIERS', 'SWING_SELL_TIERS', 'BACKES_SWING_SELL_TIERS']), [
         { profitMultiplier: 1.08, sellPct: 0.50 },
         { profitMultiplier: 1.18, sellPct: 0.30 },
         { profitMultiplier: 1.35, sellPct: 0.20 },
@@ -1150,5 +1156,9 @@ const config = {
     },
   },
 };
+
+// Compatibility only: runtime strategy identity is `backes`; older state/tests/env
+// may still look up the previous `swing` key during migration.
+config.strategies.swing = config.strategies.backes;
 
 module.exports = config;

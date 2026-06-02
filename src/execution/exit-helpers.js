@@ -44,9 +44,10 @@ function shouldExtendMaxHold(position, tokenData, exitSignal, strategyCfg, curre
   const liquidityDropPct = Number(details.liquidityDropPct ?? 0);
   const holderJumpPct = Number(details.holderJumpPct ?? 0);
   const maxSellRatioPct = Number(strategyCfg.maxSellRatioPct10m || 60);
-  const maxLiquidityDropPct = Number(strategyCfg.liquidityDropExitPct || (position.strategy === 'swing' ? 30 : 20));
-  const maxHolderJumpPct = Number(strategyCfg.holderConcentrationJumpPct || (position.strategy === 'swing' ? 8 : 6));
-  const minTrendRsi = position.strategy === 'swing' ? 52 : 50;
+  const isBackes = ['backes', 'swing', 'backes_swing'].includes(String(position.strategy || '').toLowerCase());
+  const maxLiquidityDropPct = Number(strategyCfg.liquidityDropExitPct || (isBackes ? 30 : 20));
+  const maxHolderJumpPct = Number(strategyCfg.holderConcentrationJumpPct || (isBackes ? 8 : 6));
+  const minTrendRsi = isBackes ? 52 : 50;
 
   if (!extensionEnabled || extensionMinutes <= 0 || maxExtensions <= 0) return { extend: false, reason: 'extension_disabled' };
   if (extensionsUsed >= maxExtensions) return { extend: false, reason: 'extension_budget_exhausted' };

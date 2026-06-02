@@ -35,7 +35,7 @@ test('ensureStatsShape: fills defaults on empty portfolio', () => {
   mc.ensureStatsShape(p);
   assert.equal(p.stats.closedTrades, 0);
   assert.ok(p.strategies.momentum);
-  assert.ok(p.strategies.swing);
+  assert.ok(p.strategies.backes);
   assert.deepEqual(p.strategies.momentum.trades, []);
   assert.equal(p.strategies.momentum.stats.wins, 0);
 });
@@ -52,13 +52,13 @@ test('ensureStatsShape: routes positions into strategies by position.strategy', 
   const p = {
     positions: {
       'kucoin:BTC': { strategy: 'momentum', symbol: 'BTC' },
-      'kucoin:ETH': { strategy: 'swing', symbol: 'ETH' },
+      'kucoin:ETH': { strategy: 'backes', symbol: 'ETH' },
       'kucoin:SOL': { strategy: undefined, symbol: 'SOL' }, // defaults to momentum
     },
   };
   mc.ensureStatsShape(p);
   assert.ok(p.strategies.momentum.positions['kucoin:BTC']);
-  assert.ok(p.strategies.swing.positions['kucoin:ETH']);
+  assert.ok(p.strategies.backes.positions['kucoin:ETH']);
   assert.ok(p.strategies.momentum.positions['kucoin:SOL']);
 });
 
@@ -106,13 +106,13 @@ test('refreshPerformanceMetrics: per-strategy stats computed independently', () 
   const p = {
     strategies: {
       momentum: { stats: { closedTrades: 2, wins: 2, losses: 0, grossProfit: 20, grossLoss: 0 }, trades: [] },
-      swing: { stats: { closedTrades: 4, wins: 1, losses: 3, grossProfit: 5, grossLoss: 15 }, trades: [] },
+      backes: { stats: { closedTrades: 4, wins: 1, losses: 3, grossProfit: 5, grossLoss: 15 }, trades: [] },
     },
   };
   mc.refreshPerformanceMetrics(p);
   assert.equal(p.strategies.momentum.stats.avgWinUsd, 10);
-  assert.equal(p.strategies.swing.stats.avgWinUsd, 5);
-  assert.equal(p.strategies.swing.stats.profitFactor, 5 / 15);
+  assert.equal(p.strategies.backes.stats.avgWinUsd, 5);
+  assert.equal(p.strategies.backes.stats.profitFactor, 5 / 15);
 });
 
 // ── recordPortfolioSnapshot ────────────────────────────────────────────────

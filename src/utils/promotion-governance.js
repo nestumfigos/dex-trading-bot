@@ -104,6 +104,7 @@ function validateGeneratedBehaviorApplication(plan = {}) {
     'MAX_DAILY_LOSS_PCT_BY_CHAIN',
     'MAX_CONCURRENT_POSITIONS',
     'MOMENTUM_MAX_CONCURRENT_POSITIONS',
+    'BACKES_MAX_CONCURRENT_POSITIONS',
     'SWING_MAX_CONCURRENT_POSITIONS',
   ]);
   const loosensCapitalProtection = changes.some((change) => (

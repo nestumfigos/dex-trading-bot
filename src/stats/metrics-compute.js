@@ -1,6 +1,6 @@
 'use strict';
 
-const { getImplementedStrategyNames } = require('../strategies/deployment');
+const { getImplementedStrategyNames, normalizeStrategyName } = require('../strategies/deployment');
 
 /**
  * Performance metrics computation — pure, dep-injected.
@@ -46,9 +46,27 @@ function ensureStatsShape(portfolio) {
   };
 
   portfolio.strategies = portfolio.strategies || {};
+  Object.entries({ ...(portfolio.strategies || {}) }).forEach(([strategyName, strategyState]) => {
+    const normalized = normalizeStrategyName(strategyName);
+    if (normalized === strategyName) return;
+    const existing = portfolio.strategies[normalized] || {};
+    portfolio.strategies[normalized] = {
+      ...strategyState,
+      ...existing,
+      trades: [
+        ...(Array.isArray(strategyState?.trades) ? strategyState.trades : []),
+        ...(Array.isArray(existing?.trades) ? existing.trades : []),
+      ],
+      stats: {
+        ...(strategyState?.stats || {}),
+        ...(existing?.stats || {}),
+      },
+    };
+    delete portfolio.strategies[strategyName];
+  });
   const implementedStrategies = new Set(getImplementedStrategyNames());
   const positionStrategies = new Set(
-    Object.values(portfolio.positions || {}).map((position) => String(position?.strategy || 'momentum'))
+    Object.values(portfolio.positions || {}).map((position) => normalizeStrategyName(position?.strategy || 'momentum'))
   );
   Object.keys(portfolio.strategies).forEach((strategyName) => {
     if (!implementedStrategies.has(strategyName) && !positionStrategies.has(strategyName)) {
@@ -72,7 +90,7 @@ function ensureStatsShape(portfolio) {
   });
 
   Object.entries(portfolio.positions || {}).forEach(([positionKey, position]) => {
-    const strategyName = String(position?.strategy || 'momentum');
+    const strategyName = normalizeStrategyName(position?.strategy || 'momentum');
     if (!portfolio.strategies[strategyName]) return;
     portfolio.strategies[strategyName].positions[positionKey] = position;
   });

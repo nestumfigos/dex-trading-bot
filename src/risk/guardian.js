@@ -638,10 +638,10 @@ class RiskGuardian {
         maxChainHeatPct = Math.max(maxChainHeatPct, momentumAllowance);
       }
     }
-    if (chainKeyLower === 'kucoin' && String(strategyName || '').toLowerCase() === 'swing') {
-      const swingAllowance = Number(config.risk?.kucoinSwingHeatAllowancePct || 0);
-      if (Number.isFinite(swingAllowance) && swingAllowance > 0) {
-        maxChainHeatPct = Math.max(maxChainHeatPct, swingAllowance);
+    if (chainKeyLower === 'kucoin' && ['backes', 'swing', 'backes_swing'].includes(String(strategyName || '').toLowerCase())) {
+      const backesAllowance = Number(config.risk?.kucoinBackesHeatAllowancePct || config.risk?.kucoinSwingHeatAllowancePct || 0);
+      if (Number.isFinite(backesAllowance) && backesAllowance > 0) {
+        maxChainHeatPct = Math.max(maxChainHeatPct, backesAllowance);
       }
     }
     if (chainKeyLower === 'bsc' && String(strategyName || '').toLowerCase() === 'momentum') {

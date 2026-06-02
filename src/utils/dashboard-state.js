@@ -58,7 +58,7 @@ function buildDashboardStatePayload({
     .forEach((name) => filterStrategyNames.add(name));
 
   const visibleTrackedTokens = trackedTokens
-    .filter((token) => String(token?.strategy || '').toLowerCase() !== 'swing');
+    .filter((token) => !['backes', 'swing', 'backes_swing'].includes(String(token?.strategy || '').toLowerCase()));
   const state = {
     timestamp: new Date().toISOString(),
     uptimeSeconds: runtime.uptimeSeconds,

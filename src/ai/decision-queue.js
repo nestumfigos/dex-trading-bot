@@ -32,8 +32,8 @@ function createAiDecisionQueue(deps) {
     if (strategy === 'momentum') {
       return Math.max(1000, Number(config.ai?.momentumDecisionCacheMs || 300000));
     }
-    if (strategy === 'swing') {
-      return Math.max(1000, Number(config.ai?.swingDecisionCacheMs || 1800000));
+    if (strategy === 'backes' || strategy === 'swing' || strategy === 'backes_swing') {
+      return Math.max(1000, Number(config.ai?.backesDecisionCacheMs || config.ai?.swingDecisionCacheMs || 1800000));
     }
     return Math.max(1000, Number(config.ai?.decisionCacheMs || 300000));
   }

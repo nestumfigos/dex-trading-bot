@@ -113,8 +113,10 @@ function decideExitAction({
 
   // 0b) BACKES HTF SWING — structure-first exits with partials at R/box levels.
   if (
-    position.setupType === 'swing'
+    position.setupType === 'backes'
+    || position.setupType === 'swing'
     || position.setupType === 'backes_swing'
+    || position.strategy === 'backes'
     || position.strategy === 'swing'
     || position.strategy === 'backes_swing'
     || position.strategyVariant === 'backes_htf_swing'
@@ -122,16 +124,16 @@ function decideExitAction({
     const invalidation = Number(position.invalidationPrice || position.structuralStopPrice || position.stopLoss || 0);
     if (invalidation > 0 && price <= invalidation) {
       return sell({
-        reason: 'SWING_INVALIDATION_STOP',
+        reason: 'BACKES_INVALIDATION_STOP',
         sellPct: 1,
-        meta: { stopLevel: invalidation, stopType: 'SWING_INVALIDATION_STOP', currentProfit },
+        meta: { stopLevel: invalidation, stopType: 'BACKES_INVALIDATION_STOP', currentProfit },
       });
     }
 
     const hardMaxLossPct = Math.max(8, Math.min(12, Number(strategyCfg.hardMaxLossPct || 10)));
     if (currentProfit <= -(hardMaxLossPct / 100)) {
       return sell({
-        reason: 'SWING_HARD_MAX_LOSS',
+        reason: 'BACKES_HARD_MAX_LOSS',
         sellPct: 1,
         meta: { hardMaxLossPct, currentProfit },
       });
@@ -148,7 +150,7 @@ function decideExitAction({
     const maxHoldDays = Number(strategyCfg.backesMaxHoldDays || strategyCfg.maxHoldDays || 45);
     if (Number.isFinite(openedAtMs) && Number.isFinite(maxHoldDays) && maxHoldDays > 0 && now >= openedAtMs + maxHoldDays * 86_400_000) {
       return sell({
-        reason: 'SWING_TIME_STOP',
+        reason: 'BACKES_TIME_STOP',
         sellPct: 1,
         meta: { daysInTrade: (now - openedAtMs) / 86_400_000, maxHoldDays },
       });
@@ -158,7 +160,7 @@ function decideExitAction({
     const oneRPrice = riskPerUnit > 0 ? entryPrice + riskPerUnit : 0;
     if (oneRPrice > 0 && price >= oneRPrice && !position.backesPartial1Taken) {
       return sell({
-        reason: 'SWING_PARTIAL_1R',
+        reason: 'BACKES_PARTIAL_1R',
         sellPct: 0.5,
         meta: { oneRPrice, currentProfit },
         mutations: { backesPartial1Taken: true },
@@ -169,7 +171,7 @@ function decideExitAction({
     const structureTarget = Number(position.boxMidpointPrice || position.priorDailyResistancePrice || targets[0] || position.measuredMoveTargetPrice || 0);
     if (structureTarget > 0 && price >= structureTarget && !position.backesStructureTargetTaken) {
       return sell({
-        reason: 'SWING_STRUCTURE_TARGET',
+        reason: 'BACKES_STRUCTURE_TARGET',
         sellPct: 0.5,
         meta: { targetLevel: structureTarget, currentProfit },
         mutations: { backesStructureTargetTaken: true },
@@ -180,17 +182,17 @@ function decideExitAction({
     const ma8d = Number(tokenData.ma8d || tokenData.backesMa8d || 0);
     const ma56d = Number(tokenData.ma56d || tokenData.backesMa56d || 0);
     if (trendConfirmed && ma8d > 0 && price < ma8d) {
-      return sell({ reason: 'SWING_TRAIL_8D_MA', sellPct: 1, meta: { ma8d, currentProfit } });
+      return sell({ reason: 'BACKES_TRAIL_8D_MA', sellPct: 1, meta: { ma8d, currentProfit } });
     }
     if (ma56d > 0 && price < ma56d) {
-      return sell({ reason: 'SWING_DAILY_CLOSE_BELOW_56D', sellPct: 1, meta: { ma56d, currentProfit } });
+      return sell({ reason: 'BACKES_DAILY_CLOSE_BELOW_56D', sellPct: 1, meta: { ma56d, currentProfit } });
     }
 
     if (!staleData && exitSignal?.shouldExit) {
-      return sell({ reason: exitSignal.reason || 'SWING_STRATEGY_EXIT', sellPct: 1 });
+      return sell({ reason: exitSignal.reason || 'BACKES_STRATEGY_EXIT', sellPct: 1 });
     }
 
-    return noop({ reason: 'swing_hold', meta: { currentProfit } });
+    return noop({ reason: 'backes_hold', meta: { currentProfit } });
   }
 
   // 0c) BSC FLOW BREAKOUT — fast setups get hard structural exits. The setup
@@ -525,18 +527,18 @@ function buildProfitLockMutations({ position, entryPrice, price, riskCfg }) {
 
 function getBackesTrendFailureReason({ tokenData, exitSignal }) {
   if (tokenData.dailyCloseBelow56d === true || tokenData.backesDailyCloseBelow56d === true) {
-    return 'SWING_DAILY_CLOSE_BELOW_56D';
+    return 'BACKES_DAILY_CLOSE_BELOW_56D';
   }
   if (tokenData.weeklyCloseBelow8w === true || tokenData.backesWeeklyCloseBelow8w === true) {
-    return 'SWING_WEEKLY_CLOSE_BELOW_8W';
+    return 'BACKES_WEEKLY_CLOSE_BELOW_8W';
   }
   if (tokenData.failedReclaim === true || tokenData.backesFailedReclaim === true) {
-    return 'SWING_FAILED_RECLAIM';
+    return 'BACKES_FAILED_RECLAIM';
   }
   const rsi = Number(tokenData.rsi ?? exitSignal?.details?.rsiValue);
   const sellVol = Number(tokenData.sellVolumeRatio ?? tokenData.sellRatio10mPct ?? exitSignal?.details?.sellRatio10mPct ?? 0);
   if (Number.isFinite(rsi) && rsi >= 78 && sellVol >= 60) {
-    return 'SWING_RSI_EXHAUSTION_SELL_VOLUME';
+    return 'BACKES_RSI_EXHAUSTION_SELL_VOLUME';
   }
   return null;
 }

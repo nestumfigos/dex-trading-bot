@@ -15,7 +15,7 @@ function makeDeps(overrides = {}) {
   const deps = {
     config: {
       paperTrading: true,
-      strategies: { swing: { maxConcurrentPositions: 3 } },
+      strategies: { backes: { maxConcurrentPositions: 3 } },
       risk: { maxPositionSizePct: 3 },
       execution: {},
     },
@@ -66,7 +66,7 @@ function token(overrides = {}) {
     chain: 'KuCoin',
     chainKey: 'kucoin',
     price: 100,
-    setupType: 'swing',
+    setupType: 'backes',
     strategyVariant: 'backes_htf_swing',
     structuralStopPrice: 90,
     _backesRiskPct: 0.5,
@@ -76,7 +76,7 @@ function token(overrides = {}) {
 }
 
 async function runBuy(harness, tokenData = token()) {
-  await harness.orchestrator.executeBuy('kucoin', {}, tokenData, 'swing');
+  await harness.orchestrator.executeBuy('kucoin', {}, tokenData, 'backes');
   return harness.captured.buyArgs[0]?.sizeUsd ?? null;
 }
 

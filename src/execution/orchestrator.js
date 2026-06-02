@@ -40,8 +40,10 @@ function createExecutionOrchestrator(deps) {
   }
 
   function isBackesSwingPosition(position = {}) {
-    return position?.setupType === 'swing'
+    return position?.setupType === 'backes'
+      || position?.setupType === 'swing'
       || position?.setupType === 'backes_swing'
+      || position?.strategy === 'backes'
       || position?.strategy === 'swing'
       || position?.strategy === 'backes_swing'
       || position?.strategyVariant === 'backes_htf_swing';
@@ -110,12 +112,12 @@ function createExecutionOrchestrator(deps) {
         logger.warn(`[bull-flag] sizing fallback (equity=${equity}, stopFrac=${stopDistanceFrac}); using iteration engine`);
         calculatedSizeUsd = positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName);
       }
-    } else if (strategyName === 'swing' && tokenData.setupType === 'swing' && Number(tokenData.structuralStopPrice || tokenData.invalidationPrice) > 0) {
+    } else if (strategyName === 'backes' && tokenData.setupType === 'backes' && Number(tokenData.structuralStopPrice || tokenData.invalidationPrice) > 0) {
       const equity = Number(portfolio?.balance || 0);
       const entryPrice = Number(tokenData.price || tokenData.entryPrice || 0);
       const stopPrice = Number(tokenData.structuralStopPrice || tokenData.invalidationPrice);
       const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
-      const backesCfg = config.strategies?.swing || {};
+      const backesCfg = config.strategies?.backes || config.strategies?.swing || {};
       const openBackesPositions = Object.values(portfolio?.positions || {})
         .filter(isBackesSwingPosition);
       const maxConcurrent = Math.max(1, Number(backesCfg.maxConcurrentPositions || 3));

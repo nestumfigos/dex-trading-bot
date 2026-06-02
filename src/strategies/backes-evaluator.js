@@ -7,7 +7,7 @@ const { detectCaixote } = require('./backes-setups/caixote');
 const { detectMegaphone } = require('./backes-setups/megaphone');
 const { volumeRatio } = require('./backes-setups/common');
 
-const SWING_SETUP_TYPE = 'swing';
+const BACKES_SETUP_TYPE = 'backes';
 const BACKES_MODE = 'backes_htf_swing';
 
 function normalizeChain(value) {
@@ -18,7 +18,7 @@ function holdResult(reasons, extra = {}) {
   return {
     signal: 'HOLD',
     details: {
-      setupType: SWING_SETUP_TYPE,
+      setupType: BACKES_SETUP_TYPE,
       strategyMode: BACKES_MODE,
       technicalSignal: 'HOLD',
       scannerReasons: Array.isArray(reasons) ? reasons : [String(reasons || 'hold')],
@@ -165,7 +165,7 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
     return {
       signal: 'BUY',
       details: {
-        setupType: SWING_SETUP_TYPE,
+        setupType: BACKES_SETUP_TYPE,
         strategyMode: BACKES_MODE,
         technicalSignal: 'BUY',
         triggerTimeframe: '1d',

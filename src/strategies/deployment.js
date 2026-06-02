@@ -5,7 +5,7 @@ const IMPLEMENTED_STRATEGIES = [
   'solana_bull_flag_v2',
   'bsc_flow_breakout',
   'base_dex_momentum_reclaim',
-  'swing',
+  'backes',
   'momentum',
 ];
 
@@ -26,8 +26,8 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
     live: { defaultEnabled: true, defaultChains: ['kucoin'] },
     paper: { defaultEnabled: true, defaultChains: ['solana', 'bsc', 'kucoin'] },
   }),
-  swing: Object.freeze({
-    label: 'Backes HTF swing paper',
+  backes: Object.freeze({
+    label: 'Backes HTF paper',
     stage: 'paper_runtime_canary',
     implemented: true,
     paperOnly: true,
@@ -66,7 +66,7 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
 
 function normalizeStrategyName(strategyName) {
   const value = String(strategyName || 'momentum').trim().toLowerCase();
-  return value === 'backes_swing' ? 'swing' : value;
+  return value === 'swing' || value === 'backes_swing' ? 'backes' : value;
 }
 
 function normalizeChainName(chainName) {
@@ -95,13 +95,21 @@ function getProfileName(paperTrading) {
   return paperTrading ? 'paper' : 'live';
 }
 
+function getStrategyConfig(config, strategyName) {
+  const strategy = normalizeStrategyName(strategyName);
+  const strategies = config?.strategies || {};
+  return strategies[strategy]
+    || (strategy === 'backes' ? strategies.swing || strategies.backes_swing : null)
+    || {};
+}
+
 function isStrategyConfiguredEnabled(config, strategyName, profileName) {
   const deployment = getDeployment(strategyName);
   if (!deployment || deployment.implemented !== true) return false;
   if (deployment.paperOnly && profileName !== 'paper') return false;
 
   const profile = deployment[profileName] || {};
-  const cfg = config?.strategies?.[normalizeStrategyName(strategyName)] || {};
+  const cfg = getStrategyConfig(config, strategyName);
   if (typeof cfg.enabled === 'boolean') {
     return cfg.enabled;
   }
@@ -112,7 +120,7 @@ function getConfiguredChains(config, strategyName, profileName) {
   const deployment = getDeployment(strategyName);
   if (!deployment) return [];
 
-  const cfg = config?.strategies?.[normalizeStrategyName(strategyName)] || {};
+  const cfg = getStrategyConfig(config, strategyName);
   const configured = normalizeChains(cfg.enabledChains);
   if (configured.length) return configured;
 

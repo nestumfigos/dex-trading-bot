@@ -118,7 +118,7 @@ function createRefreshSwingWatchlists({
               ...token,
               chainKey: chainName,
             });
-            if (applicable.swing) {
+            if (applicable.backes || applicable.swing) {
               accepted.push(token.address || address);
             }
           } catch (err) {

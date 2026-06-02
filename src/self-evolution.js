@@ -483,9 +483,9 @@ class SelfEvolutionEngine {
           });
           plan.changes.push({
             type: 'env_set',
-            key: 'KUCOIN_SWING_HEAT_ALLOWANCE_PCT',
+            key: 'KUCOIN_BACKES_HEAT_ALLOWANCE_PCT',
             value: String(proposedHeat - 10),
-            rationale: 'Cap swing allowance too',
+            rationale: 'Cap Backes allowance too',
           });
           return plan;
         }
@@ -751,6 +751,7 @@ class SelfEvolutionEngine {
     // Whitelist of env keys self-evolution is allowed to set
     const allowed = new Set([
       'KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT',
+      'KUCOIN_BACKES_HEAT_ALLOWANCE_PCT',
       'KUCOIN_SWING_HEAT_ALLOWANCE_PCT',
       'MIN_LIQUIDITY_USD_BY_CHAIN',
       'STRATEGY_MOMENTUM_RSI_BUY_MIN',
@@ -839,7 +840,7 @@ ${JSON.stringify({
   uptimeHours: ((ops?.uptimeMs || 0) / 3600000).toFixed(1),
 }, null, 2)}
 NOTE: Repeated operational safety blocks require offline investigation; generated changes must not widen capital or exposure protections.
-Allowed env keys: KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT, KUCOIN_SWING_HEAT_ALLOWANCE_PCT, MIN_LIQUIDITY_USD_BY_CHAIN, STRATEGY_MOMENTUM_RSI_BUY_MIN, STRATEGY_MOMENTUM_RSI_BUY_MAX, STRATEGY_SWING_RSI_BUY_MIN, STRATEGY_SWING_RSI_BUY_MAX, STRATEGY_MOMENTUM_VOLUME_SPIKE, STRATEGY_SWING_VOLUME_SPIKE, MAX_CONSECUTIVE_LOSSES.
+Allowed env keys: KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT, KUCOIN_BACKES_HEAT_ALLOWANCE_PCT, KUCOIN_SWING_HEAT_ALLOWANCE_PCT, MIN_LIQUIDITY_USD_BY_CHAIN, STRATEGY_MOMENTUM_RSI_BUY_MIN, STRATEGY_MOMENTUM_RSI_BUY_MAX, STRATEGY_SWING_RSI_BUY_MIN, STRATEGY_SWING_RSI_BUY_MAX, STRATEGY_MOMENTUM_VOLUME_SPIKE, STRATEGY_SWING_VOLUME_SPIKE, MAX_CONSECUTIVE_LOSSES.
 
 LATEST FILTER CYCLES (for gate diagnostics):
 ${JSON.stringify((context.latestFilterCycles || []).slice(0, 6).map((c) => ({

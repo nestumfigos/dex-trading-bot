@@ -66,7 +66,7 @@ function createSelfEvolutionOrchestration(deps = {}) {
       recentTrades: (portfolio.trades || []).slice(0, 80),
       latestFilterCycles: [
         ...(filterStatsState.recentCycles?.momentum || []).slice(0, 3),
-        ...(filterStatsState.recentCycles?.swing || []).slice(0, 3),
+        ...(filterStatsState.recentCycles?.backes || filterStatsState.recentCycles?.swing || []).slice(0, 3),
       ],
       intelligence: intelligenceContext,
       marketRegime: inferredMarketRegime,

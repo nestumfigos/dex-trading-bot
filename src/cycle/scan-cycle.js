@@ -33,7 +33,7 @@
 const DEFAULT_SCAN_CHAINS = Object.freeze({
   momentum: ['solana', 'bsc', 'kucoin'],
   spot_day_bull_flag: ['kucoin'],
-  swing: ['kucoin'],
+  backes: ['kucoin'],
   bsc_flow_breakout: ['bsc'],
   base_dex_momentum_reclaim: ['base'],
   solana_bull_flag_v2: ['solana'],
