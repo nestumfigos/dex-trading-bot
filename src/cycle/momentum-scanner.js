@@ -124,9 +124,14 @@ function createMomentumScanner(deps = {}) {
 
       const scanTokens = getRotatingScanWindow(candidateTokens, chainName, strategyName);
 
-      const batchSize = chainName === 'kucoin'
-        ? Math.max(4, Number(config?.bot?.kucoinBatchSize || 12))
-        : 50;
+      let batchSize = Math.max(4, Number(config?.bot?.dexBatchSize || 12));
+      if (chainName === 'kucoin') {
+        batchSize = Math.max(4, Number(config?.bot?.kucoinBatchSize || 12));
+      } else if (chainName === 'solana') {
+        batchSize = Math.max(2, Number(config?.bot?.solanaBatchSize || 8));
+      } else if (chainName === 'base') {
+        batchSize = Math.max(2, Number(config?.bot?.baseBatchSize || 8));
+      }
       const batchDelayMs = chainName === 'kucoin'
         ? Math.max(200, Number(config?.bot?.kucoinBatchDelayMs || 700))
         : 500;
