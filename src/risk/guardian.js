@@ -2,6 +2,7 @@
 const axios = require('axios');
 const config = require('../../config');
 const logger = require('../utils/logger');
+const { evaluateSpotSymbolQuality } = require('./spot-entry-quality');
 const { buildCorrelationMatrix } = require('../utils/correlation');
 
 class RiskGuardian {
@@ -725,6 +726,20 @@ class RiskGuardian {
     const chainRisk = this.checkPerChainDailyLoss(tokenData.chainKey || tokenData.chain);
     if (!chainRisk.allowed) {
       return chainRisk;
+    }
+
+    const symbolQualityGate = evaluateSpotSymbolQuality({
+      tokenData,
+      strategyName,
+      trades: this.portfolio?.trades || [],
+    });
+    if (!symbolQualityGate.allow) {
+      return {
+        allowed: false,
+        reason: symbolQualityGate.reason,
+        code: symbolQualityGate.reason,
+        details: symbolQualityGate.details || null,
+      };
     }
 
     const performanceGate = this.checkPerformanceGate(this.portfolio.stats || {}, tokenData);
