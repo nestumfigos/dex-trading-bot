@@ -17,7 +17,7 @@
  *   portfolio.positions (mutations + deletions)
  *   portfolio.strategies[s].positions (mirror)
  *   portfolio.stuckPositions (cleanup)
- *   portfolio.stateReconciliation = { lastRunAt, discrepancies }
+ *   portfolio.stateReconciliation = { lastRunAt, discrepancies, ignoredDustWalletPositions }
  *   portfolio.untrackedWalletPositions
  *   portfolio.untrackedWalletPositionValueUsdByChain
  *   portfolio.untrackedWalletPositionValueUsd
@@ -118,6 +118,7 @@ function create({
     if (typeof buildTokenKey !== 'function') throw new Error('reconcileWalletPositions: buildTokenKey required');
 
     const discrepancies = [];
+    const ignoredDustWalletPositions = [];
     const untrackedWalletPositions = [];
     const untrackedWalletPositionValueUsdByChain = {};
     const dustThresholdUsd = Math.max(0, Number(config.risk?.reconciliationDustUsd || 5));
@@ -202,15 +203,41 @@ function create({
             continue;
           }
         }
+        const valueUsd = Number(walletPosition.valueUsd || 0);
+        const qty = Number(walletPosition.quantity || 0);
+        const minBaseSize = Number(walletPosition.minBaseSize || walletPosition.baseMinSize || 0);
+        const minFunds = Number(walletPosition.minFunds || walletPosition.quoteMinSize || 0);
+        const minAdoptionValueUsd = Number(process.env.RECONCILE_ADOPT_MIN_VALUE_USD || 5);
+        const kucoinUnsizedResidual = chainName === 'kucoin'
+          && minBaseSize > 0
+          && qty > 0
+          && qty < minBaseSize
+          && valueUsd < minAdoptionValueUsd;
         const entry = {
           chain: chainName,
           type: 'wallet_untracked_position',
           key,
           symbol: walletPosition.symbol || null,
           address: walletPosition.address || null,
-          quantity: Number(walletPosition.quantity || 0),
-          valueUsd: Number(walletPosition.valueUsd || 0),
+          quantity: qty,
+          valueUsd,
+          minBaseSize: minBaseSize || undefined,
+          minFunds: minFunds || undefined,
         };
+
+        if (Number.isFinite(valueUsd) && valueUsd > 0 && (valueUsd <= dustThresholdUsd || kucoinUnsizedResidual)) {
+          const dustEntry = {
+            ...entry,
+            type: 'wallet_dust_position',
+            dustThresholdUsd,
+            reason: kucoinUnsizedResidual ? 'kucoin_below_base_min_and_adoption_floor' : 'below_reconciliation_dust_threshold',
+          };
+          ignoredDustWalletPositions.push(dustEntry);
+          logger.info('State reconciliation: ignored wallet dust position', {
+            ...dustEntry,
+          });
+          continue;
+        }
 
         // Optional auto-adoption: turn the unmanaged wallet position into a tracked
         // position so the exit logic (stop loss, trailing, stale-drift) applies. We
@@ -221,9 +248,6 @@ function create({
         // wallet info can produce false adoptions).
         const adoptionEnabledGlobally = String(process.env.RECONCILE_ADOPT_UNMANAGED || 'true').toLowerCase() !== 'false';
         const adoptionEnabledForChain = chainName === 'kucoin' || String(process.env.RECONCILE_ADOPT_UNMANAGED_DEX || 'false').toLowerCase() === 'true';
-        const minAdoptionValueUsd = Number(process.env.RECONCILE_ADOPT_MIN_VALUE_USD || 5);
-        const valueUsd = Number(walletPosition.valueUsd || 0);
-        const qty = Number(walletPosition.quantity || 0);
         // Prefer the wallet's reported lastPrice (already validated by the exchange adapter).
         // Fall back to value/qty division only as a sanity check.
         const lastPrice = Number(walletPosition.lastPrice || 0);
@@ -441,6 +465,7 @@ function create({
     portfolio.stateReconciliation = {
       lastRunAt: new Date().toISOString(),
       discrepancies,
+      ignoredDustWalletPositions,
     };
     portfolio.untrackedWalletPositions = untrackedWalletPositions;
     portfolio.untrackedWalletPositionValueUsdByChain = untrackedWalletPositionValueUsdByChain;

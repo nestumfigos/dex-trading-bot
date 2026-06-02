@@ -243,6 +243,19 @@ function createExecutionFlow(deps = {}) {
     const quantity = filledBaseQty;
     const tokenKey = buildTokenKey(chainName, tokenData.address);
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQuoteUsd, filledQuoteUsd);
+    const entryFeeProfile = (config.execution?.feeProfile || {})[chainName]
+      || (config.execution?.feeProfile || {}).default
+      || { entryBps: 10, exitBps: 10, netInQuote: false };
+    const entryNetInQuote = entryFeeProfile.netInQuote === true;
+    const entryFeePaidUsd = entryNetInQuote
+      ? 0
+      : filledQuoteUsd * (Number(entryFeeProfile.entryBps ?? 10) / 10000);
+    const totalEntryDebitUsd = filledQuoteUsd + entryFeePaidUsd;
+    if (config.paperTrading && Number(portfolio.balance) < totalEntryDebitUsd) {
+      const reason = `Insufficient paper cash for BUY ${tokenData.symbol}: balance=${Number(portfolio.balance).toFixed(2)}, cost=${totalEntryDebitUsd.toFixed(2)}`;
+      logger.warn(reason);
+      return { aborted: true, reason: 'insufficient_paper_cash' };
+    }
 
     // B1.6: detect scale-in BEFORE overwriting. We snapshot the old position so
     // the post-assignment merge can compute weighted-average entry, cumulative
@@ -251,7 +264,7 @@ function createExecutionFlow(deps = {}) {
     const existingPosition = portfolio.positions[tokenKey];
     const isScaleIn = existingPosition && Number(existingPosition.quantity || 0) > 0;
 
-    portfolio.balance -= filledQuoteUsd;
+    portfolio.balance -= totalEntryDebitUsd;
     portfolio.positions[tokenKey] = {
       key: tokenKey,
       address: tokenData.address,
@@ -265,6 +278,8 @@ function createExecutionFlow(deps = {}) {
       quantity,
       initialSizeUsd: filledQuoteUsd,
       costBasisUsd: filledQuoteUsd,
+      entryFeePaidUsd,
+      exchangeFeeUsdEntry: entryFeePaidUsd,
       requestedEntryUsd: requestedQuoteUsd,
       filledEntryUsd: filledQuoteUsd,
       requestedEntryQuantity: realizedEntryPrice > 0 ? (requestedQuoteUsd / realizedEntryPrice) : quantity,
@@ -325,6 +340,15 @@ function createExecutionFlow(deps = {}) {
       macroRegime: tokenData.macroRegime || null,
       breakoutClosePrice: Number.isFinite(Number(tokenData.breakoutClosePrice)) ? Number(tokenData.breakoutClosePrice) : null,
       manualCutDeadlineAt: tokenData.manualCutDeadlineAt || null,
+      flagHighPrice: Number.isFinite(Number(tokenData.flagHighPrice)) ? Number(tokenData.flagHighPrice) : null,
+      flagLowPrice: Number.isFinite(Number(tokenData.flagLowPrice)) ? Number(tokenData.flagLowPrice) : null,
+      poleStartPrice: Number.isFinite(Number(tokenData.poleStartPrice)) ? Number(tokenData.poleStartPrice) : null,
+      poleHighPrice: Number.isFinite(Number(tokenData.poleHighPrice)) ? Number(tokenData.poleHighPrice) : null,
+      setupRiskUsd: Number.isFinite(Number(tokenData._bullFlagRiskUsd)) ? Number(tokenData._bullFlagRiskUsd) : null,
+      setupRiskPct: Number.isFinite(Number(tokenData._bullFlagRiskPct)) ? Number(tokenData._bullFlagRiskPct) : null,
+      expectedFeesBps: Number.isFinite(Number(tokenData.expectedFeesBps)) ? Number(tokenData.expectedFeesBps) : null,
+      expectedSlippageBps: Number.isFinite(Number(tokenData.expectedSlippageBps)) ? Number(tokenData.expectedSlippageBps) : null,
+      expectedSpreadBps: Number.isFinite(Number(tokenData.expectedSpreadBps)) ? Number(tokenData.expectedSpreadBps) : null,
     };
 
     if (isScaleIn) {
@@ -332,6 +356,7 @@ function createExecutionFlow(deps = {}) {
       const oldCostBasis = Number(existingPosition.costBasisUsd || 0);
       const newTotalQty = oldQty + quantity;
       const newCostBasis = oldCostBasis + filledQuoteUsd;
+      const cumulativeEntryFee = Number(existingPosition.exchangeFeeUsdEntry || existingPosition.entryFeePaidUsd || 0) + entryFeePaidUsd;
       const weightedEntry = newTotalQty > 0 ? newCostBasis / newTotalQty : realizedEntryPrice;
       const newPos = portfolio.positions[tokenKey];
       newPos.entryPrice = weightedEntry;
@@ -339,6 +364,8 @@ function createExecutionFlow(deps = {}) {
       newPos.costBasisUsd = newCostBasis;
       newPos.initialSizeUsd = newCostBasis;
       newPos.filledEntryUsd = Number(existingPosition.filledEntryUsd || 0) + filledQuoteUsd;
+      newPos.entryFeePaidUsd = cumulativeEntryFee;
+      newPos.exchangeFeeUsdEntry = cumulativeEntryFee;
       newPos.filledEntryQuantity = Number(existingPosition.filledEntryQuantity || 0) + quantity;
       newPos.requestedEntryUsd = Number(existingPosition.requestedEntryUsd || 0) + requestedQuoteUsd;
       newPos.requestedEntryQuantity = Number(existingPosition.requestedEntryQuantity || 0)
@@ -407,6 +434,7 @@ function createExecutionFlow(deps = {}) {
       setupStopPrice: tokenData.structuralStopPrice || null,
       setupTargetPrice: tokenData.measuredMoveTargetPrice || null,
       setupIsAPlus: tokenData._bullFlagIsAPlus === true ? true : undefined,
+      setupRiskUsd: tokenData._bullFlagRiskUsd || null,
     }, strategyName);
 
     telemetry.logFill({
@@ -608,7 +636,7 @@ function createExecutionFlow(deps = {}) {
     const pnl = proceedsUsd - costBasisPortion - totalFeesUsd;
     const fillDiscrepancyPct = calcDiscrepancyPct(requestedQty, filledBaseQty);
 
-    portfolio.balance += proceedsUsd;
+    portfolio.balance += netInQuote ? proceedsUsd : (proceedsUsd - exitFeeUsd);
     portfolio.stats.totalPnl += pnl;
     strategyStats.totalPnl += pnl;
     if (pnl >= 0) {
@@ -797,6 +825,7 @@ function createExecutionFlow(deps = {}) {
       structureType: position.structureType || null,
       setupStopPrice: position.structuralStopPrice || null,
       setupTargetPrice: position.measuredMoveTargetPrice || null,
+      setupRiskUsd: position.setupRiskUsd || null,
     }, strategyName);
 
     // Record trade outcome to symbol memory and RL updater for learning

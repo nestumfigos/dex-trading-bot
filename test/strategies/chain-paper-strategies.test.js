@@ -23,16 +23,11 @@ function c(close, volume, overrides = {}) {
 
 function validBullFlagCandles() {
   return [
-    c(100, 1000),
-    c(100.5, 1000),
-    c(103, 2200, { open: 100.6, high: 103.5, low: 100.6 }),
-    c(106, 2400, { open: 103, high: 106.5, low: 103 }),
-    c(108, 2600, { open: 106, high: 108.5, low: 106 }),
-    c(107.2, 1200, { open: 108, high: 108.2, low: 106.8 }),
-    c(106.5, 1100, { open: 107.2, high: 107.5, low: 106.2 }),
-    c(106.8, 1000, { open: 106.5, high: 107.2, low: 106.3 }),
-    c(107.0, 900, { open: 106.8, high: 107.4, low: 106.5 }),
-    c(108.8, 3500, { open: 107.0, high: 109.0, low: 107.0 }),
+    ...Array.from({ length: 20 }, (_, index) => c(100 + (index % 3) * 0.05, 900 + (index % 4) * 30)),
+    c(106.2, 2400, { open: 100.6, high: 107.0, low: 100.6 }),
+    c(105.7, 800, { open: 106.2, high: 106.2, low: 105.3 }),
+    c(105.9, 760, { open: 105.7, high: 106.1, low: 105.4 }),
+    c(107.3, 3000, { open: 105.9, high: 107.5, low: 105.9 }),
   ];
 }
 
@@ -114,6 +109,7 @@ function solanaToken(overrides = {}) {
     liquidityUsd: 700_000,
     volume24hUsd: 1_000_000,
     expectedSlippagePct: 1,
+    netBuyFlowUsd10m: 6000,
     topHoldersPct: 20,
     buyRatioRecentPct: 65,
     dataSources: ['birdeye', 'dexscreener'],
@@ -189,7 +185,7 @@ test('BSC evaluator reuses safety clients before detector execution', async () =
     checkHoneypot: async () => ({ simulationResult: { buyTax: 3, sellTax: 4 } }),
     fetchDexScreener: async () => ({ pairs: [bscPair()] }),
   });
-  const result = await evaluator.evaluate(bscToken({ liquidityUsd: undefined, liquidityLockedUsd: undefined }), { config: bscCfg() });
+  const result = await evaluator.evaluate(bscToken({ liquidityUsd: undefined, liquidityLockedUsd: 70_000 }), { config: bscCfg() });
   assert.equal(result.signal, 'BUY');
   assert.deepEqual(result.details.scannerReasons, []);
   assert.ok(result.details.metrics.safety.sources.includes('dexscreener-client'));
@@ -298,6 +294,8 @@ const solanaHoldCases = [
   ['wide slippage', { expectedSlippagePct: 2 }, 'slippage_above_solana_cap'],
   ['holder concentration', { topHoldersPct: 40 }, 'top10_holder_concentration_above_max'],
   ['weak buy flow', { buyRatioRecentPct: 50 }, 'buy_flow_ratio_below_min'],
+  ['weak net buy flow', { netBuyFlowUsd10m: 1000 }, 'net_buy_flow_below_solana_min'],
+  ['wide price impact', { expectedPriceImpactPct: 3 }, 'price_impact_above_solana_cap'],
   ['single source', { dataSources: ['birdeye'] }, 'fresh_multisource_data_required'],
   ['low 24h volume', { volume24hUsd: 10_000 }, 'volume_below_min'],
   ['stale birdeye', { dataSources: ['birdeye', 'dexscreener'], birdeyeAgeMs: 15 * 60_000 }, 'fresh_multisource_data_required'],

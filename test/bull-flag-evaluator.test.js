@@ -16,18 +16,20 @@ function c(close, volume, { open, high, low } = {}) {
   };
 }
 
+const IDX = Object.freeze({
+  pole: 20,
+  flag1: 21,
+  flag2: 22,
+  breakout: 23,
+});
+
 function validCandles() {
   return [
-    c(100, 1000),
-    c(100.5, 1000),
-    c(103, 2200, { open: 100.6, high: 103.5, low: 100.6 }),
-    c(106, 2400, { open: 103, high: 106.5, low: 103 }),
-    c(108, 2600, { open: 106, high: 108.5, low: 106 }),
-    c(107.2, 1200, { open: 108, high: 108.2, low: 106.8 }),
-    c(106.5, 1100, { open: 107.2, high: 107.5, low: 106.2 }),
-    c(106.8, 1000, { open: 106.5, high: 107.2, low: 106.3 }),
-    c(107.0, 900,  { open: 106.8, high: 107.4, low: 106.5 }),
-    c(108.8, 3500, { open: 107.0, high: 109.0, low: 107.0 }),
+    ...Array.from({ length: 20 }, (_, index) => c(100 + (index % 3) * 0.05, 900 + (index % 4) * 30)),
+    c(106.2, 2400, { open: 100.6, high: 107.0, low: 100.6 }),
+    c(105.7, 800, { open: 106.2, high: 106.2, low: 105.3 }),
+    c(105.9, 760, { open: 105.7, high: 106.1, low: 105.4 }),
+    c(107.3, 3000, { open: 105.9, high: 107.5, low: 105.9 }),
   ];
 }
 
@@ -42,14 +44,21 @@ function baseCfg(overrides = {}) {
     flagDepthMaxPct: 50,
     flagVolContractMaxRatio: 0.70,
     breakoutVolMinRatio: 1.5,
+    latestVolumeLookbackCandles: 20,
+    latestVolumeMinRatio: 2,
+    minSixtyMinuteMovePct: 5,
+    maxSixtyMinuteMovePct: 12,
     min24hVolumeUsd: 5_000_000,
     minLiquidityUsd: 500_000,
     minNetEdgePct: 2.5,
+    minTargetRemainingPct: 20,
     riskPctBase: 0.35,
     riskPctAPlus: 0.50,
     aPlusVolumeExpansionMin: 3.0,
     aPlusFlagDepthMaxPct: 30,
     maxStopDistancePct: 3.5,
+    requireEmaConfirmation: true,
+    requireOneHourConfirmation: true,
     perChainOverrides: {},
     ...overrides,
   };
@@ -111,6 +120,8 @@ test('valid setup all gates pass returns BUY with full details', async () => {
   assert.ok(result.details.targetPrice > result.details.breakoutClose);
   assert.ok(result.details.confidence >= 0.55);
   assert.ok(Number.isFinite(result.details.netEdgePct));
+  assert.equal(result.details.triggerTimeframe, '15m');
+  assert.ok(result.details.expectedFeesBps >= 0);
 });
 
 test('stop distance over max returns HOLD', async () => {
@@ -132,6 +143,66 @@ test('net edge below threshold returns HOLD', async () => {
   );
   assert.equal(result.signal, 'HOLD');
   assert.ok(result.details.scannerReasons.some((r) => r.startsWith('net_edge_too_thin:')));
+});
+
+test('entry too close to measured target returns HOLD', async () => {
+  const evaluator = createBullFlagEvaluator({ fetchOhlcv: makeFetcher(validCandles()), detectBullFlag });
+  const result = await evaluator.evaluate(
+    { symbol: 'X', address: '0x1', chainKey: 'kucoin', price: 113, volume24hUsd: 10_000_000, liquidityUsd: 1_000_000 },
+    { config: baseCfg({ maxStopDistancePct: 10, minNetEdgePct: 0 }) }
+  );
+  assert.equal(result.signal, 'HOLD');
+  assert.ok(result.details.scannerReasons.some((r) => r.startsWith('entry_too_close_to_target:')));
+});
+
+test('stop distance inside fees/slippage buffer returns HOLD', async () => {
+  const tightStop = validCandles();
+  tightStop[IDX.flag1] = c(106.95, 800, { open: 106.2, high: 106.99, low: 106.90 });
+  tightStop[IDX.flag2] = c(106.98, 760, { open: 106.95, high: 106.99, low: 106.92 });
+  tightStop[IDX.breakout] = c(107.05, 3000, { open: 106.98, high: 107.2, low: 106.98 });
+  const evaluator = createBullFlagEvaluator({ fetchOhlcv: makeFetcher(tightStop), detectBullFlag });
+  const result = await evaluator.evaluate(
+    { symbol: 'X', address: '0x1', chainKey: 'kucoin', volume24hUsd: 10_000_000, liquidityUsd: 1_000_000, expectedFeesBps: 30, expectedSlippageBps: 20 },
+    { config: baseCfg({ minNetEdgePct: 0, minRR: 0, minSixtyMinuteMovePct: 0 }) }
+  );
+  assert.equal(result.signal, 'HOLD');
+  assert.ok(result.details.scannerReasons.some((r) => r.startsWith('stop_distance_inside_cost_buffer:')));
+});
+
+test('EMA confirmation requires enough 15m context', async () => {
+  const evaluator = createBullFlagEvaluator({ fetchOhlcv: makeFetcher(validCandles()), detectBullFlag });
+  const result = await evaluator.evaluate(
+    { symbol: 'X', address: '0x1', chainKey: 'kucoin', volume24hUsd: 10_000_000, liquidityUsd: 1_000_000 },
+    { config: baseCfg({ emaFastPeriod: 9, emaSlowPeriod: 50 }) }
+  );
+  assert.equal(result.signal, 'HOLD');
+  assert.ok(result.details.scannerReasons.includes('ema_confirmation_insufficient_candles'));
+});
+
+test('1h confirmation failure returns HOLD', async () => {
+  const fetchOhlcv = async ({ interval }) => {
+    if (interval === '1h') {
+      return { candles: [c(110, 1000, { open: 109, high: 112, low: 108 }), c(106, 1000, { open: 108, high: 109, low: 105 })] };
+    }
+    return { candles: validCandles() };
+  };
+  const evaluator = createBullFlagEvaluator({ fetchOhlcv, detectBullFlag });
+  const result = await evaluator.evaluate(
+    { symbol: 'X', address: '0x1', chainKey: 'kucoin', volume24hUsd: 10_000_000, liquidityUsd: 1_000_000 },
+    { config: baseCfg() }
+  );
+  assert.equal(result.signal, 'HOLD');
+  assert.ok(result.details.scannerReasons.includes('one_hour_confirmation_failed'));
+});
+
+test('ask wall orderbook dominance returns HOLD', async () => {
+  const evaluator = createBullFlagEvaluator({ fetchOhlcv: makeFetcher(validCandles()), detectBullFlag });
+  const result = await evaluator.evaluate(
+    { symbol: 'X', address: '0x1', chainKey: 'kucoin', volume24hUsd: 10_000_000, liquidityUsd: 1_000_000, bidDepthUsd: 100_000, askDepthUsd: 170_000 },
+    { config: baseCfg() }
+  );
+  assert.equal(result.signal, 'HOLD');
+  assert.ok(result.details.scannerReasons.some((r) => r.startsWith('ask_wall_depth_ratio:')));
 });
 
 test('OHLCV unavailable returns HOLD', async () => {

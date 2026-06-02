@@ -980,13 +980,23 @@ function startDashboard(portfolio, ctx) {
   app.get('/api/bull-flag-stats', (req, res) => {
     const state = ctx.getDashboardState();
     const trades = state.portfolio?.trades || [];
-    const bullFlagTrades = trades.filter((t) => t?.setupType === 'spot_day_bull_flag');
+    const bullFlagSetupTypes = new Set(['spot_day_bull_flag', 'solana_bull_flag_v2']);
+    const bullFlagTrades = trades.filter((t) => {
+      const keys = [t?.setupType, t?.structureType, t?.strategyVariant, t?.strategy]
+        .map((value) => String(value || '').toLowerCase());
+      return keys.some((key) => bullFlagSetupTypes.has(key));
+    });
     const sells = bullFlagTrades.filter((t) => String(t?.type).toUpperCase() === 'SELL');
     const wins = sells.filter((t) => Number(t?.pnl || 0) > 0);
     const losses = sells.filter((t) => Number(t?.pnl || 0) <= 0);
     const totalPnl = sells.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
     const grossWins = wins.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
     const grossLosses = Math.abs(losses.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0));
+    const bySetupType = bullFlagTrades.reduce((acc, t) => {
+      const key = String(t?.setupType || t?.structureType || t?.strategyVariant || t?.strategy || 'unknown').toLowerCase();
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
     const reasonBreakdown = sells.reduce((acc, t) => {
       const r = String(t?.reason || 'UNKNOWN');
       acc[r] = (acc[r] || 0) + 1;
@@ -1014,8 +1024,12 @@ function startDashboard(portfolio, ctx) {
       avgLossUsd: losses.length > 0 ? grossLosses / losses.length : 0,
       profitFactor: grossLosses > 0 ? grossWins / grossLosses : (grossWins > 0 ? Infinity : 0),
       exitReasonBreakdown: reasonBreakdown,
+      bySetupType,
       pnlSeries,
-      enabled: Boolean(state?.config?.strategies?.spot_day_bull_flag?.enabled),
+      enabled: Boolean(
+        state?.config?.strategies?.spot_day_bull_flag?.enabled
+        || state?.config?.strategies?.solana_bull_flag_v2?.enabled
+      ),
     });
   });
 

@@ -35,6 +35,27 @@ function createExecutionOrchestrator(deps) {
     recoverFailedSellExecutionFromExchange,
   } = deps;
 
+  function isBullFlagSetupType(setupType) {
+    return setupType === 'spot_day_bull_flag' || setupType === 'solana_bull_flag_v2';
+  }
+
+  function bullFlagDailyLossR(fallbackRiskUsd = 0) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const startMs = startOfDay.getTime();
+    return (Array.isArray(portfolio?.trades) ? portfolio.trades : [])
+      .filter((trade) => String(trade?.type || '').toUpperCase() === 'SELL')
+      .filter((trade) => isBullFlagSetupType(trade?.setupType))
+      .filter((trade) => (Date.parse(trade?.timestamp || '') || 0) >= startMs)
+      .reduce((sum, trade) => {
+        const pnl = Number(trade.pnl);
+        if (!Number.isFinite(pnl) || pnl >= 0) return sum;
+        const riskUsd = Number(trade.setupRiskUsd || fallbackRiskUsd || 0);
+        if (!(riskUsd > 0)) return sum;
+        return sum + (Math.abs(pnl) / riskUsd);
+      }, 0);
+  }
+
   async function executeBuy(chainName, exchange, tokenData, strategyName = 'momentum') {
     if (!config.paperTrading && chainName !== 'kucoin') {
       logger.info(`Buy blocked: live bot restricted to KuCoin, ${chainName} not allowed`);
@@ -44,14 +65,30 @@ function createExecutionOrchestrator(deps) {
     // Bull-flag sizing (Week 12 B.7): flat %-equity risk divided by stop distance.
     // Quantity = (equity × riskPct%) ÷ stopDistanceAbs. Bypasses iteration engine.
     let calculatedSizeUsd;
-    if (strategyName === 'spot_day_bull_flag' && tokenData.setupType === 'spot_day_bull_flag' && Number(tokenData.structuralStopPrice) > 0) {
+    if (isBullFlagSetupType(tokenData.setupType) && Number(tokenData.structuralStopPrice) > 0) {
+      const bullFlagCfg = config.strategies?.[strategyName] || config.strategies?.spot_day_bull_flag || {};
+      const openBullFlags = Object.values(portfolio?.positions || {})
+        .filter((position) => position?.setupType === tokenData.setupType || position?.strategy === strategyName);
+      const maxConcurrent = Math.max(1, Number(bullFlagCfg.maxConcurrentPositions || 2));
+      if (openBullFlags.length >= maxConcurrent) {
+        logger.info(`[bull-flag] max concurrent positions reached (${openBullFlags.length}/${maxConcurrent}), skipping ${tokenData.symbol}`);
+        return;
+      }
+
       const equity = Number(portfolio?.balance || 0);
-      const riskPct = Number(tokenData._bullFlagRiskPct || config.strategies?.spot_day_bull_flag?.riskPctBase || 0.35);
+      const riskPct = Number(tokenData._bullFlagRiskPct || bullFlagCfg.riskPctBase || config.strategies?.spot_day_bull_flag?.riskPctBase || 0.35);
       const entryPrice = Number(tokenData.price || tokenData.breakoutClosePrice || 0);
       const stopPrice = Number(tokenData.structuralStopPrice);
       const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
       if (equity > 0 && stopDistanceFrac > 0) {
         const riskDollars = equity * (riskPct / 100);
+        const maxDailyLossR = Number(bullFlagCfg.maxDailyLossR || config.strategies?.spot_day_bull_flag?.maxDailyLossR || 3);
+        const todayLossR = bullFlagDailyLossR(riskDollars);
+        if (maxDailyLossR > 0 && todayLossR >= maxDailyLossR) {
+          logger.warn(`[bull-flag] daily R loss halt active (${todayLossR.toFixed(2)}R/${maxDailyLossR}R), skipping ${tokenData.symbol}`);
+          return;
+        }
+        tokenData._bullFlagRiskUsd = riskDollars;
         calculatedSizeUsd = riskDollars / stopDistanceFrac;
         // Cap at max position size config to prevent runaway sizing on tiny stops
         const maxPctCap = Number(config.risk?.maxPositionSizePct || 3) / 100;
