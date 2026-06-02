@@ -13,7 +13,7 @@
  *
  *   - refreshSwingWatchlists({...})
  *     Pulls latest discovery feeds per chain (KuCoin + optionally DEX chains
- *     that support swing), filters via strategy.determineApplicableStrategies,
+ *     that support Backes), filters via strategy.determineApplicableStrategies,
  *     accepted tokens added to module-scope watchlists (capped at 120/chain).
  *     Reentrancy guarded by loopLocks.swingRefresh.
  *
@@ -96,7 +96,7 @@ function createRefreshSwingWatchlists({
 
     loopLocks.swingRefresh = true;
     try {
-      logger.info('Refreshing swing watchlists from discovery feeds');
+      logger.info('Refreshing Backes watchlists from discovery feeds');
       const perChainLimit = 120;
 
       await Promise.allSettled(Object.entries(exchanges).map(async ([chainName, exchange]) => {
@@ -139,10 +139,10 @@ function createRefreshSwingWatchlists({
 
         const merged = [...new Set([...(watchlists[chainName] || []), ...accepted])].slice(0, perChainLimit);
         watchlists[chainName] = merged;
-        logger.info(`Swing watchlist ${chainName}: ${watchlists[chainName].length} tokens after refresh`);
+        logger.info(`Backes watchlist ${chainName}: ${watchlists[chainName].length} tokens after refresh`);
       }));
     } catch (error) {
-      logger.error(`Swing watchlist refresh failed: ${error.message}`);
+      logger.error(`Backes watchlist refresh failed: ${error.message}`);
     } finally {
       loopLocks.swingRefresh = false;
     }

@@ -39,8 +39,8 @@ const GATES = [
   },
   {
     id: 'backes_14d',
-    name: 'Backes HTF Swing — 14-day canary',
-    setupType: 'backes_swing',
+    name: 'Backes HTF — 14-day canary',
+    setupType: 'backes',
     minTrades: 30,
     windowDays: 14,
   },

@@ -6,7 +6,7 @@
  * Two cycles iterate open positions and route them through exit logic:
  *
  *   - runStrategyExitCycle(strategyName)
- *     Per-strategy (momentum / swing). Fetches fresh token data per
+ *     Per-strategy (momentum / Backes). Fetches fresh token data per
  *     position, falls back to cached trackedTokens (max 10min stale) if
  *     market data unavailable, then delegates to checkExitConditions
  *     (which calls the pure decideExitAction module).

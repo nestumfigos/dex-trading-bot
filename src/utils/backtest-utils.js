@@ -346,7 +346,7 @@ function generateCorrelatedPrices(basePrice, correlation, volatility, length, se
 }
 
 /**
- * Run portfolio backtest with 6 correlated assets (3 momentum + 3 swing).
+ * Run portfolio backtest with 6 correlated assets (3 momentum + 3 Backes).
  * Tracks: per-asset returns, portfolio returns, total heat, correlation evolution.
  * Returns: { perAssetResults, portfolioMetrics, correlationEvolution, cascadeEvents }
  */

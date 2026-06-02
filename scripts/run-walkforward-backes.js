@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Walk-forward backtest runner for the Backes HTF Swing strategy (W13 C.13).
+ * Walk-forward backtest runner for the Backes HTF strategy (W13 C.13).
  *
  * Pulls daily + weekly KuCoin candles for a fixed universe, then for each
  * walk-forward window (training period → out-of-sample test period) replays
@@ -26,7 +26,7 @@
  *     tokenWeekly})` shape.
  *
  * The Promotion Gate (C.13) succeeds when:
- *   - OOS return improves vs legacy `swing` baseline
+ *   - OOS return improves vs legacy Backes baseline
  *   - Max DD not worse by +3pp
  *   - Ruin prob not worse by +2pp
  *   - No overfit flag (training-vs-OOS sharpe ratio within 30%)
@@ -115,7 +115,7 @@ async function persistRun(pool, summary) {
     r.input('started_at', summary.startedAt);
     r.input('finished_at', summary.finishedAt);
     r.input('scope', summary.scope);
-    r.input('strategy', 'backes_swing');
+    r.input('strategy', 'backes');
     r.input('status', summary.status);
     r.input('trade_count', summary.tradeCount);
     r.input('win_rate', summary.winRate);

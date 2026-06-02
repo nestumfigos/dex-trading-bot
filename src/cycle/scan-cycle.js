@@ -14,7 +14,7 @@
  *
  *   - runDetachedKucoinMomentumScan(cycleStats?)
  *     Standalone KuCoin momentum scan path used when the main loop is in
- *     swing-cycle window or paused. Respects shouldPauseKucoinEntryScans()
+ *     Backes-cycle window or paused. Respects shouldPauseKucoinEntryScans()
  *     for daily-reset warmup window + per-loss-streak halt.
  *
  * Reentrancy: each scan guards with loopLocks[name] = true/false.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// One-shot importer: MOMENTUM_SELL_TIERS / SWING_SELL_TIERS env JSON → dbo.sell_tiers.
+// One-shot importer: MOMENTUM_SELL_TIERS / BACKES_SELL_TIERS env JSON → dbo.sell_tiers.
 // Idempotent (deactivate then insert pattern). Re-runnable.
 //
 // Usage:
@@ -23,7 +23,7 @@ const SOURCE = `env_import_${STAMP}`;
 // Strategy → env-var name(s) to scan
 const STRATEGY_ENV_MAP = {
   momentum: ['MOMENTUM_SELL_TIERS', 'SELL_TIERS'],
-  swing:    ['SWING_SELL_TIERS'],
+  backes:   ['BACKES_SELL_TIERS', 'SWING_SELL_TIERS', 'BACKES_SWING_SELL_TIERS'],
   rotation: ['ROTATION_SELL_TIERS'],
 };
 
