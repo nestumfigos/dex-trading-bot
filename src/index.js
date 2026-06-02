@@ -989,6 +989,28 @@ function classifyFilterReason(cycleStats, reasonText) {
   cycleStats.gateRejectCounts[gateReasonKey] = Number(cycleStats.gateRejectCounts[gateReasonKey] || 0) + 1;
 }
 
+function recordEvaluatorRejectReasons(cycleStats, details = {}) {
+  if (!cycleStats || !details || typeof details !== 'object') return;
+  const rawReasons = [
+    ...(Array.isArray(details.scannerReasons) ? details.scannerReasons : []),
+    ...(Array.isArray(details.reasons) ? details.reasons : []),
+    ...(Array.isArray(details.detectorReasons) ? details.detectorReasons : []),
+    details.reason,
+    details.holdReason,
+    details.blockReason,
+  ]
+    .filter((reason) => reason !== null && reason !== undefined && String(reason).trim() !== '')
+    .map((reason) => String(reason));
+
+  const uniqueReasons = [...new Set(rawReasons)];
+  if (!uniqueReasons.length) {
+    classifyFilterReason(cycleStats, 'technical_hold_unspecified');
+    return;
+  }
+
+  uniqueReasons.slice(0, 8).forEach((reason) => classifyFilterReason(cycleStats, reason));
+}
+
 function buildGateRejectPercentages(gateRejectCounts = {}, evaluated = 0) {
   const denominator = Math.max(1, Number(evaluated || 0));
   const entries = Object.entries(gateRejectCounts || {})
@@ -4223,6 +4245,11 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
       }
       if (Boolean(evaluation.details.technicalBlocked) || finalSignal !== 'BUY') {
         cycleStats.technicalBlocked += 1;
+        if (['spot_day_bull_flag', 'solana_bull_flag_v2', 'backes'].includes(strategyName)
+          || Array.isArray(evaluation.details.scannerReasons)
+          || Array.isArray(evaluation.details.reasons)) {
+          recordEvaluatorRejectReasons(cycleStats, evaluation.details);
+        }
       }
     }
 

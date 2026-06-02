@@ -358,6 +358,7 @@ const config = {
     estimatedNetworkCostPctPerRoundTrip: parseFloat(process.env.ESTIMATED_NETWORK_COST_PCT_PER_ROUND_TRIP || '0.2'),
     liquiditySentinelEnabled: process.env.LIQUIDITY_SENTINEL_ENABLED !== 'false',
     minNetExpectedEdgePct: parseFloat(process.env.MIN_NET_EXPECTED_EDGE_PCT || '0.8'),
+    minNetExpectedEdgeUsd: parseFloat(process.env.MIN_NET_EXPECTED_EDGE_USD || '0.25'),
     minLiquidityUsdByChain: toFiniteNumberMap({
       bsc: defaultBscMinLiquidityUsd,
       ...parseJsonObjectEnv(process.env.MIN_LIQUIDITY_USD_BY_CHAIN, {}),

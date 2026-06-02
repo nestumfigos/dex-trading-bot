@@ -5,12 +5,21 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const { acquireRuntimeSingleton, classifyProcessProbe } = require('../src/boot/singleton');
 
 function mkTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'singleton-test-'));
+}
+
+function waitForFile(filePath, timeoutMs = 3000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (fs.existsSync(filePath)) return true;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+  return false;
 }
 
 test('acquireRuntimeSingleton writes lock with current pid', () => {
@@ -83,6 +92,61 @@ test('integration: child process exits 0 when sibling holds lock', () => {
     assert.equal(res.status, 0, `child should exit 0 (duplicate-spawn clean exit), got ${res.status}`);
     release();
   } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  }
+});
+
+test('pm2 replacement can take over stale same-port paper holder without respawn loop', () => {
+  const dir = mkTmpDir();
+  const port = 40003;
+  const profileLock = path.join(dir, 'runtime-paper.lock');
+  const singletonPath = path.resolve(__dirname, '..', 'src', 'boot', 'singleton.js');
+  let holder;
+  try {
+    const holderScript = `
+      const { acquireRuntimeSingleton } = require(${JSON.stringify(singletonPath)});
+      acquireRuntimeSingleton({
+        dataDirAbs: ${JSON.stringify(dir)},
+        profile: 'paper',
+        port: ${port},
+        graceMs: 10,
+        logger: { warn(){}, info(){}, debug(){}, error(){} },
+      });
+      setInterval(() => {}, 1000);
+    `;
+    holder = spawn(process.execPath, ['-e', holderScript], { stdio: 'ignore' });
+    assert.equal(waitForFile(profileLock), true, 'holder lock should be created');
+
+    const replacementScript = `
+      const fs = require('fs');
+      const { acquireRuntimeSingleton } = require(${JSON.stringify(singletonPath)});
+      const acquired = acquireRuntimeSingleton({
+        dataDirAbs: ${JSON.stringify(dir)},
+        profile: 'paper',
+        port: ${port},
+        graceMs: 10,
+        logger: { warn(){}, info(){}, debug(){}, error(){} },
+      });
+      const payload = JSON.parse(fs.readFileSync(acquired.profileLockPath, 'utf8'));
+      if (payload.pid !== process.pid) process.exit(88);
+      acquired.release();
+      process.exit(0);
+    `;
+    const res = spawnSync(process.execPath, ['-e', replacementScript], {
+      timeout: 10000,
+      env: {
+        ...process.env,
+        pm_id: '2',
+        PM2_SINGLETON_REPLACE_AFTER_MS: '100',
+        PM2_SINGLETON_SIGTERM_GRACE_MS: '100',
+        PM2_SINGLETON_POLL_MS: '50',
+      },
+    });
+    assert.equal(res.status, 0, `replacement should acquire and exit cleanly, stderr=${res.stderr}`);
+  } finally {
+    if (holder && !holder.killed) {
+      try { holder.kill('SIGKILL'); } catch (_) {}
+    }
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
   }
 });
