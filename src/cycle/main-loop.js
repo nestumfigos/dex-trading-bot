@@ -136,16 +136,16 @@ function isStrategyEnabled(config, strategyName) {
 
 function getStrategyScanMs(config, strategyName, defaults) {
   if (isBullFlagStrategy(strategyName)) return defaults.bullFlagScanMs;
-  if (strategyName === 'backes_swing') {
-    return Math.max(10 * 60_000, Number(config.strategies?.backes_swing?.scanIntervalMinutes || 30) * 60_000);
+  if (strategyName === 'swing') {
+    return Math.max(10 * 60_000, Number(config.strategies?.swing?.scanIntervalMinutes || 30) * 60_000);
   }
   return Math.max(60_000, Number(config.strategies?.[strategyName]?.scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
 }
 
 function getStrategyExitMs(config, strategyName, defaults) {
   if (isBullFlagStrategy(strategyName)) return defaults.bullFlagExitMs;
-  if (strategyName === 'backes_swing') {
-    return Math.max(30 * 60_000, Number(config.strategies?.backes_swing?.exitCheckMinutes || 60) * 60_000);
+  if (strategyName === 'swing') {
+    return Math.max(30 * 60_000, Number(config.strategies?.swing?.exitCheckMinutes || 60) * 60_000);
   }
   return defaults.momentumExitMs;
 }

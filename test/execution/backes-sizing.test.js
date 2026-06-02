@@ -15,7 +15,7 @@ function makeDeps(overrides = {}) {
   const deps = {
     config: {
       paperTrading: true,
-      strategies: { backes_swing: { maxConcurrentPositions: 3 } },
+      strategies: { swing: { maxConcurrentPositions: 3 } },
       risk: { maxPositionSizePct: 3 },
       execution: {},
     },
@@ -66,7 +66,8 @@ function token(overrides = {}) {
     chain: 'KuCoin',
     chainKey: 'kucoin',
     price: 100,
-    setupType: 'backes_swing',
+    setupType: 'swing',
+    strategyVariant: 'backes_htf_swing',
     structuralStopPrice: 90,
     _backesRiskPct: 0.5,
     _macroSizeMultiplier: 1,
@@ -75,7 +76,7 @@ function token(overrides = {}) {
 }
 
 async function runBuy(harness, tokenData = token()) {
-  await harness.orchestrator.executeBuy('kucoin', {}, tokenData, 'backes_swing');
+  await harness.orchestrator.executeBuy('kucoin', {}, tokenData, 'swing');
   return harness.captured.buyArgs[0]?.sizeUsd ?? null;
 }
 
@@ -98,7 +99,7 @@ test('backes sizing caps total exposure at 25 percent equity', async () => {
   const harness = makeDeps({
     portfolio: {
       balance: 10_000,
-      positions: { old: { setupType: 'backes_swing', costBasisUsd: 2400 } },
+      positions: { old: { setupType: 'swing', costBasisUsd: 2400 } },
       stats: { todaysPnl: 0, consecutiveLosses: 0 },
     },
   });
@@ -109,7 +110,7 @@ test('backes sizing skips when exposure cap is already full', async () => {
   const harness = makeDeps({
     portfolio: {
       balance: 10_000,
-      positions: { old: { setupType: 'backes_swing', costBasisUsd: 2500 } },
+      positions: { old: { setupType: 'swing', costBasisUsd: 2500 } },
       stats: { todaysPnl: 0, consecutiveLosses: 0 },
     },
   });
@@ -121,9 +122,9 @@ test('backes sizing skips at max concurrent positions', async () => {
     portfolio: {
       balance: 10_000,
       positions: {
-        a: { setupType: 'backes_swing', costBasisUsd: 100 },
-        b: { setupType: 'backes_swing', costBasisUsd: 100 },
-        c: { setupType: 'backes_swing', costBasisUsd: 100 },
+        a: { setupType: 'swing', costBasisUsd: 100 },
+        b: { setupType: 'swing', costBasisUsd: 100 },
+        c: { setupType: 'swing', costBasisUsd: 100 },
       },
       stats: { todaysPnl: 0, consecutiveLosses: 0 },
     },
@@ -160,7 +161,7 @@ test('backes sizing skips tiny capped positions below exchange minimum', async (
   const harness = makeDeps({
     portfolio: {
       balance: 10_000,
-      positions: { old: { setupType: 'backes_swing', costBasisUsd: 2499 } },
+      positions: { old: { setupType: 'swing', costBasisUsd: 2499 } },
       stats: { todaysPnl: 0, consecutiveLosses: 0 },
     },
   });

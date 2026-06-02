@@ -1,10 +1,10 @@
 'use strict';
 
-const { dailyContext, fail, pass, riskTargets } = require('./common');
+const { dailyContext, fail, pass, resolveVolumeConfirmation, riskTargets } = require('./common');
 
 function detectMegaphone(candles = [], options = {}) {
-  const structureType = 'megaphone';
-  const ctx = dailyContext(candles);
+  const structureType = 'megaphone_reclaim';
+  const ctx = dailyContext(candles, options);
   if (ctx.daily.length < 35) return fail(structureType, 'insufficient_daily_candles');
   if (!ctx.latest || !ctx.previous || !(ctx.atr14 > 0)) return fail(structureType, 'missing_indicator_context');
 
@@ -19,14 +19,15 @@ function detectMegaphone(candles = [], options = {}) {
   const latest = ctx.latest;
   const sweptLowerBound = latest.low < secondLow * 0.995;
   const reclaimed = latest.close > secondLow && latest.close > latest.open;
-  const volumeOk = ctx.volRatio !== null && ctx.volRatio >= Number(options.minVolumeRatio || 1.4);
+  const volume = resolveVolumeConfirmation(ctx, options);
+  const volumeOk = volume.volumeOk;
 
   const reasons = [];
   if (!expanding) reasons.push('range_not_broadening');
   if (!sweptLowerBound) reasons.push('no_lower_bound_sweep');
   if (!reclaimed) reasons.push('no_reclaim_after_sweep');
   if (!volumeOk) reasons.push('buy_volume_spike_missing');
-  if (reasons.length) return fail(structureType, reasons[0], { reasons, volumeOk, volumeRatio: ctx.volRatio });
+  if (reasons.length) return fail(structureType, reasons[0], { reasons, volumeOk, volumeRatio: ctx.volRatio, ...volume });
 
   const entryPrice = latest.close;
   const stopPrice = latest.low - ctx.atr14 * 0.25;
@@ -45,6 +46,7 @@ function detectMegaphone(candles = [], options = {}) {
       lowerBound: secondLow,
       volumeRatio: ctx.volRatio,
       atr14: ctx.atr14,
+      ...volume,
     },
   });
 }

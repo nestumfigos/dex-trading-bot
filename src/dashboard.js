@@ -1231,7 +1231,13 @@ function startDashboard(portfolio, ctx) {
   app.get('/api/backes-stats', (req, res) => {
     const state = ctx.getDashboardState();
     const trades = state.portfolio?.trades || [];
-    const backesTrades = trades.filter((t) => t?.setupType === 'backes_swing');
+    const backesTrades = trades.filter((t) => (
+      t?.setupType === 'swing'
+      || t?.setupType === 'backes_swing'
+      || t?.strategy === 'swing'
+      || t?.strategy === 'backes_swing'
+      || t?.strategyVariant === 'backes_htf_swing'
+    ));
     const sells = backesTrades.filter((t) => String(t?.type).toUpperCase() === 'SELL');
     const wins = sells.filter((t) => Number(t?.pnl || 0) > 0);
     const losses = sells.filter((t) => Number(t?.pnl || 0) <= 0);
@@ -1274,7 +1280,7 @@ function startDashboard(portfolio, ctx) {
       byStructureType,
       exitReasonBreakdown,
       macroRegime: state.macroRegime || null,
-      enabled: Boolean(state?.config?.strategies?.backes_swing?.enabled),
+      enabled: Boolean(state?.config?.strategies?.swing?.enabled),
     });
   });
 

@@ -1,11 +1,11 @@
 'use strict';
 
-const { dailyContext, fail, pass } = require('./common');
+const { dailyContext, fail, pass, resolveVolumeConfirmation } = require('./common');
 
 function detectCaixote(candles = [], options = {}) {
-  const structureType = 'caixote';
-  const ctx = dailyContext(candles);
-  const rangeDays = Math.max(20, Math.min(60, Number(options.rangeDays || 40)));
+  const structureType = 'caixote_floor';
+  const ctx = dailyContext(candles, options);
+  const rangeDays = Math.max(20, Math.min(60, Number(options.rangeDays || options.rangeLookbackDays || 60)));
   if (ctx.daily.length < rangeDays + 5) return fail(structureType, 'insufficient_range_candles');
   if (!ctx.latest || !(ctx.atr14 > 0)) return fail(structureType, 'missing_indicator_context');
 
@@ -19,13 +19,14 @@ function detectCaixote(candles = [], options = {}) {
   const latest = ctx.latest;
   const prior = ctx.previous || box[box.length - 2];
   const bottomReclaim = latest.low <= bottomZone && latest.close <= bottomZone && latest.close > latest.open && latest.close >= prior.close;
-  const volumeOk = ctx.volRatio === null || ctx.volRatio >= Number(options.minVolumeRatio || 0.75);
+  const volume = resolveVolumeConfirmation(ctx, options);
+  const volumeOk = volume.volumeOk;
 
   const reasons = [];
   if (!(boxHeight > 0) || boxHeightPct > maxBoxHeightPct) reasons.push('range_box_too_wide');
   if (!bottomReclaim) reasons.push('not_in_bottom_20pct_reclaim');
-  if (!volumeOk) reasons.push('volume_below_baseline');
-  if (reasons.length) return fail(structureType, reasons[0], { reasons, volumeOk, boxHigh, boxLow });
+  if (!volumeOk) reasons.push('volume_confirmation_missing');
+  if (reasons.length) return fail(structureType, reasons[0], { reasons, volumeOk, boxHigh, boxLow, ...volume });
 
   const entryPrice = latest.close;
   const stopPrice = boxLow - ctx.atr14 * 0.25;
@@ -43,6 +44,7 @@ function detectCaixote(candles = [], options = {}) {
       boxHeightPct,
       atr14: ctx.atr14,
       volumeRatio: ctx.volRatio,
+      ...volume,
     },
   });
 }

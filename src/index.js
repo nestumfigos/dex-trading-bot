@@ -1368,7 +1368,7 @@ const strategy = {
       return bullFlagEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
     }
 
-    if (strategyName === 'backes_swing') {
+    if (strategyName === 'swing') {
       const result = await backesEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
       if (result?.details?.macroRegime) {
         marketState.macroRegime = {
@@ -1377,7 +1377,7 @@ const strategy = {
           scores: result.details.macroScores || {},
           sizeMultiplier: Number(result.details.macroSizeMultiplier || result.details.sizeMultiplier || 1),
           updatedAt: new Date().toISOString(),
-          source: 'backes_macro',
+          source: 'swing_backes_macro',
         };
       }
       return result;
@@ -1421,7 +1421,7 @@ const strategy = {
     const buyRatioRecentPct = Number(tokenData?.buyRatioRecentPct || tokenData?.buyRatio10mPct || 0);
     const netBuyFlowUsd10m = Number(tokenData?.netBuyFlowUsd10m || 0);
     const liquidityUsd = Number(tokenData?.liquidityUsd || 0);
-    const patternAnalysis = (strategyName === 'backes_swing' || chainName === 'kucoin') && isEstablishedTokenCandidate(tokenData)
+    const patternAnalysis = (strategyName === 'swing' || chainName === 'kucoin') && isEstablishedTokenCandidate(tokenData)
       ? await analyzeEstablishedTokenPatterns({ ...tokenData, chainKey: chainName }).catch(() => null)
       : null;
 
@@ -1986,7 +1986,7 @@ const scanCursorByChainStrategy = {
   kucoin: {
     momentum: 0,
     spot_day_bull_flag: 0,
-    backes_swing: 0,
+    swing: 0,
   },
 };
 
@@ -2981,12 +2981,12 @@ function getHealthStatus() {
   const getStrategyScanIntervalMs = (strategyName) => {
     if (strategyName === 'momentum') return momentumScanMs;
     if (isBullFlagRuntimeStrategy(strategyName)) return bullFlagScanMs;
-    if (strategyName === 'backes_swing') return Math.max(10 * 60_000, Number(config.strategies?.backes_swing?.scanIntervalMinutes || 30) * 60_000);
+    if (strategyName === 'swing') return Math.max(10 * 60_000, Number(config.strategies?.swing?.scanIntervalMinutes || 30) * 60_000);
     return Math.max(60_000, Number(config.strategies?.[strategyName]?.scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
   };
   const getStrategyExitIntervalMs = (strategyName) => {
     if (isBullFlagRuntimeStrategy(strategyName)) return bullFlagExitMs;
-    if (strategyName === 'backes_swing') return Math.max(30 * 60_000, Number(config.strategies?.backes_swing?.exitCheckMinutes || 60) * 60_000);
+    if (strategyName === 'swing') return Math.max(30 * 60_000, Number(config.strategies?.swing?.exitCheckMinutes || 60) * 60_000);
     return momentumExitMs;
   };
   const strategyLoopStaleness = Object.fromEntries(enabledRuntimeStrategyNames.map((strategyName) => [
@@ -3943,6 +3943,16 @@ async function getTokensForStrategy(chainName, exchange, strategyName = 'momentu
     return [];
   }
 
+  if (chainName === 'kucoin' && strategyName === 'swing' && typeof exchange.getSwingCandidates === 'function') {
+    const liquidMajors = await exchange.getSwingCandidates().catch((error) => {
+      logger.warn(`KuCoin swing candidate discovery failed: ${error.message}`);
+      return [];
+    });
+    if (Array.isArray(liquidMajors) && liquidMajors.length > 0) {
+      return liquidMajors;
+    }
+  }
+
   // spot_day_bull_flag reuses momentum's liquid-token discovery universe.
   // Detector itself filters via OHLCV pattern + scanner gates.
   const discoveryStrategy = strategyName === 'spot_day_bull_flag' ? 'momentum' : strategyName;
@@ -4315,9 +4325,9 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
       tokenData.manualCutDeadlineAt = new Date(Date.now() + cutCandles * cutTimeframeMin * 60_000).toISOString();
       tokenData._bullFlagRiskPct = Number(evaluation.details.riskPct) || null;
       tokenData._bullFlagIsAPlus = Boolean(evaluation.details.isAPlus);
-    } else if (strategyName === 'backes_swing' && evaluation.details.setupType === 'backes_swing') {
-      tokenData.setupType = 'backes_swing';
-      tokenData.strategyVariant = 'backes_swing';
+    } else if (strategyName === 'swing' && evaluation.details.setupType === 'swing') {
+      tokenData.setupType = 'swing';
+      tokenData.strategyVariant = evaluation.details.strategyMode || 'backes_htf_swing';
       tokenData.structureType = evaluation.details.structureType || null;
       tokenData.structuralStopPrice = Number(evaluation.details.invalidationPrice || evaluation.details.stopPrice) || null;
       tokenData.measuredMoveTargetPrice = Array.isArray(evaluation.details.targetPrices)

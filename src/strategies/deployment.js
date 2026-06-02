@@ -5,7 +5,7 @@ const IMPLEMENTED_STRATEGIES = [
   'solana_bull_flag_v2',
   'bsc_flow_breakout',
   'base_dex_momentum_reclaim',
-  'backes_swing',
+  'swing',
   'momentum',
 ];
 
@@ -27,15 +27,7 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
     paper: { defaultEnabled: true, defaultChains: ['solana', 'bsc', 'kucoin'] },
   }),
   swing: Object.freeze({
-    label: 'Legacy swing',
-    stage: 'removed',
-    implemented: false,
-    priority: 90,
-    live: { defaultEnabled: false, defaultChains: [] },
-    paper: { defaultEnabled: false, defaultChains: [] },
-  }),
-  backes_swing: Object.freeze({
-    label: 'Plan C Backes HTF swing paper',
+    label: 'Backes HTF swing paper',
     stage: 'paper_runtime_canary',
     implemented: true,
     paperOnly: true,
@@ -73,7 +65,8 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
 });
 
 function normalizeStrategyName(strategyName) {
-  return String(strategyName || 'momentum').trim().toLowerCase();
+  const value = String(strategyName || 'momentum').trim().toLowerCase();
+  return value === 'backes_swing' ? 'swing' : value;
 }
 
 function normalizeChainName(chainName) {

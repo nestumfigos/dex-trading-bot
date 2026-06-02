@@ -38,13 +38,10 @@ function weeklySeries(count, closeFn) {
 }
 
 function token56dSetup(multiplier = 1) {
-  const rows = flatCandles(68, 100 * multiplier);
-  rows.push(c(68, 101 * multiplier, { open: 99.7 * multiplier, low: 99.5 * multiplier }));
-  rows.push(c(69, 100.7 * multiplier, { open: 101 * multiplier, low: 100 * multiplier }));
-  rows.push(c(70, 103 * multiplier, { open: 100.8 * multiplier, low: 100.5 * multiplier, volume: 1400 }));
-  for (let index = 71; index < 92; index += 1) {
-    rows.push(c(index, (103 + (index - 70) * 0.12) * multiplier));
-  }
+  const rows = flatCandles(78, 100 * multiplier);
+  rows.push(c(78, 101 * multiplier, { open: 99.7 * multiplier, low: 99.5 * multiplier }));
+  rows.push(c(79, 100.7 * multiplier, { open: 101 * multiplier, low: 100 * multiplier }));
+  rows.push(c(80, 103 * multiplier, { open: 100.8 * multiplier, low: 100.5 * multiplier, volume: 1800 }));
   return rows;
 }
 
@@ -52,19 +49,19 @@ function token21wSetup(multiplier = 1) {
   const daily = flatCandles(82, 108 * multiplier);
   daily[daily.length - 3] = c(79, 103 * multiplier, { open: 107 * multiplier, low: 101.5 * multiplier });
   daily[daily.length - 2] = c(80, 106 * multiplier, { open: 103 * multiplier, high: 106.5 * multiplier, low: 102.5 * multiplier });
-  daily[daily.length - 1] = c(81, 109 * multiplier, { open: 106 * multiplier, high: 110 * multiplier, low: 105 * multiplier, volume: 1200 });
+  daily[daily.length - 1] = c(81, 109 * multiplier, { open: 106 * multiplier, high: 110 * multiplier, low: 105 * multiplier, volume: 1800 });
   const weekly = weeklySeries(28, (index) => (100 + index * 0.2) * multiplier);
   return { daily, weekly };
 }
 
 function tokenCaixoteSetup(multiplier = 1) {
   const rows = [];
-  for (let index = 0; index < 45; index += 1) {
+  for (let index = 0; index < 64; index += 1) {
     const close = (109 + Math.sin(index / 2) * 4) * multiplier;
     rows.push(c(index, close, { high: 118 * multiplier, low: 101 * multiplier, volume: 1000 }));
   }
-  rows[44] = c(44, 102 * multiplier, { open: 104 * multiplier, high: 106 * multiplier, low: 101 * multiplier, volume: 1000 });
-  rows.push(c(45, 103 * multiplier, { open: 101.8 * multiplier, high: 106 * multiplier, low: 100.8 * multiplier, volume: 1300 }));
+  rows[63] = c(63, 102 * multiplier, { open: 104 * multiplier, high: 106 * multiplier, low: 101 * multiplier, volume: 1000 });
+  rows.push(c(64, 103 * multiplier, { open: 101.8 * multiplier, high: 106 * multiplier, low: 100.8 * multiplier, volume: 1800 }));
   return rows;
 }
 
@@ -107,7 +104,7 @@ function macroCapitulation() {
   weekly[28] = c(28 * 7, 18, { open: 24, high: 25, low: 17 });
   weekly[29] = c(29 * 7, 22, { open: 18, high: 23, low: 17 });
   const daily = flatCandles(139, 20);
-  daily.push(c(139, 22, { open: 20, high: 23, low: 19 }));
+  daily.push(c(139, 22, { open: 20, high: 23, low: 19, volume: 2000 }));
   return { daily, weekly };
 }
 
@@ -149,7 +146,7 @@ test('Backes macro classifier covers planned regimes and multiplier table', () =
     assert.ok(Number.isFinite(result.scores.trend));
   }
   assert.equal(getMacroSizeMultiplier('risk_off'), 0.5);
-  assert.equal(getMacroSizeMultiplier('capitulation'), 0.3);
+  assert.equal(getMacroSizeMultiplier('capitulation'), 1);
   assert.equal(getMacroSizeMultiplier('reversal_pending'), 0.8);
   assert.equal(getMacroSizeMultiplier('bull_pullback'), 1);
 });
@@ -181,11 +178,11 @@ test('Backes setup detectors qualify their core synthetic structures', () => {
 
   const box = detectCaixote(tokenCaixoteSetup());
   assert.equal(box.qualifies, true);
-  assert.equal(box.structureType, 'caixote');
+  assert.equal(box.structureType, 'caixote_floor');
 
   const megaphone = detectMegaphone(tokenMegaphoneSetup());
   assert.equal(megaphone.qualifies, true);
-  assert.equal(megaphone.structureType, 'megaphone');
+  assert.equal(megaphone.structureType, 'megaphone_reclaim');
 });
 
 test('Backes setup detectors reject broken structures with reasons', () => {
@@ -209,7 +206,8 @@ test('Backes evaluator returns BUY contract with setup and macro details', async
     { config: { enabled: true, enabledChains: ['kucoin'], minLiquidityUsd: 500_000, min24hVolumeUsd: 100_000 }, chainKey: 'kucoin' },
   );
   assert.equal(result.signal, 'BUY');
-  assert.equal(result.details.setupType, 'backes_swing');
+  assert.equal(result.details.setupType, 'swing');
+  assert.equal(result.details.strategyMode, 'backes_htf_swing');
   assert.ok(result.details.structureType);
   assert.ok(result.details.invalidationPrice < result.details.entryPrice);
   assert.ok(Array.isArray(result.details.targetPrices));
@@ -287,8 +285,8 @@ const setupFixtureMatrix = [
     const fixture = token21wSetup(multiplier);
     return detect21wSupport({ dailyCandles: fixture.daily, weeklyCandles: fixture.weekly });
   }],
-  ['caixote', (multiplier) => detectCaixote(tokenCaixoteSetup(multiplier))],
-  ['megaphone', (multiplier) => detectMegaphone(tokenMegaphoneSetup(multiplier))],
+  ['caixote_floor', (multiplier) => detectCaixote(tokenCaixoteSetup(multiplier))],
+  ['megaphone_reclaim', (multiplier) => detectMegaphone(tokenMegaphoneSetup(multiplier))],
 ];
 
 for (const [structureType, runDetector] of setupFixtureMatrix) {
@@ -320,7 +318,7 @@ for (let index = 0; index < 15; index += 1) {
       { config: { enabled: true, enabledChains: ['kucoin'], minLiquidityUsd: 500_000, min24hVolumeUsd: 100_000, macroCacheKey: `fixture-${index}` }, chainKey: 'kucoin' },
     );
     assert.equal(result.signal, 'BUY');
-    assert.equal(result.details.setupType, 'backes_swing');
+    assert.equal(result.details.setupType, 'swing');
     assert.equal(result.details.structureType, '56d_retest');
     assert.ok(result.details.stopDistancePct > 0);
   });

@@ -36,14 +36,15 @@ test('live deployment: bull-flag enables only configured KuCoin chain', () => {
 test('paper deployment: new strategies are active and paper-only', () => {
   const config = {
     strategies: {
-      backes_swing: { enabled: true, enabledChains: ['kucoin'] },
+      swing: { enabled: true, enabledChains: ['kucoin'] },
       bsc_flow_breakout: { enabled: true, enabledChains: ['bsc'] },
       base_dex_momentum_reclaim: { enabled: true, enabledChains: ['base'] },
       solana_bull_flag_v2: { enabled: true, enabledChains: ['solana'] },
     },
   };
 
-  assert.equal(isStrategyEnabledForChain({ config, chainName: 'kucoin', strategyName: 'backes_swing', paperTrading: false }), false);
+  assert.equal(isStrategyEnabledForChain({ config, chainName: 'kucoin', strategyName: 'swing', paperTrading: false }), false);
+  assert.equal(isStrategyEnabledForChain({ config, chainName: 'kucoin', strategyName: 'swing', paperTrading: true }), true);
   assert.equal(isStrategyEnabledForChain({ config, chainName: 'kucoin', strategyName: 'backes_swing', paperTrading: true }), true);
   assert.equal(isStrategyEnabledForChain({ config, chainName: 'bsc', strategyName: 'bsc_flow_breakout', paperTrading: true }), true);
   assert.equal(isStrategyEnabledForChain({ config, chainName: 'base', strategyName: 'base_dex_momentum_reclaim', paperTrading: true }), true);

@@ -5,6 +5,10 @@ const { detect21wSupport } = require('./backes-setups/21w-support');
 const { detect56dRetest } = require('./backes-setups/56d-retest');
 const { detectCaixote } = require('./backes-setups/caixote');
 const { detectMegaphone } = require('./backes-setups/megaphone');
+const { volumeRatio } = require('./backes-setups/common');
+
+const SWING_SETUP_TYPE = 'swing';
+const BACKES_MODE = 'backes_htf_swing';
 
 function normalizeChain(value) {
   return String(value || '').trim().toLowerCase();
@@ -14,7 +18,8 @@ function holdResult(reasons, extra = {}) {
   return {
     signal: 'HOLD',
     details: {
-      setupType: 'backes_swing',
+      setupType: SWING_SETUP_TYPE,
+      strategyMode: BACKES_MODE,
       technicalSignal: 'HOLD',
       scannerReasons: Array.isArray(reasons) ? reasons : [String(reasons || 'hold')],
       reasons: Array.isArray(reasons) ? reasons : [String(reasons || 'hold')],
@@ -23,14 +28,29 @@ function holdResult(reasons, extra = {}) {
   };
 }
 
-function runSetupDetectors(dailyCandles, macroRegime, config = {}) {
+function runSetupDetectors(dailyCandles, fourHourCandles, macroRegime, config = {}) {
   const weeklyCandles = aggregateDailyToWeekly(dailyCandles);
   const setupOptions = config.setupOptions || {};
+  const commonOptions = {
+    maDailyPeriod: Number(config.maDailyPeriod || 56),
+    maWeeklyFast: Number(config.maWeeklyFast || 8),
+    maWeeklySupport: Number(config.maWeeklySupport || 21),
+    rangeLookbackDays: Number(config.rangeLookbackDays || 60),
+    maxEntryDistanceFromSupportAtr: Number(config.maxEntryDistanceFromSupportAtr || 0.75),
+    dailyVolumeSpikeMultiplier: Number(config.dailyVolumeSpikeMultiplier || 1.5),
+    fourHourVolumeSpikeMultiplier: Number(config.fourHourVolumeSpikeMultiplier || 1.3),
+    volumeConfirmation: {
+      dailyRatio: volumeRatio(dailyCandles, 20),
+      fourHourRatio: volumeRatio(fourHourCandles, 20),
+      dailyThreshold: Number(config.dailyVolumeSpikeMultiplier || 1.5),
+      fourHourThreshold: Number(config.fourHourVolumeSpikeMultiplier || 1.3),
+    },
+  };
   const detectors = [
-    { name: '21w_support', priority: macroRegime === 'bull_pullback' ? 100 : 70, run: () => detect21wSupport({ dailyCandles, weeklyCandles }, setupOptions.support21w) },
-    { name: '56d_retest', priority: macroRegime === 'reversal_pending' ? 95 : 80, run: () => detect56dRetest(dailyCandles, setupOptions.retest56d) },
-    { name: 'caixote', priority: macroRegime === 'capitulation' ? 90 : 65, run: () => detectCaixote(dailyCandles, setupOptions.caixote) },
-    { name: 'megaphone', priority: macroRegime === 'capitulation' ? 85 : 60, run: () => detectMegaphone(dailyCandles, setupOptions.megaphone) },
+    { name: '21w_support', priority: macroRegime === 'bull_pullback' ? 100 : 70, run: () => detect21wSupport({ dailyCandles, weeklyCandles }, { ...commonOptions, ...(setupOptions.support21w || {}) }) },
+    { name: '56d_retest', priority: macroRegime === 'reversal_pending' ? 95 : 80, run: () => detect56dRetest(dailyCandles, { ...commonOptions, ...(setupOptions.retest56d || {}) }) },
+    { name: 'caixote_floor', priority: macroRegime === 'capitulation' ? 90 : 65, run: () => detectCaixote(dailyCandles, { ...commonOptions, ...(setupOptions.caixote || {}) }) },
+    { name: 'megaphone_reclaim', priority: macroRegime === 'capitulation' ? 85 : 60, run: () => detectMegaphone(dailyCandles, { ...commonOptions, ...(setupOptions.megaphone || {}) }) },
   ];
 
   const results = detectors.map((detector) => ({ detector: detector.name, priority: detector.priority, ...detector.run() }));
@@ -80,11 +100,27 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
     const dailyCandles = Array.isArray(series?.candles) ? series.candles : [];
     if (dailyCandles.length < 80) return holdResult(['ohlcv_unavailable_or_short'], { candleCount: dailyCandles.length });
 
+    let fourHourCandles = [];
+    try {
+      const fourHourSeries = await fetchOhlcv({
+        chainKey,
+        symbol: tokenData.symbol,
+        address: tokenData.address || tokenData.symbol,
+        pairAddress: tokenData.pairAddress || tokenData.poolAddress,
+        interval: '4h',
+        limit: Math.max(80, Number(cfg.fourHourLookback || 120)),
+      });
+      fourHourCandles = Array.isArray(fourHourSeries?.candles) ? fourHourSeries.candles : [];
+    } catch (error) {
+      log.debug(`[backes] optional 4h OHLCV fetch failed for ${tokenData.symbol}: ${error.message}`);
+    }
+
     const macro = await getMacroRegime({
       fetchOhlcv,
       chainKey: 'kucoin',
       cacheKey: cfg.macroCacheKey || 'backes',
       cacheTtlMs: Number(cfg.macroCacheTtlMs || 4 * 60 * 60 * 1000),
+      config: cfg,
     }).catch((error) => {
       log.debug(`[backes] macro regime unavailable: ${error.message}`);
       return { regime: 'unknown', reasons: ['macro_fetch_error'], scores: { trend: 0, momentum: 0, volatility: 0 } };
@@ -102,7 +138,7 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
       });
     }
 
-    const { results, best } = runSetupDetectors(dailyCandles, macroRegime, cfg);
+    const { results, best } = runSetupDetectors(dailyCandles, fourHourCandles, macroRegime, cfg);
     if (!best) {
       return holdResult(['no_backes_setup_qualified'], {
         macroRegime,
@@ -129,7 +165,8 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
     return {
       signal: 'BUY',
       details: {
-        setupType: 'backes_swing',
+        setupType: SWING_SETUP_TYPE,
+        strategyMode: BACKES_MODE,
         technicalSignal: 'BUY',
         triggerTimeframe: '1d',
         macroRegime,
@@ -145,6 +182,10 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
         riskPct,
         sizeMultiplier: macroSizeMultiplier,
         macroSizeMultiplier,
+        volumeSpike: Math.max(Number(best.dailyVolumeRatio || 0), Number(best.fourHourVolumeRatio || 0)),
+        dailyVolumeRatio: Number(best.dailyVolumeRatio || 0),
+        fourHourVolumeRatio: Number(best.fourHourVolumeRatio || 0),
+        volumeSource: best.volumeSource || null,
         confidence: Math.min(0.92, 0.58 + Math.min(0.2, (Number(best.targetPrices?.length || 0) * 0.04)) + (best.volumeOk ? 0.08 : 0)),
         reasons: [...(macro.reasons || []), ...(best.reasons || [])],
         scannerReasons: [],

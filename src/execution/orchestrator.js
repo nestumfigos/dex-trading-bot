@@ -39,6 +39,14 @@ function createExecutionOrchestrator(deps) {
     return setupType === 'spot_day_bull_flag' || setupType === 'solana_bull_flag_v2';
   }
 
+  function isBackesSwingPosition(position = {}) {
+    return position?.setupType === 'swing'
+      || position?.setupType === 'backes_swing'
+      || position?.strategy === 'swing'
+      || position?.strategy === 'backes_swing'
+      || position?.strategyVariant === 'backes_htf_swing';
+  }
+
   function bullFlagDailyLossR(fallbackRiskUsd = 0) {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -102,14 +110,14 @@ function createExecutionOrchestrator(deps) {
         logger.warn(`[bull-flag] sizing fallback (equity=${equity}, stopFrac=${stopDistanceFrac}); using iteration engine`);
         calculatedSizeUsd = positionSizingEngine.calculateSmallIterationSize(tokenData, portfolio, strategyName);
       }
-    } else if (strategyName === 'backes_swing' && tokenData.setupType === 'backes_swing' && Number(tokenData.structuralStopPrice || tokenData.invalidationPrice) > 0) {
+    } else if (strategyName === 'swing' && tokenData.setupType === 'swing' && Number(tokenData.structuralStopPrice || tokenData.invalidationPrice) > 0) {
       const equity = Number(portfolio?.balance || 0);
       const entryPrice = Number(tokenData.price || tokenData.entryPrice || 0);
       const stopPrice = Number(tokenData.structuralStopPrice || tokenData.invalidationPrice);
       const stopDistanceFrac = entryPrice > 0 ? Math.abs(entryPrice - stopPrice) / entryPrice : 0;
-      const backesCfg = config.strategies?.backes_swing || {};
+      const backesCfg = config.strategies?.swing || {};
       const openBackesPositions = Object.values(portfolio?.positions || {})
-        .filter((position) => position?.setupType === 'backes_swing' || position?.strategy === 'backes_swing');
+        .filter(isBackesSwingPosition);
       const maxConcurrent = Math.max(1, Number(backesCfg.maxConcurrentPositions || 3));
       if (openBackesPositions.length >= maxConcurrent) {
         logger.info(`[backes] max concurrent positions reached (${openBackesPositions.length}/${maxConcurrent}), skipping ${tokenData.symbol}`);
@@ -124,7 +132,7 @@ function createExecutionOrchestrator(deps) {
 
         const openBackesExposure = openBackesPositions
           .reduce((sum, position) => sum + Number(position.costBasisUsd || position.initialSizeUsd || 0), 0);
-        const exposureCapUsd = equity * 0.25;
+        const exposureCapUsd = equity * (Number(backesCfg.maxSwingExposurePct || 25) / 100);
         const remainingExposureUsd = Math.max(0, exposureCapUsd - openBackesExposure);
         if (remainingExposureUsd <= 0) {
           logger.info(`[backes] exposure cap reached ($${openBackesExposure.toFixed(2)}/$${exposureCapUsd.toFixed(2)}), skipping ${tokenData.symbol}`);

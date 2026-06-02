@@ -10,7 +10,7 @@ const {
 
 const REGIME_SIZE_MULTIPLIERS = Object.freeze({
   risk_off: 0.5,
-  capitulation: 0.3,
+  capitulation: 1.0,
   reversal_pending: 0.8,
   bull_pullback: 1.0,
   neutral: 1.0,
@@ -74,18 +74,45 @@ function normalizeMarketKlines(input = {}) {
   };
 }
 
-function latestMetrics(input = {}) {
+function median(values = []) {
+  const usable = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!usable.length) return null;
+  const mid = Math.floor(usable.length / 2);
+  return usable.length % 2 ? usable[mid] : (usable[mid - 1] + usable[mid]) / 2;
+}
+
+function latestVolumeRatio(candles = [], lookback = 20) {
+  const rows = normalizeCandles(candles);
+  if (rows.length < 2) return null;
+  const latest = Number(rows[rows.length - 1]?.volume || 0);
+  const baseline = median(rows.slice(-lookback - 1, -1).map((row) => row.volume));
+  return baseline > 0 ? latest / baseline : null;
+}
+
+function normalizeConfig(config = {}) {
+  return {
+    maDailyPeriod: Math.max(2, Number(config.maDailyPeriod || 56)),
+    maWeeklyFast: Math.max(2, Number(config.maWeeklyFast || 8)),
+    maWeeklySupport: Math.max(2, Number(config.maWeeklySupport || 21)),
+    weeklyRsiPeriod: Math.max(2, Number(config.weeklyRsiPeriod || 14)),
+    weeklyRsiOversold: Number(config.weeklyRsiOversold || 30),
+    dailyVolumeSpikeMultiplier: Number(config.dailyVolumeSpikeMultiplier || 1.5),
+  };
+}
+
+function latestMetrics(input = {}, config = {}) {
+  const cfg = normalizeConfig(config);
   const { daily, weekly } = normalizeMarketKlines(input);
   const dailyCloses = daily.map((row) => row.close);
   const weeklyCloses = weekly.map((row) => row.close);
   const latestDaily = daily[daily.length - 1] || null;
   const previousDaily = daily[daily.length - 2] || null;
   const latestWeekly = weekly[weekly.length - 1] || null;
-  const ma56d = simpleMA(dailyCloses, 56);
-  const ma56dSeries = simpleMASeries(dailyCloses, 56);
-  const ma8w = simpleMA(weeklyCloses, 8);
-  const ma21w = simpleMA(weeklyCloses, 21);
-  const weeklyRsi = wilderRsi(weeklyCloses, 14);
+  const ma56d = simpleMA(dailyCloses, cfg.maDailyPeriod);
+  const ma56dSeries = simpleMASeries(dailyCloses, cfg.maDailyPeriod);
+  const ma8w = simpleMA(weeklyCloses, cfg.maWeeklyFast);
+  const ma21w = simpleMA(weeklyCloses, cfg.maWeeklySupport);
+  const weeklyRsi = wilderRsi(weeklyCloses, cfg.weeklyRsiPeriod);
   const latestClose = latestDaily?.close || latestWeekly?.close || null;
   const near21w = latestClose > 0 && ma21w > 0
     ? Math.abs(latestClose - ma21w) / ma21w
@@ -105,6 +132,7 @@ function latestMetrics(input = {}) {
     ma56dSlope: classifySlope(ma56dSeries, { lookback: 8, flatThresholdPct: 0.003 }),
     weeklySlope: classifySlope(weeklyCloses, { lookback: 8, flatThresholdPct: 0.01 }),
     weeklyRsi,
+    dailyVolumeRatio: latestVolumeRatio(daily, 20),
     near21w,
     recentLow,
   };
@@ -133,9 +161,10 @@ function buildScores(btc, eth) {
   };
 }
 
-function classifyMacroRegime({ btcKlines, ethKlines } = {}) {
-  const btc = latestMetrics(btcKlines || {});
-  const eth = latestMetrics(ethKlines || {});
+function classifyMacroRegime({ btcKlines, ethKlines, config } = {}) {
+  const cfg = normalizeConfig(config);
+  const btc = latestMetrics(btcKlines || {}, cfg);
+  const eth = latestMetrics(ethKlines || {}, cfg);
   const markets = [
     ['BTC', btc],
     ['ETH', eth],
@@ -148,8 +177,15 @@ function classifyMacroRegime({ btcKlines, ethKlines } = {}) {
   const reasons = [];
   const capitulation = markets.some(([symbol, m]) => {
     const reclaim = m.previousClose > 0 && m.latestClose > m.previousClose && m.latestDaily?.close > m.latestDaily?.open;
-    const hit = Number(m.weeklyRsi) <= 30 && reclaim;
+    const volumeOk = Number(m.dailyVolumeRatio) >= cfg.dailyVolumeSpikeMultiplier;
+    const macroConfirm = markets.some(([otherSymbol, other]) => {
+      if (otherSymbol === symbol) return false;
+      return other.latestClose >= other.previousClose || Number(other.weeklyRsi) <= cfg.weeklyRsiOversold + 5;
+    }) || markets.length === 1;
+    const hit = Number(m.weeklyRsi) <= cfg.weeklyRsiOversold && reclaim && volumeOk && macroConfirm;
     if (hit) reasons.push(`${symbol}:weekly_rsi_capitulation_reclaim`);
+    else if (Number(m.weeklyRsi) <= cfg.weeklyRsiOversold && reclaim && !volumeOk) reasons.push(`${symbol}:capitulation_volume_unconfirmed`);
+    else if (Number(m.weeklyRsi) <= cfg.weeklyRsiOversold && reclaim && !macroConfirm) reasons.push(`${symbol}:capitulation_macro_unconfirmed`);
     return hit;
   });
   if (capitulation) return { regime: 'capitulation', reasons, scores: buildScores(btc, eth) };
@@ -192,11 +228,12 @@ function getMacroSizeMultiplier(regimeOrResult) {
   return REGIME_SIZE_MULTIPLIERS[regime] ?? 1.0;
 }
 
-async function getMacroRegime({ fetchOhlcv, chainKey = 'kucoin', cacheKey = 'global', cacheTtlMs = 4 * 60 * 60 * 1000 } = {}) {
+async function getMacroRegime({ fetchOhlcv, chainKey = 'kucoin', cacheKey = 'global', cacheTtlMs = 4 * 60 * 60 * 1000, config = {} } = {}) {
   if (typeof fetchOhlcv !== 'function') {
     return { regime: 'unknown', reasons: ['macro_fetcher_unavailable'], scores: { trend: 0, momentum: 0, volatility: 0 }, cached: false };
   }
-  const key = `${cacheKey}:${chainKey}`;
+  const normalizedCfg = normalizeConfig(config);
+  const key = `${cacheKey}:${chainKey}:${normalizedCfg.maDailyPeriod}:${normalizedCfg.maWeeklyFast}:${normalizedCfg.maWeeklySupport}:${normalizedCfg.weeklyRsiPeriod}:${normalizedCfg.weeklyRsiOversold}:${normalizedCfg.dailyVolumeSpikeMultiplier}`;
   const cached = MACRO_CACHE.get(key);
   if (cached && Date.now() < cached.expiresAt) return { ...cached.value, cached: true };
 
@@ -207,6 +244,7 @@ async function getMacroRegime({ fetchOhlcv, chainKey = 'kucoin', cacheKey = 'glo
   const value = classifyMacroRegime({
     btcKlines: btcDaily?.candles || btcDaily || [],
     ethKlines: ethDaily?.candles || ethDaily || [],
+    config: normalizedCfg,
   });
   MACRO_CACHE.set(key, { value, expiresAt: Date.now() + Math.max(60_000, Number(cacheTtlMs || 0)) });
   return { ...value, cached: false };
