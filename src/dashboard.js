@@ -766,7 +766,7 @@ function startDashboard(portfolio, ctx) {
 
   app.get('/api/tracked-tokens', (req, res) => {
     const tokens = ctx.getTrackedTokens()
-      .filter((token) => String(token?.strategy || '').toLowerCase() !== 'swing');
+      .filter((token) => !['backes', 'swing', 'backes_swing'].includes(String(token?.strategy || '').toLowerCase()));
     res.json({ tokens });
   });
 
@@ -1036,7 +1036,15 @@ function startDashboard(portfolio, ctx) {
   app.get('/api/backes-stats', (req, res) => {
     const state = ctx.getDashboardState();
     const trades = state.portfolio?.trades || [];
-    const backesTrades = trades.filter((t) => t?.setupType === 'backes_swing');
+    const backesTrades = trades.filter((t) => (
+      t?.setupType === 'backes'
+      || t?.setupType === 'swing'
+      || t?.setupType === 'backes_swing'
+      || t?.strategy === 'backes'
+      || t?.strategy === 'swing'
+      || t?.strategy === 'backes_swing'
+      || t?.strategyVariant === 'backes_htf_swing'
+    ));
     const sells = backesTrades.filter((t) => String(t?.type).toUpperCase() === 'SELL');
     const wins = sells.filter((t) => Number(t?.pnl || 0) > 0);
     const losses = sells.filter((t) => Number(t?.pnl || 0) <= 0);
@@ -1079,7 +1087,11 @@ function startDashboard(portfolio, ctx) {
       byStructureType,
       exitReasonBreakdown,
       macroRegime: state.macroRegime || null,
-      enabled: Boolean(state?.config?.strategies?.backes_swing?.enabled),
+      enabled: Boolean(
+        state?.config?.strategies?.backes?.enabled
+        || state?.config?.strategies?.swing?.enabled
+        || state?.config?.strategies?.backes_swing?.enabled
+      ),
     });
   });
 

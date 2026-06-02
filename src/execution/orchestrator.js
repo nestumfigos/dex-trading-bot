@@ -39,6 +39,90 @@ function createExecutionOrchestrator(deps) {
     return setupType === 'spot_day_bull_flag' || setupType === 'solana_bull_flag_v2';
   }
 
+  function finiteNumber(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function firstFinitePositive(values = []) {
+    for (const value of values) {
+      const numeric = finiteNumber(value);
+      if (numeric !== null && numeric > 0) return numeric;
+    }
+    return null;
+  }
+
+  function resolveTargetPrice(tokenData = {}) {
+    const targetPrices = Array.isArray(tokenData.targetPrices) ? tokenData.targetPrices : [];
+    return firstFinitePositive([
+      tokenData.measuredMoveTargetPrice,
+      tokenData.targetPrice,
+      tokenData.takeProfitPrice,
+      tokenData.takeProfit,
+      tokenData.projectedTargetPrice,
+      ...targetPrices,
+    ]);
+  }
+
+  function estimateRoundTripCostBps(chainName, tokenData = {}) {
+    const chainKey = String(chainName || tokenData.chainKey || 'default').toLowerCase();
+    const feeProfile = config.execution?.feeProfile?.[chainKey]
+      || config.execution?.feeProfile?.default
+      || {};
+    const configuredFeesBps = Number(feeProfile.entryBps || 0) + Number(feeProfile.exitBps || 0);
+    const expectedFeesBps = finiteNumber(tokenData.expectedFeesBps);
+    const expectedSlippageBps = finiteNumber(tokenData.expectedSlippageBps);
+    const expectedSpreadBps = finiteNumber(tokenData.expectedSpreadBps);
+
+    return Math.max(
+      0,
+      (expectedFeesBps !== null ? expectedFeesBps : configuredFeesBps)
+        + (expectedSlippageBps !== null ? expectedSlippageBps : Number(config.execution?.slippageBps || 0))
+        + (expectedSpreadBps !== null ? expectedSpreadBps : 0)
+    );
+  }
+
+  function evaluateMinimumNetDollarEdge(chainName, tokenData = {}, sizeUsd = 0) {
+    const minNetEdgeUsd = Math.max(0, Number(config.risk?.minNetExpectedEdgeUsd || 0));
+    if (config.paperTrading || minNetEdgeUsd <= 0) {
+      return { ok: true, skipped: 'disabled' };
+    }
+
+    const entryPrice = firstFinitePositive([
+      tokenData.price,
+      tokenData.entryPrice,
+      tokenData.breakoutClosePrice,
+    ]);
+    const targetPrice = resolveTargetPrice(tokenData);
+    const notionalUsd = Number(sizeUsd || 0);
+    if (!(notionalUsd > 0) || !(entryPrice > 0) || !(targetPrice > entryPrice)) {
+      return { ok: true, skipped: 'missing_target' };
+    }
+
+    const grossRewardUsd = notionalUsd * ((targetPrice - entryPrice) / entryPrice);
+    const costBps = estimateRoundTripCostBps(chainName, tokenData);
+    const estimatedCostUsd = notionalUsd * (costBps / 10000);
+    const netEdgeUsd = grossRewardUsd - estimatedCostUsd;
+
+    tokenData.expectedGrossRewardUsd = grossRewardUsd;
+    tokenData.expectedRoundTripCostUsd = estimatedCostUsd;
+    tokenData.expectedNetEdgeUsd = netEdgeUsd;
+
+    if (netEdgeUsd < minNetEdgeUsd) {
+      return {
+        ok: false,
+        reason: 'min_net_expected_edge_usd',
+        minNetEdgeUsd,
+        netEdgeUsd,
+        grossRewardUsd,
+        estimatedCostUsd,
+        costBps,
+      };
+    }
+
+    return { ok: true, netEdgeUsd, grossRewardUsd, estimatedCostUsd, costBps };
+  }
+
   function bullFlagDailyLossR(fallbackRiskUsd = 0) {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -184,6 +268,15 @@ function createExecutionOrchestrator(deps) {
     // did not, so the 15% jitter could swing the order ABOVE the size the
     // risk engine signed off on. Floor stays free to swing downward.
     const sizeUsd = Math.min(calculatedSizeUsd, applyPositionJitter(calculatedSizeUsd, 15));
+    const netEdgeGate = evaluateMinimumNetDollarEdge(chainName, tokenData, sizeUsd);
+    if (!netEdgeGate.ok) {
+      logger.info(
+        `[net-edge] ${tokenData.symbol} skipped: expected net $${netEdgeGate.netEdgeUsd.toFixed(4)} `
+        + `< min $${netEdgeGate.minNetEdgeUsd.toFixed(2)} `
+        + `(gross=$${netEdgeGate.grossRewardUsd.toFixed(4)}, costs=$${netEdgeGate.estimatedCostUsd.toFixed(4)}, costBps=${netEdgeGate.costBps.toFixed(1)})`
+      );
+      return;
+    }
 
     try {
       const { getPool } = require('../utils/sqlServer');
