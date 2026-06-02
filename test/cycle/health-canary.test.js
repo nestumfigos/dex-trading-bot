@@ -16,6 +16,7 @@ const {
   checkCountersMonotonic,
   checkSqlLatency,
   checkAiCircuit,
+  checkLockFiles,
   checkPositionsIntact,
   checkRestartCount,
 } = require('../../src/cycle/health-canary');
@@ -131,6 +132,29 @@ test('checkAiCircuit: all open → FAIL', () => {
   const future = Date.now() + 10000;
   const res = checkAiCircuit({ aiCircuits: { anthropic: { cooldownUntil: future }, groq: { cooldownUntil: future } } });
   assert.equal(res.status, STATUS.FAIL);
+});
+
+test('checkLockFiles: ignores proper-lockfile position mutex target', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'locks-'));
+  try {
+    fs.writeFileSync(path.join(dir, '.position-live.lock'), '', 'utf8');
+    const res = await checkLockFiles({ dataDir: dir });
+    assert.equal(res.status, STATUS.PASS);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('checkLockFiles: dead pid lock → FAIL', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'locks-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'runtime-test.lock'), JSON.stringify({ pid: -1 }), 'utf8');
+    const res = await checkLockFiles({ dataDir: dir });
+    assert.equal(res.status, STATUS.FAIL);
+    assert.match(res.value, /runtime-test\.lock/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('checkPositionsIntact: all ok → PASS', () => {

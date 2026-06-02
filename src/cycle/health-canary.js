@@ -125,6 +125,10 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
+function isPositionMutexTarget(name, stat) {
+  return stat?.isFile?.() === true && /^\.position-[^.]+\.lock$/i.test(String(name || ''));
+}
+
 async function checkLockFiles({ dataDir }) {
   if (!dataDir) return { status: STATUS.SKIPPED };
   try {
@@ -134,6 +138,8 @@ async function checkLockFiles({ dataDir }) {
       if (!/\.(lock|pid)$/i.test(name)) continue;
       const full = path.join(dataDir, name);
       try {
+        const stat = await fs.promises.stat(full);
+        if (isPositionMutexTarget(name, stat)) continue;
         const raw = await fs.promises.readFile(full, 'utf8');
         let pid = null;
         try { pid = JSON.parse(raw).pid; } catch { pid = parseInt(raw.trim(), 10); }
@@ -308,4 +314,5 @@ module.exports = {
   checkPositionsIntact,
   checkRestartCount,
   checkDiskSpace,
+  isPositionMutexTarget,
 };
