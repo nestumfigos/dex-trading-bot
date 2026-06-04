@@ -1027,6 +1027,34 @@ function buildGateRejectPercentages(gateRejectCounts = {}, evaluated = 0) {
   return Object.fromEntries(entries);
 }
 
+function isPipelineRejectReason(reason) {
+  const value = String(reason || '').toLowerCase();
+  return value.includes('token_data_unavailable')
+    || value.includes('ohlcv_unavailable')
+    || value.includes('ohlcv_fetch_error')
+    || value.includes('fresh_multisource_data_required')
+    || value.includes('missing_liquidity')
+    || value.includes('required_tax_data_unavailable');
+}
+
+function isSignalDroughtCycle(cycleStats = {}) {
+  const evaluated = Number(cycleStats.evaluated || 0);
+  const passed = Number(cycleStats.passed || 0);
+  if (passed > 0) return false;
+  if (evaluated <= 0) return true;
+
+  const gateRejectCounts = cycleStats.gateRejectCounts || {};
+  const pipelineRejects = Object.entries(gateRejectCounts)
+    .filter(([reason]) => isPipelineRejectReason(reason))
+    .reduce((sum, [, count]) => sum + Number(count || 0), 0);
+  const notApplicableRejects = Number(gateRejectCounts.strategy_not_applicable || 0);
+  const pipelineThreshold = Number(process.env.SIGNAL_DROUGHT_PIPELINE_REJECT_PCT || 0.5);
+  const notApplicableThreshold = Number(process.env.SIGNAL_DROUGHT_NOT_APPLICABLE_REJECT_PCT || 0.95);
+
+  return (pipelineRejects / evaluated) >= pipelineThreshold
+    || (notApplicableRejects / evaluated) >= notApplicableThreshold;
+}
+
 function finalizeFilterCycle(strategyName) {
   if (!RUNTIME_STRATEGY_NAMES.includes(strategyName)) return;
   filterStatsState.currentCycle[strategyName] = filterStatsState.currentCycle[strategyName] || makeFilterCycleStats(strategyName);
@@ -1046,9 +1074,10 @@ function finalizeFilterCycle(strategyName) {
   const passed = Number(cycleStats.passed || 0);
   const passedPct = evaluated > 0 ? ((passed / evaluated) * 100) : 0;
 
-  if (evaluated > 0 && passed === 0) {
+  const droughtCycle = isSignalDroughtCycle(cycleStats);
+  if (droughtCycle) {
     filterStatsState.consecutiveZeroSignalCycles[strategyName] += 1;
-  } else if (evaluated > 0) {
+  } else if (evaluated > 0 || passed > 0) {
     filterStatsState.consecutiveZeroSignalCycles[strategyName] = 0;
   }
 
@@ -1058,7 +1087,7 @@ function finalizeFilterCycle(strategyName) {
     .every((name) => Boolean(filterStatsState.signalDrought[name]));
   if (filterStatsState.signalDrought[strategyName]) {
     logger.warn('Signal drought detected', {
-      reason: 'zero signals for N consecutive cycles — filters may be too restrictive',
+      reason: 'no actionable candidates or data pipeline rejects dominated N consecutive cycles',
       consecutiveCycles: filterStatsState.consecutiveZeroSignalCycles[strategyName],
       strategy: strategyName,
     });
@@ -1352,6 +1381,10 @@ const strategy = {
   },
 
   passesStrategyPrefilter(strategyName, chainName, tokenData = {}) {
+    return this.getStrategyPrefilterFailureReason(strategyName, chainName, tokenData) == null;
+  },
+
+  getStrategyPrefilterFailureReason(strategyName, chainName, tokenData = {}) {
     const cfgBase = config.strategies?.[strategyName] || {};
     const cfg = {
       ...cfgBase,
@@ -1361,13 +1394,13 @@ const strategy = {
     const liquidityUsd = Number(tokenData.liquidityUsd || 0);
     const minVol = Number(cfg.min24hVolumeUsd || 0);
     const minLiq = Number(cfg.minLiquidityUsd || 0);
-    if (minVol > 0 && volume24hUsd < minVol) return false;
-    if (minLiq > 0 && liquidityUsd < minLiq) return false;
+    if (minVol > 0 && volume24hUsd < minVol) return 'prefilter_volume_below_min';
+    if (minLiq > 0 && liquidityUsd < minLiq) return 'prefilter_liquidity_below_min';
     if (Number(cfg.minTokenAgeDays || 0) > 0) {
       const ageDays = Number(tokenData.ageDays || tokenData.tokenAgeDays || 0);
-      if (ageDays > 0 && ageDays < Number(cfg.minTokenAgeDays)) return false;
+      if (ageDays > 0 && ageDays < Number(cfg.minTokenAgeDays)) return 'prefilter_token_age_below_min';
     }
-    return true;
+    return null;
   },
 
   determineApplicableStrategies(tokenData = {}) {
@@ -4229,7 +4262,11 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
     .filter((name) => applicability[name])
     .filter((name) => !forced || forced.includes(name));
   if (!applicableStrategies.length) {
-    trackInsufficient('strategy_not_applicable');
+    const forcedStrategy = forced?.[0] || null;
+    const prefilterReason = forcedStrategy
+      ? strategy.getStrategyPrefilterFailureReason(forcedStrategy, chainName, tokenData)
+      : null;
+    trackInsufficient(prefilterReason || 'strategy_not_applicable');
     return;
   }
 

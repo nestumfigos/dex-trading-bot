@@ -164,6 +164,8 @@ const safetyCases = [
   ['blocks sell tax over max', { sellTaxPct: 6 }, false, ['tax_above_max']],
   ['blocks DexScreener low liquidity', { liquidityUsd: undefined, liquidityLockedUsd: undefined }, false, ['liquidity_below_min'], {}, bscPair({ liquidity: { usd: 10_000 } })],
   ['blocks low locked liquidity override', { liquidityLockedUsd: 20_000 }, false, ['locked_liquidity_below_min']],
+  ['uses DexScreener liquidity as lock proxy when lock data is missing', { liquidityUsd: undefined, liquidityLockedUsd: undefined }, true, []],
+  ['uses tokenData tax data when honeypot source is unavailable', { buyTaxPct: 3, sellTaxPct: 4 }, true, [], null],
   ['uses tokenData liquidity when remote fetch fails', { liquidityUsd: 80_000, liquidityLockedUsd: 80_000 }, true, [], {}, null],
   ['keeps DexScreener flow fields for detector', { netBuyFlowUsd10m: 0 }, true, [], {}, bscPair({ txns: { m5: { buys: 20, sells: 5 } }, volume: { m5: 25_000 } })],
 ];
@@ -172,7 +174,7 @@ for (const [name, tokenOverrides, expectedOk, expectedReasons, hpOverride = {}, 
   test(`BSC safety fixture: ${name}`, async () => {
     const result = await checkBscFlowSafety(bscToken(tokenOverrides), {
       config: bscCfg(),
-      checkHoneypot: async () => ({ simulationResult: { buyTax: 3, sellTax: 4 }, ...hpOverride }),
+      checkHoneypot: async () => (hpOverride == null ? null : { simulationResult: { buyTax: 3, sellTax: 4 }, ...hpOverride }),
       fetchDexScreener: async () => (pairOverride ? { pairs: [pairOverride] } : null),
     });
     assert.equal(result.ok, expectedOk);
