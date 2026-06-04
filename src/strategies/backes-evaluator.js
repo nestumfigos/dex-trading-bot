@@ -92,16 +92,6 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
     const macroRegime = String(macro.regime || 'unknown');
     const macroSizeMultiplier = getMacroSizeMultiplier(macroRegime);
 
-    if (macroRegime === 'risk_off' && cfg.allowRiskOffEntries !== true) {
-      return holdResult(['macro_risk_off'], {
-        macroRegime,
-        macroReasons: macro.reasons,
-        macroScores: macro.scores,
-        macroSizeMultiplier,
-        sizeMultiplier: macroSizeMultiplier,
-      });
-    }
-
     const { results, best } = runSetupDetectors(dailyCandles, macroRegime, cfg);
     if (!best) {
       return holdResult(['no_backes_setup_qualified'], {
@@ -115,6 +105,27 @@ function createBackesEvaluator({ logger, fetchOhlcv } = {}) {
         })),
         macroSizeMultiplier,
         sizeMultiplier: macroSizeMultiplier,
+      });
+    }
+
+    if (macroRegime === 'risk_off' && cfg.allowRiskOffEntries !== true) {
+      return holdResult(['macro_risk_off'], {
+        macroRegime,
+        macroReasons: macro.reasons,
+        macroScores: macro.scores,
+        macroSizeMultiplier,
+        sizeMultiplier: macroSizeMultiplier,
+        structureType: best.structureType,
+        invalidationPrice: best.stopPrice,
+        stopPrice: best.stopPrice,
+        targetPrice: best.targetPrices?.[0] || null,
+        targetPrices: best.targetPrices || [],
+        entryPrice: best.entryPrice,
+        setupResults: results.map((result) => ({
+          structureType: result.structureType,
+          qualifies: result.qualifies,
+          reasons: result.reasons,
+        })),
       });
     }
 

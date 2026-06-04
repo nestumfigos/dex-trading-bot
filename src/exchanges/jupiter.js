@@ -251,6 +251,15 @@ class JupiterExchange {
         birdeye?.symbol || dexPair?.baseToken?.symbol,
         birdeye?.name || dexPair?.baseToken?.name
       ), metricsTimeoutMs, null);
+      const buyTx10m = Number(birdeye?.buy10m || dexPair?.txns?.m5?.buys || 0);
+      const sellTx10m = Number(birdeye?.sell10m || dexPair?.txns?.m5?.sells || 0);
+      const tx10m = buyTx10m + sellTx10m;
+      const buyRatioRecentPct = tx10m > 0 ? (buyTx10m / tx10m) * 100 : 0;
+      const dexVolume5m = Number(dexPair?.volume?.m5 || 0);
+      const birdeyeNetBuyFlow = Number(birdeye?.netBuyFlowUsd10m);
+      const netBuyFlowUsd10m = Number.isFinite(birdeyeNetBuyFlow)
+        ? birdeyeNetBuyFlow
+        : (dexVolume5m > 0 ? dexVolume5m * 2 * ((buyTx10m - sellTx10m) / Math.max(1, tx10m)) : 0);
       const result = {
         address: mintAddress,
         symbol: birdeye?.symbol || dexPair?.baseToken?.symbol || 'UNKNOWN',
@@ -260,8 +269,11 @@ class JupiterExchange {
         volume24h: birdeye?.v24hUSD || parseFloat(dexPair?.volume?.h24 || 0),
         priceChange24h: birdeye?.priceChange24hPercent || parseFloat(dexPair?.priceChange?.h24 || 0),
         priceChange7d: Number(birdeye?.priceChange7dPercent || 0),
-        buyTx10m: Number(birdeye?.buy10m || dexPair?.txns?.m5?.buys || 0),
-        sellTx10m: Number(birdeye?.sell10m || dexPair?.txns?.m5?.sells || 0),
+        buyTx10m,
+        sellTx10m,
+        buyRatioRecentPct,
+        buyRatio10mPct: buyRatioRecentPct,
+        netBuyFlowUsd10m,
         buyTx1h: Number(birdeye?.buy1h || dexPair?.txns?.h1?.buys || 0),
         sellTx1h: Number(birdeye?.sell1h || dexPair?.txns?.h1?.sells || 0),
         txCountFirstHour: Number((birdeye?.buy1h || dexPair?.txns?.h1?.buys || 0) + (birdeye?.sell1h || dexPair?.txns?.h1?.sells || 0)),

@@ -5,6 +5,7 @@ const config = require('../../config');
 const logger = require('../utils/logger');
 const { getTokenMetrics } = require('../utils/coingecko');
 const { getNativeAssetPrice } = require('../utils/market-data');
+const dexscreenerClient = require('../utils/dexscreener-client');
 
 /**
  * Bug 7 — age-adaptive cache TTL for token data.
@@ -15,6 +16,14 @@ function tokenDataCacheTtl(listingAgeDays) {
   if (ageHours < 6) return Math.round(Number(config.birdeye?.momentumTokenCacheTtlMs ?? 15_000) / 1000);
   if (ageHours < 24) return Math.round(Number(config.birdeye?.newTokenCacheTtlMs ?? 30_000) / 1000);
   return Math.round(Number(config.birdeye?.cacheTtlMs ?? 60_000) / 1000);
+}
+
+function withTimeoutValue(promise, timeoutMs, fallback = null) {
+  const ms = Math.max(1, Number(timeoutMs) || 1);
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
 }
 
 // Tracks the next pending nonce to prevent nonce reuse across concurrent txs.
@@ -225,16 +234,29 @@ class PancakeSwapExchange {
     if (cached) return cached;
 
     try {
-      const [dexRes, honeypotRes] = await Promise.allSettled([
-        axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`, { timeout: 10000 }),
-        axios.get(`https://api.honeypot.is/v2/IsHoneypot?address=${tokenAddress}&chainID=56`, { timeout: 8000 }),
+      const dexTimeoutMs = Math.max(1000, Number(config.risk?.dexscreenerTokenLookupTimeoutMs || 5000));
+      const honeypotTimeoutMs = Math.max(500, Number(config.risk?.honeypotLookupTimeoutMs || 2500));
+      const [dexData, honeypot] = await Promise.all([
+        dexscreenerClient.throttledFetch(
+          `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+          {
+            timeoutMs: dexTimeoutMs,
+            cacheTtlMs: Math.max(1000, Number(config.risk?.dexscreenerTokenCacheTtlMs || 60_000)),
+            allowStaleOnFailure: true,
+          }
+        ).catch(() => null),
+        withTimeoutValue(
+          axios.get(`https://api.honeypot.is/v2/IsHoneypot?address=${tokenAddress}&chainID=56`, { timeout: honeypotTimeoutMs })
+            .then((response) => response.data),
+          honeypotTimeoutMs,
+          null
+        ),
       ]);
 
-      const pairs = dexRes.status === 'fulfilled' ? dexRes.value.data?.pairs || [] : [];
+      const pairs = Array.isArray(dexData?.pairs) ? dexData.pairs : [];
       const pair = pairs.find((item) => item.chainId === 'bsc') || pairs[0] || null;
       if (!pair) return null;
 
-      const honeypot = honeypotRes.status === 'fulfilled' ? honeypotRes.value.data : null;
       const metricsTimeoutMs = Math.max(1000, Number(process.env.BSC_TOKEN_METRICS_TIMEOUT_MS || 5000));
       const metrics = await Promise.race([
         getTokenMetrics(tokenAddress, 'bsc', pair.baseToken?.symbol, pair.baseToken?.name).catch(() => ({})),
