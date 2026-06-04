@@ -89,7 +89,7 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
       watch: false,
-      max_memory_restart: '500M',
+      max_memory_restart: '1500M',
       env: {
         NODE_ENV: 'production',
         PAPER_TRADING: 'true',
@@ -118,6 +118,8 @@ module.exports = {
         SQL_AUTO_PRUNE_INTERVAL_MS: '3600000',
         PRE_TRADE_CONTRACT_MODE: 'enforce',
         BOT_MIN_SCHEMA_VERSION: '17',
+        PM2_SINGLETON_REPLACE_AFTER_MS: '60000',
+        PM2_SINGLETON_SIGTERM_GRACE_MS: '15000',
       },
       env_production: {
         NODE_ENV: 'production',
@@ -147,6 +149,8 @@ module.exports = {
         SQL_AUTO_PRUNE_INTERVAL_MS: '3600000',
         PRE_TRADE_CONTRACT_MODE: 'enforce',
         BOT_MIN_SCHEMA_VERSION: '17',
+        PM2_SINGLETON_REPLACE_AFTER_MS: '60000',
+        PM2_SINGLETON_SIGTERM_GRACE_MS: '15000',
       },
     },
   ],
