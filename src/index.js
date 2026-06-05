@@ -2059,6 +2059,11 @@ function getRotatingScanWindow(tokens, chainName, strategyName) {
     : list.length;
   const chainCursor = scanCursorByChainStrategy[chainName] || {};
   const strategyKey = String(strategyName || 'momentum').toLowerCase();
+
+  if (strategyKey === 'spot_day_bull_flag') {
+    return list.slice(0, targetCount);
+  }
+
   const start = Number(chainCursor[strategyKey] || 0) % list.length;
 
   const selected = [];

@@ -70,6 +70,12 @@ function parseIntEnv(keys = [], fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseBoolEnv(keys = [], fallback = false) {
+  const raw = firstEnvValue(Array.isArray(keys) ? keys : [keys]);
+  if (raw === undefined) return Boolean(fallback);
+  return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+}
+
 function toFiniteNumberMap(entries = {}) {
   return Object.fromEntries(
     Object.entries(entries)
@@ -311,12 +317,14 @@ const config = {
     maxCorrelationPct: process.env.MAX_CORRELATION_PCT !== undefined ? parseFloat(process.env.MAX_CORRELATION_PCT) : 75,
     aiConfidenceFloor: process.env.AI_CONFIDENCE_FLOOR !== undefined ? parseFloat(process.env.AI_CONFIDENCE_FLOOR) : 70,
     maxConsecutiveLosses: parseInt(process.env.MAX_CONSECUTIVE_LOSSES || '4', 10),
+    consecutiveLossGateEnabled: !(isPaperTrading && parseBoolEnv('PAPER_DISABLE_CONSECUTIVE_LOSS_GATE', false)),
     maxConsecutiveLossesByChain: toFiniteNumberMap({
       bsc: parseInt(process.env.BSC_MAX_CONSECUTIVE_LOSSES || '8', 10),
       ...parseJsonObjectEnv(process.env.MAX_CONSECUTIVE_LOSSES_BY_CHAIN, {}),
     }),
     minTradesForKpiGate: parseInt(process.env.MIN_TRADES_FOR_KPI_GATE || '50', 10),
     minProfitFactor: parseFloat(process.env.MIN_PROFIT_FACTOR || '1.15'),
+    kpiPerformanceGateEnabled: !(isPaperTrading && parseBoolEnv('PAPER_DISABLE_KPI_PERFORMANCE_GATE', false)),
     maxPortfolioHeatPct: parseFloat(process.env.MAX_PORTFOLIO_HEAT_PCT || '45'),
     // Parity with live (spot) risk layer: aggregate gross-exposure cap across
     // ALL chains + in-flight. Per-chain heat alone allows cross-chain stacking
@@ -742,10 +750,12 @@ const config = {
       minNetEdgePct: parseFloat(process.env.SOLANA_BULL_FLAG_V2_MIN_NET_EDGE_PCT || '4'),
       minRR: parseFloat(process.env.SOLANA_BULL_FLAG_V2_MIN_RR || '2.2'),
       maxStopDistancePct: parseFloat(process.env.SOLANA_BULL_FLAG_V2_MAX_STOP_DISTANCE_PCT || '5'),
+      polePctMin: parseFloat(process.env.SOLANA_BULL_FLAG_V2_POLE_PCT_MIN || '5'),
       minSixtyMinuteMovePct: parseFloat(process.env.SOLANA_BULL_FLAG_V2_MIN_60M_MOVE_PCT || '5'),
       maxSixtyMinuteMovePct: parseFloat(process.env.SOLANA_BULL_FLAG_V2_MAX_60M_MOVE_PCT || '18'),
       latestVolumeLookbackCandles: parseInt(process.env.SOLANA_BULL_FLAG_V2_VOLUME_LOOKBACK_CANDLES || '20', 10),
       latestVolumeMinRatio: parseFloat(process.env.SOLANA_BULL_FLAG_V2_LATEST_VOLUME_MIN_RATIO || '1.8'),
+      breakoutVolMinRatio: parseFloat(process.env.SOLANA_BULL_FLAG_V2_BREAKOUT_VOL_MIN_RATIO || '1.5'),
       minFreshSources: parseInt(process.env.SOLANA_BULL_FLAG_V2_MIN_FRESH_SOURCES || '2', 10),
       maxSourceAgeMs: parseInt(process.env.SOLANA_BULL_FLAG_V2_MAX_SOURCE_AGE_MS || '120000', 10),
       maxTop10HoldersPct: parseFloat(process.env.SOLANA_BULL_FLAG_V2_MAX_TOP10_HOLDERS_PCT || '30'),
@@ -781,7 +791,19 @@ const config = {
       fiveMinutePoleMaxCandles: parseInt(process.env.BULL_FLAG_5M_POLE_MAX_CANDLES || '12', 10),
       fiveMinuteFlagMinCandles: parseInt(process.env.BULL_FLAG_5M_FLAG_MIN_CANDLES || '3', 10),
       fiveMinuteFlagMaxCandles: parseInt(process.env.BULL_FLAG_5M_FLAG_MAX_CANDLES || '24', 10),
+      breakoutLookbackCandles: parseInt(process.env.BULL_FLAG_BREAKOUT_LOOKBACK_CANDLES || '0', 10),
+      fiveMinuteBreakoutLookbackCandles: parseInt(process.env.BULL_FLAG_5M_BREAKOUT_LOOKBACK_CANDLES || '0', 10),
       allowTrendlineBreakout: process.env.BULL_FLAG_ALLOW_TRENDLINE_BREAKOUT !== 'false',
+      allowContinuationScout: process.env.BULL_FLAG_ALLOW_CONTINUATION_SCOUT === 'true',
+      scoutPolePctMin: parseFloat(process.env.BULL_FLAG_SCOUT_POLE_PCT_MIN || process.env.BULL_FLAG_POLE_PCT_MIN || '5'),
+      scoutMinSixtyMinuteMovePct: parseFloat(process.env.BULL_FLAG_SCOUT_MIN_60M_MOVE_PCT || process.env.BULL_FLAG_MIN_60M_MOVE_PCT || '5'),
+      scoutLatestVolumeMinRatio: parseFloat(process.env.BULL_FLAG_SCOUT_LATEST_VOLUME_MIN_RATIO || process.env.BULL_FLAG_LATEST_VOLUME_MIN_RATIO || '2.0'),
+      scoutBreakoutVolMinRatio: parseFloat(process.env.BULL_FLAG_SCOUT_BREAKOUT_VOL_MIN_RATIO || process.env.BULL_FLAG_BREAKOUT_VOL_MIN_RATIO || '1.5'),
+      scoutFlagVolContractMaxRatio: parseFloat(process.env.BULL_FLAG_SCOUT_FLAG_VOL_CONTRACT_MAX_RATIO || process.env.BULL_FLAG_FLAG_VOL_CONTRACT_MAX_RATIO || '0.70'),
+      scoutLookbackCandles: parseInt(process.env.BULL_FLAG_SCOUT_LOOKBACK_CANDLES || '16', 10),
+      scoutMinPullbackPct: parseFloat(process.env.BULL_FLAG_SCOUT_MIN_PULLBACK_PCT || '0.10'),
+      scoutMaxDepthPct: parseFloat(process.env.BULL_FLAG_SCOUT_MAX_DEPTH_PCT || '75'),
+      scoutBreakoutReclaimTolerancePct: parseFloat(process.env.BULL_FLAG_SCOUT_RECLAIM_TOLERANCE_PCT || '0.10'),
       requireEmaConfirmation: process.env.BULL_FLAG_REQUIRE_EMA_CONFIRMATION !== 'false',
       requireOneHourConfirmation: process.env.BULL_FLAG_REQUIRE_1H_CONFIRMATION !== 'false',
       emaFastPeriod: parseInt(process.env.BULL_FLAG_EMA_FAST_PERIOD || '9', 10),

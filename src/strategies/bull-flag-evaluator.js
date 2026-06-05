@@ -224,7 +224,20 @@ function createBullFlagEvaluator({ logger, fetchOhlcv, detectBullFlag }) {
         latestVolumeMinRatio: cfg.latestVolumeMinRatio,
         minSixtyMinuteMovePct: cfg.minSixtyMinuteMovePct,
         maxSixtyMinuteMovePct: cfg.maxSixtyMinuteMovePct,
+        breakoutLookbackCandles: interval === '5m'
+          ? Number(cfg.fiveMinuteBreakoutLookbackCandles || cfg.breakoutLookbackCandles || 0)
+          : Number(cfg.breakoutLookbackCandles || 0),
         allowTrendlineBreakout: cfg.allowTrendlineBreakout !== false,
+        allowContinuationScout: cfg.allowContinuationScout === true,
+        scoutPolePctMin: cfg.scoutPolePctMin,
+        scoutMinSixtyMinuteMovePct: cfg.scoutMinSixtyMinuteMovePct,
+        scoutLatestVolumeMinRatio: cfg.scoutLatestVolumeMinRatio,
+        scoutBreakoutVolMinRatio: cfg.scoutBreakoutVolMinRatio,
+        scoutFlagVolContractMaxRatio: cfg.scoutFlagVolContractMaxRatio,
+        scoutLookbackCandles: cfg.scoutLookbackCandles,
+        scoutMinPullbackPct: cfg.scoutMinPullbackPct,
+        scoutMaxDepthPct: cfg.scoutMaxDepthPct,
+        scoutBreakoutReclaimTolerancePct: cfg.scoutBreakoutReclaimTolerancePct,
         timeframeMinutes: timeframeMinutes(interval),
       });
 

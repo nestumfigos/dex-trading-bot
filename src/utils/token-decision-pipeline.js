@@ -130,6 +130,28 @@ function createTokenDecisionPipeline(deps = {}) {
       && chainName === 'kucoin'
       && triggerTimeframe !== 'extreme_24h_momentum'
       && config.execution?.kucoinPendingAiAdvisory !== false;
+    const allowPaperBullFlagAiAdvisory = config.paperTrading === true
+      && strategyName === 'spot_day_bull_flag'
+      && chainName === 'kucoin'
+      && process.env.PAPER_BULL_FLAG_AI_ADVISORY_ONLY !== 'false';
+
+    if (allowPaperBullFlagAiAdvisory && evaluation.signal === 'BUY') {
+      evaluation.details.aiReason = 'paper_bull_flag_ai_advisory_only';
+      evaluation.details.aiRiskFlags = [...new Set([...(evaluation.details.aiRiskFlags || []), 'ai_advisory_only'])];
+      evaluation.details.aiVerificationStatus = getAiDecisionCacheStatus(tokenData, strategyName).status;
+      cacheAiDecisionCandidate(tokenData, {
+        ...evaluation.details,
+        signal: evaluation.signal,
+        strategy: strategyName,
+        confidenceFloor: Number(config.strategies?.[strategyName]?.aiConfidenceFloor || config.risk.aiConfidenceFloor || 70),
+      }, strategyName, { source: 'paper_bull_flag_scout' });
+      queueAiDecisionRefresh(tokenData, evaluation.details, strategyName);
+      return {
+        finalSignal: evaluation.signal,
+        signalSource: 'technical_paper_bull_flag_scout',
+        aiBlockedThisToken: false,
+      };
+    }
 
     // Early-pump AI bypass: queue AI for fresh KuCoin momentum tokens even when technical=HOLD.
     // Without this, freshly-listed pumps (RSI needs 15 bars, volSpike 8) and extreme movers

@@ -35,7 +35,7 @@ function createSolanaBullFlagEvaluator({ logger, fetchOhlcv, detector = detectBu
     const maxTop10HoldersPct = num(cfg.maxTop10HoldersPct, 30);
     const minBuyRatioPct = num(cfg.minBuyRatioRecentPct, 60);
     const minNetBuyFlowUsd = num(cfg.minNetBuyFlowUsd, 4000);
-    const minSources = Math.max(2, num(cfg.minFreshSources, 2));
+    const minSources = Math.max(1, num(cfg.minFreshSources, 2));
     const maxSourceAgeMs = num(cfg.maxSourceAgeMs, 120_000);
     const maxPriceImpactPct = num(cfg.maxPriceImpactPct, 1.8);
 

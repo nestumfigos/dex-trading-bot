@@ -1,5 +1,51 @@
 'use strict';
 
+const STABLE_OR_QUASI_STABLE_BASES = new Set([
+  'USDC',
+  'DAI',
+  'TUSD',
+  'FDUSD',
+  'USDP',
+  'USDJ',
+  'PYUSD',
+  'EUR',
+  'EURT',
+]);
+
+const LEVERAGED_BASE_RE = /(?:3L|3S|2L|2S|UP|DOWN|BULL|BEAR)$/i;
+
+function normalizeKucoinSymbol(token) {
+  const raw = String(token || '').trim().toUpperCase().replace('-', '/');
+  if (!raw) return '';
+  return raw.includes('/') ? raw : `${raw}/USDT`;
+}
+
+function rankKucoinBullFlagCandidates(tokens = [], exchange = {}) {
+  const tickerCache = exchange?.tickerCache || {};
+  return [...new Set(tokens)]
+    .map((token, originalIndex) => {
+      const symbol = normalizeKucoinSymbol(token);
+      const base = symbol.replace('/USDT', '');
+      const ticker = tickerCache[symbol] || tickerCache[token] || {};
+      const quoteVolume = Number(ticker.quoteVolume || ticker.quoteVolumeUsd || 0);
+      const percentage = Number(ticker.percentage ?? ticker.changePct ?? 0);
+      const positiveChange = Math.max(0, Number.isFinite(percentage) ? percentage : 0);
+      const absoluteChange = Math.abs(Number.isFinite(percentage) ? percentage : 0);
+      const liquidityScore = quoteVolume > 0 ? Math.log10(quoteVolume + 1) * 20 : 0;
+      const score = liquidityScore + (positiveChange * 8) + (absoluteChange * 1.5);
+      return { token, symbol, base, quoteVolume, score, originalIndex };
+    })
+    .filter((item) => item.symbol.endsWith('/USDT'))
+    .filter((item) => !STABLE_OR_QUASI_STABLE_BASES.has(item.base))
+    .filter((item) => !LEVERAGED_BASE_RE.test(item.base))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      if (right.quoteVolume !== left.quoteVolume) return right.quoteVolume - left.quoteVolume;
+      return left.originalIndex - right.originalIndex;
+    })
+    .map((item) => item.token);
+}
+
 /**
  * Per-chain scan dispatcher (Week 16.1 extraction from src/index.js).
  * Mirrors live commit. Body identical to prior inline implementation; this
@@ -90,11 +136,14 @@ function createMomentumScanner(deps = {}) {
           syncChainScanStatus(chainName);
         },
       });
-      const candidateTokens = [...new Set([
+      let candidateTokens = [...new Set([
         ...newListings,
         ...catalystPriority,
         ...allTokens,
       ])];
+      if (chainName === 'kucoin' && strategyName === 'spot_day_bull_flag') {
+        candidateTokens = rankKucoinBullFlagCandidates(candidateTokens, exchange);
+      }
       status.discoveredTokens = candidateTokens.length;
 
       if (candidateTokens.length === 0) {

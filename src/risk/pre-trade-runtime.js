@@ -20,6 +20,12 @@ const CACHE_TTL_MS = Number(process.env.PRE_TRADE_CACHE_TTL_MS) || 60_000;
 const DEFAULT_MODE = (process.env.PRE_TRADE_CONTRACT_MODE || 'shadow').toLowerCase();
 const ENFORCE = DEFAULT_MODE === 'enforce';
 
+function parseBoolEnv(name, fallback = false) {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return Boolean(fallback);
+  return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+}
+
 // Single-process caches; lifetime = process.
 const cache = {
   rules:     { value: new Map(),       ts: 0 },
@@ -158,6 +164,8 @@ async function runPreTrade({
 } = {}) {
   const mode = ctxConfig.mode || DEFAULT_MODE;
   const enforce = mode === 'enforce';
+  const paperConsecutiveLossGateDisabled = scope === 'paper'
+    && parseBoolEnv('PAPER_DISABLE_CONSECUTIVE_LOSS_GATE', false);
 
   const [ruleConfig, symbolOverrides, sellTiers] = await Promise.all([
     loadRiskRules(sql, scope),
@@ -171,7 +179,7 @@ async function runPreTrade({
     maxPctOfWallet:        Number(process.env.MAX_POSITION_PCT_OF_WALLET) || 0.25,
     minNotionalUsd:        Number(process.env.EXCHANGE_MIN_NOTIONAL_USD) || 1,
     dailyDrawdownLimitUsd: Number(process.env.DAILY_DRAWDOWN_LIMIT_USD) || 0,
-    maxConsecutiveLosses:  Number(process.env.MAX_CONSECUTIVE_LOSSES) || 0,
+    maxConsecutiveLosses:  paperConsecutiveLossGateDisabled ? 0 : Number(process.env.MAX_CONSECUTIVE_LOSSES) || 0,
     aiOverride:            !!ctxConfig.aiOverride,
     ...ctxConfig,
   };

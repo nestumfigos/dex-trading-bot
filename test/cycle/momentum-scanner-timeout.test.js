@@ -60,6 +60,26 @@ test('non-kucoin scans do not apply the KuCoin evaluation deadline', async () =>
   assert.equal(calls.process[0][3].deadlineAtMs, null);
 });
 
+test('kucoin bull-flag scan ranks liquid movers before exchange-order symbols', async () => {
+  const { scanner, calls } = createFixture({
+    config: { bot: { kucoinBatchSize: 8, kucoinBatchDelayMs: 0, kucoinTokenProcessTimeoutMs: 1234 }, risk: {} },
+    getTokensForStrategy: async () => ['AAA/USDT', 'USDC/USDT', 'CTR/USDT', 'ZEC/USDT'],
+  });
+  await scanner.scanChain('kucoin', {
+    name: 'KuCoin',
+    tickerCache: {
+      'AAA/USDT': { quoteVolume: 1000, percentage: 0.1, last: 1 },
+      'USDC/USDT': { quoteVolume: 200000000, percentage: 0.01, last: 1 },
+      'CTR/USDT': { quoteVolume: 8000000, percentage: 8, last: 0.01 },
+      'ZEC/USDT': { quoteVolume: 100000000, percentage: 10, last: 340 },
+    },
+    refreshTickers: async () => {},
+    getNewListings: async () => [],
+  }, 'spot_day_bull_flag', { forceStrategyPerScan: true });
+
+  assert.deepEqual(calls.process.map((call) => call[2]), ['ZEC/USDT', 'CTR/USDT', 'AAA/USDT']);
+});
+
 test('late BUY guard is enforced before execution dispatch', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'index.js'), 'utf8');
   const guardAt = source.indexOf('evaluation_deadline_exceeded');

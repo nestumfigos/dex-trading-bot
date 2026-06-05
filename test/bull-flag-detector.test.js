@@ -35,6 +35,17 @@ function buildValidSetup() {
   ];
 }
 
+function buildScoutSetup() {
+  return [
+    ...Array.from({ length: 18 }, (_, index) => c(100 + (index % 2) * 0.03, 1000 + (index % 3) * 20)),
+    c(100.8, 1600, { open: 100.0, high: 100.9, low: 100.0 }),
+    c(100.7, 1500, { open: 100.75, high: 100.85, low: 100.60 }),
+    c(100.45, 1100, { open: 100.7, high: 100.70, low: 100.35 }),
+    c(100.50, 1050, { open: 100.45, high: 100.60, low: 100.40 }),
+    c(100.63, 800, { open: 100.50, high: 100.75, low: 100.48 }),
+  ];
+}
+
 test('valid pole + contracting flag + breakout returns qualifying setup', () => {
   const result = detectBullFlag(buildValidSetup());
   assert.equal(result.qualifies, true);
@@ -135,4 +146,46 @@ test('latest 15m volume below prior 20-candle median returns no qualify', () => 
   const result = detectBullFlag(setup);
   assert.equal(result.qualifies, false);
   assert.equal(result.reason, 'latest_volume_below_prior_median');
+});
+
+test('recent breakout still qualifies inside bounded day-trade entry window', () => {
+  const setup = buildValidSetup();
+  setup.push(c(107.8, 1400, { open: 107.3, high: 108.0, low: 107.2 }));
+  const result = detectBullFlag(setup, { breakoutLookbackCandles: 1 });
+  assert.equal(result.qualifies, true);
+  assert.equal(result.breakoutAgeCandles, 1);
+  assert.equal(result.lateEntry, true);
+  assert.equal(result.breakoutClose, setup[IDX.breakout].close);
+});
+
+test('recent breakout is rejected after closing back inside the flag', () => {
+  const setup = buildValidSetup();
+  setup.push(c(105.8, 1400, { open: 107.3, high: 107.5, low: 105.5 }));
+  const result = detectBullFlag(setup, { breakoutLookbackCandles: 1 });
+  assert.equal(result.qualifies, false);
+});
+
+test('continuation scout is opt-in and catches intraday micro bull flag', () => {
+  const setup = buildScoutSetup();
+  const strict = detectBullFlag(setup);
+  assert.equal(strict.qualifies, false);
+  assert.equal(strict.reason, 'sixty_minute_move_below_min');
+
+  const scout = detectBullFlag(setup, {
+    allowContinuationScout: true,
+    scoutMinSixtyMinuteMovePct: 0.25,
+    scoutPolePctMin: 0.40,
+    scoutLatestVolumeMinRatio: 0.20,
+    scoutBreakoutVolMinRatio: 0.45,
+    scoutFlagVolContractMaxRatio: 1.80,
+    scoutLookbackCandles: 24,
+    scoutMinPullbackPct: 0.08,
+    scoutMaxDepthPct: 85,
+    scoutBreakoutReclaimTolerancePct: 0.12,
+  });
+  assert.equal(scout.qualifies, true);
+  assert.equal(scout.setupSubtype, 'continuation_scout');
+  assert.ok(scout.sixtyMinuteMovePct >= 0.25);
+  assert.ok(scout.targetPrice > scout.breakoutClose);
+  assert.ok(scout.stopPrice < scout.breakoutClose);
 });

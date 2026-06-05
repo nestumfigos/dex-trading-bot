@@ -482,7 +482,8 @@ class RiskGuardian {
       }
     }
 
-    if (Number(stats.consecutiveLosses || 0) >= Math.max(1, maxConsecutiveLosses)) {
+    if (config.risk.consecutiveLossGateEnabled !== false
+      && Number(stats.consecutiveLosses || 0) >= Math.max(1, maxConsecutiveLosses)) {
       return {
         allowed: false,
         reason: `Consecutive losses ${stats.consecutiveLosses} reached limit ${maxConsecutiveLosses}`,
@@ -490,7 +491,7 @@ class RiskGuardian {
     }
 
     const closedTrades = Number(stats.closedTrades || 0);
-    if (closedTrades >= Math.max(1, minTradesForKpiGate)) {
+    if (config.risk.kpiPerformanceGateEnabled !== false && closedTrades >= Math.max(1, minTradesForKpiGate)) {
       // profitFactor === null means "no losses yet" (all wins so far) — skip the gate; it cannot be failing.
       // profitFactor === 0 means no closed trades at all — also skip.
       const rawPf = stats.profitFactor;
