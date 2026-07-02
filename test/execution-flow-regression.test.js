@@ -109,6 +109,45 @@ test('closed-trade learning hold time uses openedAt when entryAt is absent', asy
   assert.ok(getRlRecord().holdMinutes <= 31);
 });
 
+test('sell finalization emits V2 order lifecycle trading events', async () => {
+  const events = [];
+  const { deps, portfolio } = createDeps();
+  deps.telemetry.logTradingEvent = (event) => events.push(event);
+  const position = {
+    key: 'kucoin:abc',
+    address: 'abc',
+    symbol: 'ABC',
+    chainKey: 'kucoin',
+    strategy: 'momentum',
+    quantity: 1,
+    costBasisUsd: 10,
+    initialSizeUsd: 10,
+    entryPrice: 10,
+    openedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+  };
+  portfolio.positions[position.key] = position;
+  portfolio.strategies.momentum.positions[position.key] = position;
+
+  const flow = createExecutionFlow(deps);
+  await flow.finalizeSellExecutionState({
+    chainName: 'kucoin',
+    tokenData: { symbol: 'ABC', address: 'abc', chain: 'KuCoin', price: 12 },
+    position,
+    txResult: { txid: 'sell-v2' },
+    reason: 'TAKE_PROFIT',
+    strategyName: 'momentum',
+    expectedExitPrice: 12,
+    quantityRequested: 1,
+    requestedFraction: 1,
+  });
+
+  assert.deepEqual(events.map((event) => event.eventName), ['order.submitted', 'fill.confirmed']);
+  assert.equal(events[0].strategy, 'momentum');
+  assert.equal(events[0].symbol, 'ABC');
+  assert.equal(events[0].payload.intent.side, 'SELL');
+  assert.equal(events[1].payload.fill.quoteUsd, 12);
+});
+
 test('repeated live sell failures escalate to safe mode', async () => {
   const { deps, getSafeModeReason } = createDeps();
   const flow = createExecutionFlow(deps);

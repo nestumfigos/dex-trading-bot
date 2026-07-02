@@ -6,6 +6,7 @@ const {
   computeDiscrepancyScore,
   classifyPromotionImpact,
   classifyRegimeFamily,
+  evaluatePromotionEvidenceGate,
 } = require('./utils/promotion-governance');
 
 class EvolutionGovernor {
@@ -40,6 +41,10 @@ class EvolutionGovernor {
       requireManualApprovalForHighImpact: raw.requireManualApprovalForHighImpact !== false,
       shadowModeRequired: raw.shadowModeRequired !== false,
       canaryLiveSizePct: Math.max(1, Number(raw.canaryLiveSizePct || 10)),
+      requireV2EvidenceGate: raw.requireV2EvidenceGate === true,
+      promotionGateThresholds: raw.promotionGateThresholds && typeof raw.promotionGateThresholds === 'object'
+        ? raw.promotionGateThresholds
+        : {},
     };
   }
 
@@ -84,6 +89,8 @@ class EvolutionGovernor {
       summary: String(plan?.summary || ''),
       reason: String(plan?.reason || ''),
       source: String(plan?._source || 'rule_based'),
+      strategy: String(plan?.strategy || plan?.strategyId || 'multi_strategy'),
+      strategyClass: String(plan?.strategyClass || 'generic'),
       changedFiles,
       changedEnvKeys: Array.isArray(applyResult?.changedEnvKeys) ? applyResult.changedEnvKeys : [],
       versioning: {
@@ -121,6 +128,8 @@ class EvolutionGovernor {
       promotion: {
         eligible: false,
         approved: false,
+        v2GateRequired: this.getSettings().requireV2EvidenceGate === true,
+        v2Gate: null,
         attemptedAt: null,
         completedAt: null,
         reason: null,
@@ -191,6 +200,12 @@ class EvolutionGovernor {
     const impact = classifyPromotionImpact(manifest.changedFiles || []);
     const targetRegimeFamily = classifyRegimeFamily(manifest?.regime?.target || context?.marketRegime || 'unknown');
     const currentRegimeFamily = classifyRegimeFamily(context?.marketRegime || manifest?.regime?.observed || 'unknown');
+    const evidenceGate = evaluatePromotionEvidenceGate({
+      manifest,
+      context,
+      strategyClass: manifest.strategyClass || context.strategyClass || 'generic',
+      thresholds: settings.promotionGateThresholds,
+    });
     const promotionConfidence = Math.max(
       0,
       Math.min(
@@ -248,6 +263,9 @@ class EvolutionGovernor {
       // for legacy callers that only populate `.score`.
       decision = 'hold';
       reasons.push(`paper_live_discrepancy:${(discrepancy.scoreRaw ?? discrepancy.score).toFixed(2)}`);
+    } else if (settings.requireV2EvidenceGate && evidenceGate.passed !== true) {
+      decision = 'hold';
+      reasons.push(`v2_evidence_gate:${evidenceGate.reasons.join('|') || 'failed'}`);
     } else if (observationMinutes >= settings.minObservationMinutes && observedClosedTrades >= settings.minClosedTrades) {
       // B2.22: optional belt-and-suspenders floors independent of the
       // weighted `promotionConfidence` aggregate. Audit 05-self-learning.md
@@ -308,6 +326,7 @@ class EvolutionGovernor {
       },
       impact,
       discrepancy,
+      evidenceGate,
       reasons,
     };
   }

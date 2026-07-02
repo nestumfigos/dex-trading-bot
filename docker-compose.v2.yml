@@ -1,0 +1,94 @@
+name: dex-trading-platform-v2
+
+services:
+  live-spot:
+    build:
+      context: .
+    container_name: dex-bot-live-spot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      BOT_PROFILE: live
+      PAPER_TRADING: "false"
+      PORT: "3002"
+      DASHBOARD_BIND_HOST: "0.0.0.0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  paper-spot:
+    build:
+      context: ../dex-trading-bot-paper
+    container_name: dex-bot-paper-spot
+    restart: unless-stopped
+    env_file:
+      - ../dex-trading-bot-paper/.env
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      BOT_PROFILE: paper
+      PAPER_TRADING: "true"
+      PORT: "3003"
+      DASHBOARD_BIND_HOST: "0.0.0.0"
+      SQL_STATE_RESTORE_ENABLED: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3003:3003"
+    volumes:
+      - ../dex-trading-bot-paper/logs:/app/logs
+      - ../dex-trading-bot-paper/data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  paper-perps:
+    build:
+      context: ../dex-trading-bot-perps
+    container_name: dex-bot-paper-perps
+    restart: unless-stopped
+    env_file:
+      - ../dex-trading-bot-perps/.env
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      PORT: "3004"
+      PERPS_BIND_HOST: "0.0.0.0"
+      PERPS_BOT_PROFILE: paper_perps
+      PERPS_MODE: paper
+      PERPS_SINGLETON_HEARTBEAT_INTERVAL_MS: "15000"
+      PERPS_SINGLETON_PM2_DUPLICATE_EXIT_DELAY_MS: "0"
+      PERPS_PAPER_SERVICE_ENABLED: "true"
+      PERPS_PAPER_MARKET_DATA_ENABLED: "true"
+      LIVE_PERPS_EXECUTION_ENABLED: "false"
+      PERPS_SQL_TELEMETRY_ENABLED: "true"
+      PERPS_SQL_TELEMETRY_REQUIRED: "true"
+      PERPS_SQL_RESTORE_ON_STARTUP: "true"
+      PERPS_SQL_RESTORE_REQUIRED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3004:3004"
+    volumes:
+      - ../dex-trading-bot-perps/data:/app/data
+      - ../dex-trading-bot-perps/config:/app/config
+      - ../dex-trading-bot-perps/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s

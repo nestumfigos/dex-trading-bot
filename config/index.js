@@ -57,6 +57,15 @@ function toFiniteNumberMap(entries = {}) {
   );
 }
 
+function finiteEnvNumber(name) {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function compactDefinedObject(entries = {}) {
+  return Object.fromEntries(Object.entries(entries).filter(([, value]) => value !== undefined));
+}
+
 const config = {
   paperTrading: isPaperTrading,
   paperBalance: parseFloat(process.env.PAPER_BALANCE_USD) || 10000,
@@ -235,6 +244,11 @@ const config = {
     liquidityDepthSizingEnabled: process.env.LIQUIDITY_DEPTH_SIZING_ENABLED !== 'false',
     liquidityDepthMaxSharePct: parseFloat(process.env.LIQUIDITY_DEPTH_MAX_SHARE_PCT || '1.5'),
     minPositionSizeUsd: parseFloat(process.env.MIN_POSITION_SIZE_USD || '5'),
+    momentumStopLossThrottleEnabled: process.env.MOMENTUM_STOP_LOSS_THROTTLE_ENABLED !== 'false',
+    momentumStopLossThrottleLookbackHours: parseFloat(process.env.MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS || '24'),
+    momentumStopLossThrottleBaseMultiplier: parseFloat(process.env.MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER || '0.75'),
+    momentumStopLossThrottleFloorMultiplier: parseFloat(process.env.MOMENTUM_STOP_LOSS_THROTTLE_FLOOR_MULTIPLIER || '0.35'),
+    momentumStopLossThrottleMinLossUsd: parseFloat(process.env.MOMENTUM_STOP_LOSS_THROTTLE_MIN_LOSS_USD || '20'),
     // Regime-adaptive parameters: tweak RSI/volume thresholds based on realized volatility.
     regimeAdaptiveParamsEnabled: process.env.REGIME_ADAPTIVE_PARAMS_ENABLED !== 'false',
     // Graduated stale-drift exit: forces out barely-profitable positions that won't move.
@@ -285,6 +299,8 @@ const config = {
     trailingStopPct: parseFloat(process.env.TRAILING_STOP_PCT) || 2.5,
     maxCorrelationPct: parseFloat(process.env.MAX_CORRELATION_PCT) || 75,
     aiConfidenceFloor: parseFloat(process.env.AI_CONFIDENCE_FLOOR) || 70,
+    consecutiveLossGateEnabled: !(isPaperTrading && process.env.PAPER_DISABLE_CONSECUTIVE_LOSS_GATE === 'true'),
+    kpiPerformanceGateEnabled: !(isPaperTrading && process.env.PAPER_DISABLE_KPI_PERFORMANCE_GATE === 'true'),
     maxConsecutiveLosses: parseInt(process.env.MAX_CONSECUTIVE_LOSSES || '4', 10),
     maxConsecutiveLossesByChain: toFiniteNumberMap({
       bsc: parseInt(process.env.BSC_MAX_CONSECUTIVE_LOSSES || '8', 10),
@@ -299,6 +315,13 @@ const config = {
     // letting a single regime flush wipe it. Operators on larger accounts can
     // raise via env explicitly.
     maxPortfolioHeatPct: parseFloat(process.env.MAX_PORTFOLIO_HEAT_PCT || '25'),
+    v2TargetPortfolioHeatPct: parseFloat(process.env.V2_TARGET_PORTFOLIO_HEAT_PCT || '3'),
+    v2MaxPortfolioHeatPct: parseFloat(process.env.V2_MAX_PORTFOLIO_HEAT_PCT || process.env.MAX_PORTFOLIO_HEAT_PCT || '25'),
+    v2MaxPortfolioCorrelation: parseFloat(process.env.V2_MAX_PORTFOLIO_CORRELATION || '1'),
+    v2ProfileRiskBudgetsPct: parseJsonObjectEnv(process.env.V2_PROFILE_RISK_BUDGETS_JSON, {}),
+    v2StrategyRiskBudgetsPct: parseJsonObjectEnv(process.env.V2_STRATEGY_RISK_BUDGETS_JSON, {}),
+    v2RiskEnforcementMode: (process.env.V2_RISK_ENFORCEMENT_MODE || 'advisory').trim().toLowerCase(),
+    v2RiskEnforceProfiles: process.env.V2_RISK_ENFORCE_PROFILES || '',
     maxGlobalExposurePct: parseFloat(process.env.MAX_GLOBAL_EXPOSURE_PCT || '60'),
     kucoinMomentumHeatAllowancePct: parseFloat(process.env.KUCOIN_MOMENTUM_HEAT_ALLOWANCE_PCT || '60'),
     kucoinSwingHeatAllowancePct: parseFloat(process.env.KUCOIN_SWING_HEAT_ALLOWANCE_PCT || '95'),
@@ -502,6 +525,12 @@ const config = {
       enabled: process.env.MOMENTUM_ENABLED !== 'false',
       enabledChains: String(process.env.MOMENTUM_ENABLED_CHAINS || (isPaperTrading ? 'solana,bsc,kucoin' : 'kucoin')).toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
       maxConcurrentPositions: parseInt(process.env.MOMENTUM_MAX_CONCURRENT_POSITIONS || '5', 10),
+      min24hVolumeUsd: parseFloat(process.env.MOMENTUM_MIN_24H_VOLUME_USD || (isPaperTrading ? '1000000' : '5000000')),
+      minLiquidityUsd: parseFloat(process.env.MOMENTUM_MIN_LIQUIDITY_USD || (isPaperTrading ? '250000' : '500000')),
+      minNetEdgePct: parseFloat(process.env.MOMENTUM_MIN_NET_EDGE_PCT || (isPaperTrading ? '0.8' : '1.2')),
+      maxSpreadBps: parseFloat(process.env.MOMENTUM_MAX_SPREAD_BPS || (isPaperTrading ? '80' : '45')),
+      expectedFeesBps: parseFloat(process.env.MOMENTUM_EXPECTED_FEES_BPS || (isPaperTrading ? '25' : '20')),
+      expectedSlippageBps: parseFloat(process.env.MOMENTUM_EXPECTED_SLIPPAGE_BPS || (isPaperTrading ? '35' : '25')),
       emaFast: parseInt(process.env.MOMENTUM_EMA_FAST || '8', 10),
       emaSlow: parseInt(process.env.MOMENTUM_EMA_SLOW || '21', 10),
       rsiPeriod: parseInt(process.env.MOMENTUM_RSI_PERIOD || '14', 10),
@@ -514,6 +543,8 @@ const config = {
       maxPriceChange24hPctAll: parseFloat(process.env.MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_ALL || '110'),
       minPriceChange24hPctKucoin: parseFloat(process.env.MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN || process.env.MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_ALL || '1.5'),
       maxPriceChange24hPctKucoin: parseFloat(process.env.MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_KUCOIN || process.env.MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_ALL || '110'),
+      stopLossPct: parseFloat(process.env.MOMENTUM_STOP_LOSS_PCT || '4.5'),
+      takeProfitPct: parseFloat(process.env.MOMENTUM_TAKE_PROFIT_PCT || '25'),
       bscExplorationPositionSizeMultiplier: parseFloat(process.env.BSC_EXPLORATION_POSITION_SIZE_MULTIPLIER || '0.75'),
       bscBorderlinePositionSizeMultiplier: parseFloat(process.env.BSC_BORDERLINE_POSITION_SIZE_MULTIPLIER || '0.75'),
       sellTiers: parseJsonArrayEnv(process.env.MOMENTUM_SELL_TIERS, [
@@ -553,8 +584,10 @@ const config = {
       ]),
     },
     backes_swing: {
-      enabled: process.env.BACKES_SWING_ENABLED != null ? process.env.BACKES_SWING_ENABLED === 'true' : isPaperTrading,
-      enabledChains: String(process.env.BACKES_SWING_ENABLED_CHAINS || 'kucoin').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
+      enabled: process.env.BACKES_SWING_ENABLED != null
+        ? process.env.BACKES_SWING_ENABLED === 'true'
+        : (process.env.BACKES_ENABLED != null ? process.env.BACKES_ENABLED === 'true' : isPaperTrading),
+      enabledChains: String(process.env.BACKES_SWING_ENABLED_CHAINS || process.env.BACKES_ENABLED_CHAINS || 'kucoin').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
       maxConcurrentPositions: parseInt(process.env.BACKES_SWING_MAX_CONCURRENT_POSITIONS || '3', 10),
       rsiBuyThreshold: parseFloat(process.env.BACKES_SWING_RSI_BUY_THRESHOLD || '35'),
       rsiBuyMaxThreshold: parseFloat(process.env.BACKES_SWING_RSI_BUY_MAX_THRESHOLD || '72'),
@@ -578,6 +611,7 @@ const config = {
     },
     bsc_flow_breakout: {
       enabled: process.env.BSC_FLOW_BREAKOUT_ENABLED != null ? process.env.BSC_FLOW_BREAKOUT_ENABLED === 'true' : isPaperTrading,
+      scanOnly: process.env.BSC_FLOW_BREAKOUT_SCAN_ONLY != null ? process.env.BSC_FLOW_BREAKOUT_SCAN_ONLY !== 'false' : true,
       enabledChains: String(process.env.BSC_FLOW_BREAKOUT_ENABLED_CHAINS || 'bsc').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
       maxConcurrentPositions: parseInt(process.env.BSC_FLOW_BREAKOUT_MAX_CONCURRENT_POSITIONS || '3', 10),
       rsiBuyThreshold: parseFloat(process.env.BSC_FLOW_BREAKOUT_RSI_BUY_THRESHOLD || '42'),
@@ -599,6 +633,7 @@ const config = {
     },
     base_dex_momentum_reclaim: {
       enabled: process.env.BASE_DEX_MOMENTUM_RECLAIM_ENABLED != null ? process.env.BASE_DEX_MOMENTUM_RECLAIM_ENABLED === 'true' : isPaperTrading,
+      scanOnly: process.env.BASE_DEX_MOMENTUM_RECLAIM_SCAN_ONLY != null ? process.env.BASE_DEX_MOMENTUM_RECLAIM_SCAN_ONLY !== 'false' : true,
       enabledChains: String(process.env.BASE_DEX_MOMENTUM_RECLAIM_ENABLED_CHAINS || 'base').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
       maxConcurrentPositions: parseInt(process.env.BASE_DEX_MOMENTUM_RECLAIM_MAX_CONCURRENT_POSITIONS || '2', 10),
       rsiBuyThreshold: parseFloat(process.env.BASE_DEX_MOMENTUM_RECLAIM_RSI_BUY_THRESHOLD || '40'),
@@ -976,6 +1011,17 @@ const config = {
       requireManualApprovalForHighImpact: process.env.SELF_EVOLUTION_REQUIRE_MANUAL_APPROVAL_FOR_HIGH_IMPACT !== 'false',
       shadowModeRequired: process.env.SELF_EVOLUTION_SHADOW_MODE_REQUIRED !== 'false',
       canaryLiveSizePct: parseFloat(process.env.SELF_EVOLUTION_CANARY_LIVE_SIZE_PCT || '10'),
+      requireV2EvidenceGate: process.env.SELF_EVOLUTION_REQUIRE_V2_EVIDENCE_GATE === 'true',
+      promotionGateThresholds: compactDefinedObject({
+        minSampleSize: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MIN_SAMPLE_SIZE'),
+        minProfitFactor: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MIN_PROFIT_FACTOR'),
+        minExpectancyUsd: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MIN_EXPECTANCY_USD'),
+        minStressedExpectancyUsd: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MIN_STRESSED_EXPECTANCY_USD'),
+        maxDrawdownPct: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MAX_DRAWDOWN_PCT'),
+        maxSymbolConcentrationPct: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MAX_SYMBOL_CONCENTRATION_PCT'),
+        minRegimeCoverageCount: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MIN_REGIME_COVERAGE_COUNT'),
+        maxExecutionDiscrepancyPct: finiteEnvNumber('SELF_EVOLUTION_V2_GATE_MAX_EXECUTION_DISCREPANCY_PCT'),
+      }),
     },
   },
 

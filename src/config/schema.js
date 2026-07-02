@@ -11,7 +11,7 @@
 const KNOBS = {
   // ── Boot / runtime ──────────────────────────────────────────────────
   NODE_ENV: { type: 'enum', enum: ['production', 'development', 'test'], default: 'production' },
-  BOT_PROFILE: { type: 'enum', enum: ['live', 'paper'], default: 'live' },
+  BOT_PROFILE: { type: 'enum', enum: ['live', 'paper', 'live_spot', 'paper_spot', 'paper_perps', 'live_perps'], default: 'live' },
   BOT_DATA_DIR: { type: 'string', default: 'data' },
   PORT: { type: 'int', min: 1024, max: 65535, default: 3002 },
   DASHBOARD_BIND_HOST: { type: 'string', default: '127.0.0.1' },
@@ -25,6 +25,15 @@ const KNOBS = {
   SELF_EVOLUTION_ALLOW_LIVE_APPLY: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_AUTO_PROMOTE: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_UNSAFE_EXPERIMENTAL: { type: 'bool', default: false, hotReload: true },
+  SELF_EVOLUTION_REQUIRE_V2_EVIDENCE_GATE: { type: 'bool', default: false, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_SAMPLE_SIZE: { type: 'int', min: 1, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_PROFIT_FACTOR: { type: 'float', min: 0, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_EXPECTANCY_USD: { type: 'float', default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_STRESSED_EXPECTANCY_USD: { type: 'float', default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MAX_DRAWDOWN_PCT: { type: 'float', min: 0, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MAX_SYMBOL_CONCENTRATION_PCT: { type: 'float', min: 0, max: 100, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_REGIME_COVERAGE_COUNT: { type: 'int', min: 1, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MAX_EXECUTION_DISCREPANCY_PCT: { type: 'float', min: 0, max: 100, default: null, hotReload: true },
 
   // ── Risk caps ──────────────────────────────────────────────────────
   MAX_POSITION_SIZE_PCT: { type: 'float', min: 0, max: 100, default: 3, hotReload: true },
@@ -32,6 +41,13 @@ const KNOBS = {
   BSC_MAX_CONSECUTIVE_LOSSES: { type: 'int', min: 1, max: 50, default: 8, hotReload: true },
   BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: { type: 'float', min: 0, max: 100, default: 60, hotReload: true },
   LIVE_BSC_ENTRIES_ENABLED: { type: 'bool', default: false, hotReload: true },
+  V2_TARGET_PORTFOLIO_HEAT_PCT: { type: 'float', min: 0, max: 100, default: 3, hotReload: true },
+  V2_MAX_PORTFOLIO_HEAT_PCT: { type: 'float', min: 0, max: 100, default: 25, hotReload: true },
+  V2_MAX_PORTFOLIO_CORRELATION: { type: 'float', min: 0, max: 1, default: 1, hotReload: true },
+  V2_PROFILE_RISK_BUDGETS_JSON: { type: 'json', default: {}, hotReload: true },
+  V2_STRATEGY_RISK_BUDGETS_JSON: { type: 'json', default: {}, hotReload: true },
+  V2_RISK_ENFORCEMENT_MODE: { type: 'enum', enum: ['advisory', 'block_core', 'enforce'], default: 'advisory', hotReload: true },
+  V2_RISK_ENFORCE_PROFILES: { type: 'string', default: '', hotReload: true },
 
   // ── Strategy knobs ─────────────────────────────────────────────────
   MIN_LIQUIDITY_USD: { type: 'float', min: 0, default: 5000, hotReload: true },
@@ -39,6 +55,13 @@ const KNOBS = {
   MOMENTUM_ENABLED: { type: 'bool', default: true, hotReload: true },
   MOMENTUM_ENABLED_CHAINS: { type: 'string', default: 'kucoin', hotReload: true },
   MOMENTUM_SELL_TIERS: { type: 'json', default: null, hotReload: true },
+  MOMENTUM_STOP_LOSS_PCT: { type: 'float', min: 0, max: 100, default: 4.5, hotReload: true },
+  MOMENTUM_TAKE_PROFIT_PCT: { type: 'float', min: 0, max: 100, default: 25, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_ENABLED: { type: 'bool', default: true, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS: { type: 'float', min: 0, default: 24, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER: { type: 'float', min: 0, max: 1, default: 0.75, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_FLOOR_MULTIPLIER: { type: 'float', min: 0, max: 1, default: 0.35, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_MIN_LOSS_USD: { type: 'float', min: 0, default: 20, hotReload: true },
   MOMENTUM_ROTATION_EDGE_MIN: { type: 'float', default: null, hotReload: true },
   MOMENTUM_ROTATION_PERSISTENCE: { type: 'int', default: null, hotReload: true },
   SWING_ENABLED: { type: 'bool', default: false, hotReload: true },
@@ -237,7 +260,7 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
     // on truly-unrecognized vars rather than legit long-tail strategy knobs.
     'AI_', 'ANTHROPIC_', 'GEMINI_', 'GROQ_', 'OLLAMA_', 'POLYGON_',
     'COINMARKETCAP_', 'COINPAPRIKA_', 'DEXSCREENER_', 'BIRDEYE_',
-    'BSC_', 'KUCOIN_', 'SOLANA_', 'BASE_',
+    'BSC_', 'KUCOIN_', 'SOLANA_', 'BASE_', 'PERPS_',
     'MOMENTUM_', 'STRATEGY_', 'BULL_FLAG_', 'BACKES_',
     'JITO_', 'MERKLE_', 'MEV_',
     'BREAKOUT_', 'BRAIN_', 'BACKTEST_',

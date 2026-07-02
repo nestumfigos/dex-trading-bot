@@ -18,13 +18,16 @@
     "rl:train": "node scripts/train-rl-policy.js",
     "rl:train:production": "node scripts/train-production-rl.js",
     "python:sidecar:health": "node scripts/python-sidecar-health.js",
+    "ops:v2-smoke": "node scripts/v2-platform-smoke.js",
+    "ops:v2-roadmap": "node scripts/v2-roadmap-readiness.js --runtime",
     "test": "node scripts/run-tests.js",
+    "test:v2-smoke": "node --test test/core-contracts.test.js test/dashboard-v2-report.test.js test/dashboard-trade-history.test.js test/docker-compose-v2.test.js test/v2-ci-workflow.test.js test/strategy-routing-audit.test.js test/sql-telemetry-regression.test.js test/stats/metrics-compute.test.js test/cycle/maintenance.test.js test/self-evolution-regressions.test.js test/risk/v2-risk-audit.test.js test/execution/min-net-dollar-edge.test.js test/v2-platform-smoke.test.js test/v2-roadmap-readiness.test.js",
     "test:integration": "node scripts/run-tests.js --integration",
     "test:all": "node scripts/run-tests.js --all",
     "pm2:start": "pm2 start ecosystem.config.js --env production",
-    "pm2:restart": "pm2 restart dex-bot",
+    "pm2:restart": "node scripts/pm2-safe-restart.js dex-bot live 3002",
     "pm2:paper:start": "node scripts/setup-paper-worktree.js && pm2 start ecosystem.config.js --only dex-bot-paper --env production",
-    "pm2:paper:restart": "pm2 restart dex-bot-paper --update-env",
+    "pm2:paper:restart": "cd ..\\dex-trading-bot-paper && node scripts\\pm2-safe-restart.js dex-bot-paper paper 3003",
     "pm2:paper:stop": "pm2 stop dex-bot-paper",
     "pm2:paper:logs": "pm2 logs dex-bot-paper",
     "promote:paper": "node scripts/promote-paper-to-main.js",
@@ -32,6 +35,9 @@
     "export:paper:lessons": "node scripts/export-paper-high-confidence-lessons.js",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
+    "docker:v2:config": "docker compose -f docker-compose.v2.yml config",
+    "docker:v2:up": "docker compose -f docker-compose.v2.yml up -d --build",
+    "docker:v2:down": "docker compose -f docker-compose.v2.yml down",
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
     "check-updates": "npx npm-check-updates",
@@ -62,6 +68,7 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "playwright": "^1.60.0"
   }
 }

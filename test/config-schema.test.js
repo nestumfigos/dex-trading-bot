@@ -6,7 +6,18 @@ const assert = require('node:assert/strict');
 const { KNOBS, castValue, validate, listKnobs, getKnobSpec } = require('../src/config/schema');
 
 test('schema exposes core knobs', () => {
-  for (const name of ['BOT_PROFILE', 'PORT', 'MAX_POSITION_SIZE_PCT', 'SELF_EVOLUTION_ENABLED']) {
+  for (const name of [
+    'BOT_PROFILE',
+    'PORT',
+    'MAX_POSITION_SIZE_PCT',
+    'SELF_EVOLUTION_ENABLED',
+    'SELF_EVOLUTION_REQUIRE_V2_EVIDENCE_GATE',
+    'SELF_EVOLUTION_V2_GATE_MIN_SAMPLE_SIZE',
+    'V2_TARGET_PORTFOLIO_HEAT_PCT',
+    'V2_MAX_PORTFOLIO_HEAT_PCT',
+    'V2_PROFILE_RISK_BUDGETS_JSON',
+    'V2_STRATEGY_RISK_BUDGETS_JSON',
+  ]) {
     assert.ok(KNOBS[name], `${name} should be in schema`);
   }
 });
@@ -28,6 +39,7 @@ test('castValue: bool accepts common truthy strings', () => {
 
 test('castValue: enum rejects out-of-set values', () => {
   assert.equal(castValue('BOT_PROFILE', 'live'), 'live');
+  assert.equal(castValue('BOT_PROFILE', 'paper_perps'), 'paper_perps');
   assert.throws(() => castValue('BOT_PROFILE', 'mainnet'), /not in enum/);
 });
 
@@ -44,6 +56,12 @@ test('castValue: json parses MOMENTUM_SELL_TIERS', () => {
   const tiers = [{ profitMultiplier: 1.04, sellPct: 0.3 }];
   const got = castValue('MOMENTUM_SELL_TIERS', JSON.stringify(tiers));
   assert.deepEqual(got, tiers);
+});
+
+test('castValue: json parses V2 allocation budget maps', () => {
+  const budgets = { live_spot: 1.5, paper_spot: 1 };
+  assert.deepEqual(castValue('V2_PROFILE_RISK_BUDGETS_JSON', JSON.stringify(budgets)), budgets);
+  assert.throws(() => castValue('V2_MAX_PORTFOLIO_CORRELATION', '1.5'), /above max/);
 });
 
 test('validate: current process.env passes (no errors)', () => {

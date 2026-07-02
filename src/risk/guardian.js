@@ -2,7 +2,10 @@
 const axios = require('axios');
 const config = require('../../config');
 const logger = require('../utils/logger');
-const { evaluateSpotSymbolQuality } = require('./spot-entry-quality');
+const {
+  calculateMomentumStopLossThrottle,
+  evaluateSpotSymbolQuality,
+} = require('./spot-entry-quality');
 const { buildCorrelationMatrix } = require('../utils/correlation');
 
 class RiskGuardian {
@@ -489,6 +492,11 @@ class RiskGuardian {
   checkPerformanceGate(stats = {}, tokenData = null) {
     const baseline = Number(this.dailyStartBalance || 0);
     const equity = Number(this.getEquityBalanceUsd() || 0);
+    const isPaperProfile = config.paperTrading === true || String(process.env.BOT_PROFILE || '').toLowerCase() === 'paper';
+    const consecutiveLossGateDisabled = config.risk.consecutiveLossGateEnabled === false
+      || (isPaperProfile && process.env.PAPER_DISABLE_CONSECUTIVE_LOSS_GATE === 'true');
+    const kpiPerformanceGateDisabled = config.risk.kpiPerformanceGateEnabled === false
+      || (isPaperProfile && process.env.PAPER_DISABLE_KPI_PERFORMANCE_GATE === 'true');
     const maxDailyLossPct = Number(config.risk.maxDailyLossPct || 2.5);
     const normalizedChain = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
     const chainSpecificLossLimit = Number(config.risk?.maxConsecutiveLossesByChain?.[normalizedChain]);
@@ -509,7 +517,7 @@ class RiskGuardian {
       }
     }
 
-    if (Number(stats.consecutiveLosses || 0) >= Math.max(1, maxConsecutiveLosses)) {
+    if (!consecutiveLossGateDisabled && Number(stats.consecutiveLosses || 0) >= Math.max(1, maxConsecutiveLosses)) {
       return {
         allowed: false,
         reason: `Consecutive losses ${stats.consecutiveLosses} reached limit ${maxConsecutiveLosses}`,
@@ -517,7 +525,7 @@ class RiskGuardian {
     }
 
     const closedTrades = Number(stats.closedTrades || 0);
-    if (closedTrades >= Math.max(1, minTradesForKpiGate)) {
+    if (!kpiPerformanceGateDisabled && closedTrades >= Math.max(1, minTradesForKpiGate)) {
       // profitFactor === null means "no losses yet" (all wins so far) — skip the gate; it cannot be failing.
       // profitFactor === 0 means no closed trades at all — also skip.
       const rawPf = stats.profitFactor;
@@ -1084,6 +1092,26 @@ class RiskGuardian {
     if (corrNoHistoryMultiplier < 1) {
       pct *= corrNoHistoryMultiplier;
       logger.info(`${tokenData.symbol}: correlation no-history cap multiplier ${corrNoHistoryMultiplier.toFixed(2)}`);
+    }
+
+    if (chainKey === 'kucoin' && String(strategyName || '').toLowerCase() === 'momentum') {
+      const stopThrottle = calculateMomentumStopLossThrottle({
+        chain: chainKey,
+        strategyName,
+        trades: this.portfolio?.trades || [],
+        enabled: config.risk?.momentumStopLossThrottleEnabled !== false,
+        lookbackHours: config.risk?.momentumStopLossThrottleLookbackHours,
+        baseMultiplier: config.risk?.momentumStopLossThrottleBaseMultiplier,
+        floorMultiplier: config.risk?.momentumStopLossThrottleFloorMultiplier,
+        minLossUsd: config.risk?.momentumStopLossThrottleMinLossUsd,
+      });
+      if (Number(stopThrottle.multiplier) > 0 && stopThrottle.multiplier < 1) {
+        pct *= stopThrottle.multiplier;
+        logger.warn(
+          `${tokenData.symbol}: KuCoin momentum stop-loss throttle ${stopThrottle.multiplier.toFixed(2)}x ` +
+          `after ${stopThrottle.recentStopLosses} recent stop-loss exits`
+        );
+      }
     }
 
     const rolloutMultiplier = Number(tokenData?._promotionRolloutMultiplier || 1);

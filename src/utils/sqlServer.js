@@ -796,9 +796,11 @@ WITH trade_stats AS (
     SUM(CASE WHEN trade_type = ''SELL'' THEN 1 ELSE 0 END) AS sell_count,
     SUM(CASE WHEN trade_type = ''BUY'' THEN 1 ELSE 0 END) AS buy_count,
     SUM(CASE WHEN trade_type = ''SELL_FAILED'' THEN 1 ELSE 0 END) AS sell_failed_count,
-    SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
-    SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS loss_count,
-    SUM(COALESCE(pnl_usd, 0)) AS realized_pnl_usd,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd <= 0 THEN 1 ELSE 0 END) AS loss_count,
+    SUM(CASE WHEN trade_type = ''SELL'' THEN COALESCE(pnl_usd, 0) ELSE 0 END) AS realized_pnl_usd,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS gross_profit_usd,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS gross_loss_usd,
     MAX(ts) AS last_trade_at
   FROM dbo.bot_trade_ledger
   GROUP BY bot_profile
@@ -850,7 +852,13 @@ SELECT
     THEN (CAST(t.win_count AS FLOAT) / CAST(t.win_count + t.loss_count AS FLOAT)) * 100
     ELSE NULL
   END AS win_rate_pct,
+  CASE WHEN COALESCE(t.gross_loss_usd, 0) > 0
+    THEN CAST(t.gross_profit_usd AS FLOAT) / CAST(t.gross_loss_usd AS FLOAT)
+    ELSE NULL
+  END AS profit_factor,
   COALESCE(t.realized_pnl_usd, 0) AS realized_pnl_usd,
+  COALESCE(t.gross_profit_usd, 0) AS gross_profit_usd,
+  COALESCE(t.gross_loss_usd, 0) AS gross_loss_usd,
   t.last_trade_at,
   COALESCE(ps.open_positions, 0) AS open_positions,
   COALESCE(ps.open_cost_basis_usd, 0) AS open_cost_basis_usd,
@@ -1017,9 +1025,25 @@ SELECT
   SUM(CASE WHEN trade_type = ''BUY'' THEN 1 ELSE 0 END) AS buy_count,
   SUM(CASE WHEN trade_type = ''SELL'' THEN 1 ELSE 0 END) AS sell_count,
   SUM(CASE WHEN trade_type = ''SELL_FAILED'' THEN 1 ELSE 0 END) AS sell_failed_count,
-  SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
-  SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS loss_count,
-  SUM(COALESCE(pnl_usd, 0)) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd <= 0 THEN 1 ELSE 0 END) AS loss_count,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) > 0
+    THEN (
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT)
+    ) * 100
+    ELSE NULL
+  END AS win_rate_pct,
+  SUM(CASE WHEN trade_type = ''SELL'' THEN COALESCE(pnl_usd, 0) ELSE 0 END) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS gross_profit_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS gross_loss_usd,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) > 0
+    THEN (
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS FLOAT)
+    )
+    ELSE NULL
+  END AS profit_factor,
   MAX(ts) AS last_trade_at
 FROM dbo.bot_trade_ledger
 GROUP BY bot_profile, COALESCE(chain_key, ''unknown'');
@@ -1034,16 +1058,25 @@ SELECT
   SUM(CASE WHEN trade_type = ''BUY'' THEN 1 ELSE 0 END) AS buy_count,
   SUM(CASE WHEN trade_type = ''SELL'' THEN 1 ELSE 0 END) AS sell_count,
   SUM(CASE WHEN trade_type = ''SELL_FAILED'' THEN 1 ELSE 0 END) AS sell_failed_count,
-  SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
-  SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS loss_count,
-  CASE WHEN SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) + SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) > 0
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd <= 0 THEN 1 ELSE 0 END) AS loss_count,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) > 0
     THEN (
-      CAST(SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS FLOAT)
-      / CAST(SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) + SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS FLOAT)
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT)
     ) * 100
     ELSE NULL
   END AS win_rate_pct,
-  SUM(COALESCE(pnl_usd, 0)) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' THEN COALESCE(pnl_usd, 0) ELSE 0 END) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS gross_profit_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS gross_loss_usd,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) > 0
+    THEN (
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS FLOAT)
+    )
+    ELSE NULL
+  END AS profit_factor,
   MAX(ts) AS last_trade_at
 FROM dbo.bot_trade_ledger
 GROUP BY bot_profile, COALESCE(strategy, ''unknown'');

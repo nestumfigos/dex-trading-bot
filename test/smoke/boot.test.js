@@ -37,9 +37,9 @@ test('smoke: memory shape ↔ MERGE_KEYS coverage (Week 2 regression check)', ()
   );
 });
 
-test('smoke: pre-trade contract catalog has 7 gates (Week 3)', () => {
+test('smoke: pre-trade contract catalog has 8 gates (Week 3)', () => {
   const { GATE_CATALOG } = require('../../src/risk/pre-trade-contract');
-  assert.equal(GATE_CATALOG.length, 7);
+  assert.equal(GATE_CATALOG.length, 8);
 });
 
 test('smoke: policy DEFAULTS are sane (Week 5)', () => {

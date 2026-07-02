@@ -7,6 +7,12 @@ const DEFAULT_BAD_EXIT_REASONS = Object.freeze([
   'MIN_HOLD_NO_GAIN',
 ]);
 
+const DEFAULT_STOP_THROTTLE_REASONS = Object.freeze([
+  'FAST_STOP_LOSS',
+  'ORACLE_STOP_LOSS',
+  'STOP_LOSS',
+]);
+
 function asNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -74,6 +80,22 @@ function matchesScope({ trade, symbol, chain, strategyName, scope }) {
   return true;
 }
 
+function matchesContext({ trade, chain, strategyName, scope }) {
+  const tradeChain = normalizeChain(trade.chainKey || trade.chain);
+  const normalizedScope = String(scope || 'chain_strategy').trim().toLowerCase();
+
+  if (normalizedScope.includes('chain') && chain && tradeChain && tradeChain !== chain) {
+    return false;
+  }
+
+  if (normalizedScope.includes('strategy')) {
+    const tradeStrategy = normalizeStrategy(trade.strategy || trade.setupType);
+    if (strategyName && tradeStrategy && tradeStrategy !== strategyName) return false;
+  }
+
+  return true;
+}
+
 function evaluateSpotSymbolQuality({
   tokenData = {},
   symbol = tokenData.symbol || tokenData.address,
@@ -137,8 +159,75 @@ function evaluateSpotSymbolQuality({
   return { allow: true };
 }
 
+function calculateMomentumStopLossThrottle({
+  chain,
+  strategyName = 'momentum',
+  trades = [],
+  nowMs = Date.now(),
+  enabled = parseBoolEnv('MOMENTUM_STOP_LOSS_THROTTLE_ENABLED', true),
+  lookbackHours = parseNumberEnv('MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS', 24),
+  baseMultiplier = parseNumberEnv('MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER', 0.75),
+  floorMultiplier = parseNumberEnv('MOMENTUM_STOP_LOSS_THROTTLE_FLOOR_MULTIPLIER', 0.35),
+  minLossUsd = parseNumberEnv('MOMENTUM_STOP_LOSS_THROTTLE_MIN_LOSS_USD', 20),
+  scope = process.env.MOMENTUM_STOP_LOSS_THROTTLE_SCOPE || 'chain_strategy',
+  badExitReasons = parseListEnv('MOMENTUM_STOP_LOSS_THROTTLE_BAD_EXIT_REASONS', DEFAULT_STOP_THROTTLE_REASONS),
+} = {}) {
+  if (!enabled) return { multiplier: 1, disabled: true, recentStopLosses: 0 };
+
+  const normalizedStrategy = normalizeStrategy(strategyName);
+  if (normalizedStrategy !== 'momentum') return { multiplier: 1, recentStopLosses: 0 };
+
+  const normalizedChain = normalizeChain(chain);
+  const cutoff = Number(nowMs) - (Math.max(0, Number(lookbackHours)) * 3600000);
+  const reasonSet = new Set(badExitReasons.map((reason) => String(reason).trim().toUpperCase()).filter(Boolean));
+  const minLoss = Math.abs(Number(minLossUsd));
+
+  const recentStopLosses = (Array.isArray(trades) ? trades : [])
+    .filter((trade) => trade && typeof trade === 'object')
+    .filter((trade) => String(trade.type || '').toUpperCase() === 'SELL')
+    .filter((trade) => matchesContext({
+      trade,
+      chain: normalizedChain,
+      strategyName: normalizedStrategy,
+      scope,
+    }))
+    .filter((trade) => {
+      const ts = tradeTimestampMs(trade);
+      if (!Number.isFinite(ts) || ts < cutoff) return false;
+      if (tradePnlUsd(trade) > -minLoss) return false;
+      return reasonSet.has(String(trade.reason || '').trim().toUpperCase());
+    })
+    .sort((a, b) => tradeTimestampMs(b) - tradeTimestampMs(a));
+
+  const lossCount = recentStopLosses.length;
+  if (lossCount <= 0) return { multiplier: 1, recentStopLosses: 0 };
+
+  const base = Math.max(0.01, Math.min(1, Number(baseMultiplier)));
+  const floor = Math.max(0.01, Math.min(1, Number(floorMultiplier)));
+  const multiplier = Math.max(floor, Math.pow(base, lossCount));
+
+  return {
+    multiplier,
+    recentStopLosses: lossCount,
+    details: {
+      chain: normalizedChain || null,
+      strategy: normalizedStrategy,
+      scope,
+      lookbackHours: Number(lookbackHours),
+      baseMultiplier: base,
+      floorMultiplier: floor,
+      minLossUsd: minLoss,
+      lastReason: recentStopLosses[0]?.reason || null,
+      lastPnlUsd: tradePnlUsd(recentStopLosses[0]),
+      lastTimestamp: recentStopLosses[0]?.timestamp || recentStopLosses[0]?.closedAt || null,
+    },
+  };
+}
+
 module.exports = {
   DEFAULT_BAD_EXIT_REASONS,
+  DEFAULT_STOP_THROTTLE_REASONS,
+  calculateMomentumStopLossThrottle,
   evaluateSpotSymbolQuality,
   normalizeSymbol,
 };

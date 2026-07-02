@@ -44,6 +44,7 @@ function createLifecycle(deps = {}) {
   }
 
   let shutdownInProgress = false;
+  let lockManagerDrained = false;
 
   async function withTimeout(label, fn, ms) {
     let timer;
@@ -85,6 +86,14 @@ function createLifecycle(deps = {}) {
     }, shutdownTimeoutMs);
     if (typeof hardKill.unref === 'function') hardKill.unref();
 
+    const drainLockManager = async () => {
+      if (lockManagerDrained) return;
+      lockManagerDrained = true;
+      if (lockManager && typeof lockManager.drain === 'function') {
+        await withTimeout('lockManager.drain', () => lockManager.drain({ logger, timeoutMs: hookTimeoutMs }), hookTimeoutMs + 500);
+      }
+    };
+
     if (wsDiscovery && typeof wsDiscovery.stop === 'function') {
       await withTimeout('wsDiscovery.stop', () => wsDiscovery.stop(), hookTimeoutMs);
     }
@@ -111,6 +120,10 @@ function createLifecycle(deps = {}) {
       }, hookTimeoutMs);
     }
 
+    // Release singleton locks immediately after the listening server is closed.
+    // Slow telemetry/state cleanup must not hold PM2 replacement handoff hostage.
+    await drainLockManager();
+
     if (telemetry && typeof telemetry.endRun === 'function') {
       await withTimeout('telemetry.endRun', () => telemetry.endRun({ exitReason: reason }), hookTimeoutMs);
     }
@@ -121,10 +134,8 @@ function createLifecycle(deps = {}) {
       await withTimeout('saveState', () => saveState(), hookTimeoutMs);
     }
 
-    // Drain any registered cleanup hooks (singleton lock release, etc).
-    if (lockManager && typeof lockManager.drain === 'function') {
-      await withTimeout('lockManager.drain', () => lockManager.drain({ logger, timeoutMs: hookTimeoutMs }), hookTimeoutMs + 500);
-    }
+    // Drain any late-registered cleanup hooks once more, no-op for singleton.
+    await drainLockManager();
 
     clearTimeout(hardKill);
     process.exit(exitCode);

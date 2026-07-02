@@ -39,6 +39,12 @@ const PRUNE_TABLES = [
   { table: 'dbo.bot_pnl_history',         tsColumn: 'ts',  label: 'pnl history',              retentionHours: 168 },
   { table: 'dbo.position_snapshots',      tsColumn: 'ts',  label: 'position snapshots',       retentionHours: 168 },
   { table: 'dbo.self_evolution_history',  tsColumn: 'ts',  label: 'evolution history',        retentionHours: 168 },
+  { table: 'dbo.trading_events',          tsColumn: 'occurred_at', label: 'v2 trading events', retentionHours: 2160 },
+  { table: 'dbo.perps_signals',           tsColumn: 'ts',  label: 'perps signal telemetry',    retentionHours: 2160 },
+  { table: 'dbo.portfolio_exposure_snapshots', tsColumn: 'ts', label: 'portfolio exposure snapshots', retentionHours: 720 },
+  { table: 'dbo.correlation_snapshots',   tsColumn: 'ts',  label: 'correlation snapshots',     retentionHours: 720 },
+  { table: 'dbo.perps_admission_snapshots', tsColumn: 'ts', label: 'perps admission snapshots', retentionHours: 720 },
+  { table: 'dbo.perps_state_snapshots',   tsColumn: 'ts',  label: 'perps state snapshots',     retentionHours: 168 },
 ];
 
 async function main() {

@@ -80,6 +80,10 @@ const MarketIntelligenceAgent = require('./agent/marketIntelligence');
 const _memoryFacade = require('./agent/memory/core');
 const SqlCoordination = require('./utils/sqlCoordination');
 const { SqlTelemetry, uuid: telemetryUuid } = require('./utils/sqlTelemetry');
+const {
+  buildStrategyRoutingAudit,
+  shouldEmitStrategyRoutingAudit,
+} = require('./utils/strategy-routing-audit');
 const { getSqlStatus, runSelfTest: runSqlSelfTest, hasExplicitDatabase } = require('./utils/sqlServer');
 const { execFileSync } = require('child_process');
 const {
@@ -823,6 +827,7 @@ function makeFilterCycleStats(strategyName = 'momentum') {
   return {
     strategy: strategyName,
     evaluated: 0,
+    qualified: 0,
     passed: 0,
     redditBlocked: 0,
     coincapBlocked: 0,
@@ -831,6 +836,7 @@ function makeFilterCycleStats(strategyName = 'momentum') {
     technicalBlocked: 0,
     aiBlocked: 0,
     riskBlocked: 0,
+    executionBlocked: 0,
     gateRejectCounts: {},
     rejectReasons: {
       portfolioHeat: 0,
@@ -888,6 +894,9 @@ const pollingFallbackLastWarnAt = {};
 const scanCounterMismatchLastWarnAt = {};
 const scanCounterMismatchState = {};
 const processStartedAtMs = Date.now();
+const strategyRoutingAuditState = {
+  lastEmittedAtByStrategy: {},
+};
 
 function warnScanCounterMismatch(scopeKey, context) {
   const now = Date.now();
@@ -1059,6 +1068,35 @@ function isSignalDroughtCycle(cycleStats = {}) {
     || (notApplicableRejects / evaluated) >= notApplicableThreshold;
 }
 
+function emitStrategyRoutingAudit(strategyName, cycleStats = {}) {
+  try {
+    const audit = buildStrategyRoutingAudit({
+      strategyNames: RUNTIME_STRATEGY_NAMES,
+      currentStrategy: strategyName,
+      config,
+      portfolio,
+      marketState,
+      btcRiskOffState,
+      botProfile: BOT_PROFILE,
+      marketType: 'spot',
+      cycleStats,
+    });
+    const throttleMs = Math.max(0, Number(
+      process.env.STRATEGY_ROUTING_AUDIT_THROTTLE_MS
+      || config.telemetry?.strategyRoutingAuditThrottleMs
+      || 300000
+    ));
+    if (shouldEmitStrategyRoutingAudit({ state: strategyRoutingAuditState, audit, throttleMs })) {
+      telemetry.logTradingEvent(audit);
+    }
+  } catch (error) {
+    logger.warn('Strategy routing audit failed', {
+      strategy: strategyName,
+      reason: error?.message || String(error),
+    });
+  }
+}
+
 function finalizeFilterCycle(strategyName) {
   if (!RUNTIME_STRATEGY_NAMES.includes(strategyName)) return;
   filterStatsState.currentCycle[strategyName] = filterStatsState.currentCycle[strategyName] || makeFilterCycleStats(strategyName);
@@ -1079,6 +1117,7 @@ function finalizeFilterCycle(strategyName) {
   const passedPct = evaluated > 0 ? ((passed / evaluated) * 100) : 0;
 
   const droughtCycle = isSignalDroughtCycle(cycleStats);
+  cycleStats.signalDroughtCycle = droughtCycle;
   if (droughtCycle) {
     filterStatsState.consecutiveZeroSignalCycles[strategyName] += 1;
   } else if (evaluated > 0 || passed > 0) {
@@ -1098,13 +1137,14 @@ function finalizeFilterCycle(strategyName) {
   }
 
   logger.info(
-    `Filter stats (cycle): strategy=${strategyName} evaluated=${evaluated} passed=${passed} ` +
+    `Filter stats (cycle): strategy=${strategyName} evaluated=${evaluated} qualified=${Number(cycleStats.qualified || 0)} passed=${passed} ` +
     `passedPct=${passedPct.toFixed(1)} redditBlocked=${cycleStats.redditBlocked} coincapBlocked=${cycleStats.coincapBlocked} ` +
     `buyFlowBlocked=${cycleStats.buyFlowBlocked} uniqueBuyerBlocked=${cycleStats.uniqueBuyerBlocked} ` +
-    `technicalBlocked=${cycleStats.technicalBlocked} aiBlocked=${cycleStats.aiBlocked} riskBlocked=${cycleStats.riskBlocked} ` +
+    `technicalBlocked=${cycleStats.technicalBlocked} aiBlocked=${cycleStats.aiBlocked} riskBlocked=${cycleStats.riskBlocked} executionBlocked=${Number(cycleStats.executionBlocked || 0)} ` +
     `rejects=${JSON.stringify(cycleStats.rejectReasons || {})} ` +
     `gateRejectPct=${JSON.stringify(buildGateRejectPercentages(cycleStats.gateRejectCounts || {}, evaluated))}`
   );
+  emitStrategyRoutingAudit(strategyName, cycleStats);
 }
 
 const marketState = {
@@ -1480,6 +1520,16 @@ const strategy = {
     const buyRatioRecentPct = Number(tokenData?.buyRatioRecentPct || tokenData?.buyRatio10mPct || 0);
     const netBuyFlowUsd10m = Number(tokenData?.netBuyFlowUsd10m || 0);
     const liquidityUsd = Number(tokenData?.liquidityUsd || 0);
+    const spreadBps = Number(tokenData?.spreadBps ?? tokenData?.expectedSpreadBps ?? tokenData?.bidAskSpreadBps ?? 0);
+    const maxSpreadBps = Number(strategyCfg?.maxSpreadBps || 0);
+    const expectedFeesBps = Number(strategyCfg?.expectedFeesBps ?? 0);
+    const expectedSlippageBps = Number(tokenData?.expectedSlippageBps ?? strategyCfg?.expectedSlippageBps ?? 0);
+    const expectedCostPct = (Math.max(0, expectedFeesBps) + Math.max(0, expectedSlippageBps) + Math.max(0, Number.isFinite(spreadBps) ? spreadBps : 0)) / 100;
+    const assumedWinRate = Math.max(0.05, Math.min(0.95, Number(strategyCfg?.assumedWinRatePct || config.risk?.assumedWinRatePct || 42) / 100));
+    const assumedTargetPct = Number(strategyCfg?.takeProfitPct || config.risk?.takeProfitPct || 25);
+    const assumedStopPct = Number(strategyCfg?.stopLossPct || config.risk?.stopLossPct || 6);
+    const expectedNetEdgePct = (assumedWinRate * assumedTargetPct) - ((1 - assumedWinRate) * assumedStopPct) - expectedCostPct;
+    const minNetEdgePct = Number(strategyCfg?.minNetEdgePct || 0);
     const patternAnalysis = (strategyName === 'backes_swing' || chainName === 'kucoin') && isEstablishedTokenCandidate(tokenData)
       ? await analyzeEstablishedTokenPatterns({ ...tokenData, chainKey: chainName }).catch(() => null)
       : null;
@@ -1560,6 +1610,10 @@ const strategy = {
     if (!(volumeConfirmed || strongMove)) reasons.push('volume_or_momentum_not_confirmed');
     if (!(flowConfirmed || ratioConfirmed || strongMove || kucoinFlowProxy)) reasons.push('buy_flow_not_confirmed');
     if (!(Number.isFinite(liquidityUsd) && liquidityUsd > 0)) reasons.push('missing_liquidity');
+    if (Number.isFinite(spreadBps) && maxSpreadBps > 0 && spreadBps > maxSpreadBps) reasons.push(`spread_above_max:${spreadBps.toFixed(1)}>${maxSpreadBps}`);
+    if (minNetEdgePct > 0 && (!Number.isFinite(expectedNetEdgePct) || expectedNetEdgePct < minNetEdgePct)) {
+      reasons.push(`net_edge_below_min:${Number.isFinite(expectedNetEdgePct) ? expectedNetEdgePct.toFixed(2) : 'NaN'}<${minNetEdgePct}`);
+    }
     if (patternAnalysis?.strongestPattern?.pattern) reasons.push(`pattern_context:${patternAnalysis.strongestPattern.pattern}`);
 
     // Recovery mode — in deep/moderate recovery require BOTH volume AND buy-flow (no OR shortcut)
@@ -1586,6 +1640,8 @@ const strategy = {
       && recoveryFlowGate
       && Number.isFinite(liquidityUsd)
       && liquidityUsd > 0
+      && !(Number.isFinite(spreadBps) && maxSpreadBps > 0 && spreadBps > maxSpreadBps)
+      && !(minNetEdgePct > 0 && (!Number.isFinite(expectedNetEdgePct) || expectedNetEdgePct < minNetEdgePct))
     ) {
       signal = 'BUY';
     }
@@ -2093,6 +2149,19 @@ RUNTIME_STRATEGY_NAMES.forEach((strategyName) => {
   loopLastCompletedAt[`${strategyName}Scan`] = null;
   loopLastCompletedAt[`${strategyName}Exit`] = null;
 });
+const loopLastStartedAt = {
+  momentumScan: null,
+  bullFlagScan: null,
+  momentumExit: null,
+  bullFlagExit: null,
+  realtimeStop: null,
+  walletBalanceRefresh: null,
+  kucoinMomentumScan: null,
+};
+RUNTIME_STRATEGY_NAMES.forEach((strategyName) => {
+  loopLastStartedAt[`${strategyName}Scan`] = null;
+  loopLastStartedAt[`${strategyName}Exit`] = null;
+});
 
 function refreshScanInFlightFlag() {
   scanInFlight = Object.entries(loopLocks).some(([key, value]) => Boolean(value) && key.endsWith('Scan'))
@@ -2385,6 +2454,32 @@ const { buildDashboardState, getAgentActionFeed } = createDashboardState({
   getIntelligenceAgent: () => intelligenceAgent,
 });
 
+async function executeBuyWithConfirmation(chainName, exchange, tokenData, strategyName) {
+  const previousTrade = portfolio.trades?.[0] || null;
+  await executeBuy(chainName, exchange, tokenData, strategyName);
+
+  const latestTrade = portfolio.trades?.[0] || null;
+  const expectedAddress = String(tokenData?.address || '').trim().toLowerCase();
+  const expectedSymbol = String(tokenData?.symbol || '').trim().toUpperCase();
+  const tradeAddress = String(latestTrade?.address || '').trim().toLowerCase();
+  const tradeSymbol = String(latestTrade?.symbol || '').trim().toUpperCase();
+  const sameInstrument = expectedAddress
+    ? tradeAddress === expectedAddress
+    : Boolean(expectedSymbol && tradeSymbol === expectedSymbol);
+  const sameChain = normalizeChainKey(latestTrade?.chainKey || latestTrade?.chain) === normalizeChainKey(chainName);
+  const executed = (
+    latestTrade != null
+    && latestTrade !== previousTrade
+    && String(latestTrade.type || '').toUpperCase() === 'BUY'
+    && sameInstrument
+    && sameChain
+  );
+
+  return executed
+    ? { executed: true, trade: latestTrade }
+    : { executed: false, reason: 'execution_not_confirmed' };
+}
+
 const tokenDecisionPipeline = createTokenDecisionPipeline({
   config,
   logger,
@@ -2412,7 +2507,7 @@ const tokenDecisionPipeline = createTokenDecisionPipeline({
   queueDecisionTelemetry,
   recordTradeBlockState,
   classifyRejectReason,
-  executeBuy: (...args) => executeBuy(...args),
+  executeBuy: (...args) => executeBuyWithConfirmation(...args),
   enterSafeMode,
   sendErrorAlert,
 });
@@ -3043,8 +3138,13 @@ function getHealthStatus() {
   const bullFlagExitMs = Math.max(5 * 60_000, Number(config.bot.bullFlagExitCheckMinutes || config.bot.momentumExitCheckMinutes || 15) * 60_000);
   const realtimeStopMs = Math.max(2_000, Number(config.risk?.realtimeStopCheckSeconds || 8) * 1000);
   const walletBalanceMs = Math.max(30_000, Number(config.bot.walletBalanceRefreshSeconds || 60) * 1000);
-  const checkStale = (key, intervalMs, multiplier) => {
+  const checkStale = (key, intervalMs, multiplier, { active = false, activeMultiplier = 8 } = {}) => {
     const ts = loopLastCompletedAt[key];
+    const startedAt = loopLastStartedAt[key];
+    if (active) {
+      if (startedAt !== null && (healthNow - startedAt) > activeMultiplier * intervalMs) return true;
+      return false;
+    }
     return ts !== null && (healthNow - ts) > multiplier * intervalMs;
   };
   const getStrategyScanIntervalMs = (strategyName) => {
@@ -3061,16 +3161,22 @@ function getHealthStatus() {
   const strategyLoopStaleness = Object.fromEntries(enabledRuntimeStrategyNames.map((strategyName) => [
     strategyName,
     {
-      scan: checkStale(getScanLockKey(strategyName), getStrategyScanIntervalMs(strategyName), 3),
-      exit: checkStale(getExitLockKey(strategyName), getStrategyExitIntervalMs(strategyName), 3),
+      scan: checkStale(getScanLockKey(strategyName), getStrategyScanIntervalMs(strategyName), 3, {
+        active: Boolean(loopLocks[getScanLockKey(strategyName)]),
+      }),
+      exit: checkStale(getExitLockKey(strategyName), getStrategyExitIntervalMs(strategyName), 3, {
+        active: Boolean(loopLocks[getExitLockKey(strategyName)]),
+      }),
     },
   ]));
   const loopStaleness = {
-    momentumScan: checkStale('momentumScan', momentumScanMs, 3),
-    bullFlagScan: checkStale('bullFlagScan', bullFlagScanMs, 3),
-    momentumExit: checkStale('momentumExit', momentumExitMs, 3),
-    bullFlagExit: checkStale('bullFlagExit', bullFlagExitMs, 3),
-    realtimeStop: Boolean(config.risk?.realtimeStopLossEnabled !== false) ? checkStale('realtimeStop', realtimeStopMs, 4) : false,
+    momentumScan: checkStale('momentumScan', momentumScanMs, 3, { active: Boolean(loopLocks.momentumScan) }),
+    bullFlagScan: checkStale('bullFlagScan', bullFlagScanMs, 3, { active: Boolean(loopLocks.bullFlagScan) }),
+    momentumExit: checkStale('momentumExit', momentumExitMs, 3, { active: Boolean(loopLocks.momentumExit) }),
+    bullFlagExit: checkStale('bullFlagExit', bullFlagExitMs, 3, { active: Boolean(loopLocks.bullFlagExit) }),
+    realtimeStop: Boolean(config.risk?.realtimeStopLossEnabled !== false)
+      ? checkStale('realtimeStop', realtimeStopMs, 4, { active: Boolean(loopLocks.realtimeStop), activeMultiplier: 12 })
+      : false,
     walletBalanceRefresh: checkStale('walletBalanceRefresh', walletBalanceMs, 3),
   };
   const anyStrategyLoopStale = enabledRuntimeStrategyNames.some((strategyName) => {
@@ -3189,6 +3295,8 @@ function getHealthStatus() {
         {
           scanTimerActive: Boolean(getScanTimer(strategyName)),
           exitTimerActive: Boolean(getExitTimer(strategyName)),
+          scanStartedAt: loopLastStartedAt[getScanLockKey(strategyName)] ? new Date(loopLastStartedAt[getScanLockKey(strategyName)]).toISOString() : null,
+          exitStartedAt: loopLastStartedAt[getExitLockKey(strategyName)] ? new Date(loopLastStartedAt[getExitLockKey(strategyName)]).toISOString() : null,
           scanLastCompletedAt: loopLastCompletedAt[getScanLockKey(strategyName)] ? new Date(loopLastCompletedAt[getScanLockKey(strategyName)]).toISOString() : null,
           exitLastCompletedAt: loopLastCompletedAt[getExitLockKey(strategyName)] ? new Date(loopLastCompletedAt[getExitLockKey(strategyName)]).toISOString() : null,
           scanStale: Boolean(strategyLoopStaleness[strategyName]?.scan),
@@ -3491,6 +3599,7 @@ function getPortfolioSnapshot(options = {}) {
     strategies: strategySummaries,
     positions: compact ? positions.slice(0, 12) : positions,
     recentTrades: compact ? getRecentTrades(8) : getRecentTrades(30),
+    trades: compact ? undefined : getRecentTrades(250),
     pnlHistory: compact ? portfolio.pnlHistory.slice(-40) : portfolio.pnlHistory.slice(-180),
   };
 
@@ -3507,6 +3616,7 @@ function recordPortfolioSnapshot(reason) {
     telemetry,
     getSnapshot: getPortfolioSnapshot,
     reason,
+    priceHistories: strategy.priceHistory,
   });
 }
 
@@ -4731,6 +4841,7 @@ function shouldPauseKucoinEntryScans() {
 const _scanCycleFactory = require('./cycle/scan-cycle').create({
   loopLocks,
   loopLastCompletedAt,
+  loopLastStartedAt,
   filterStatsState,
   config,
   logger,
@@ -4768,6 +4879,7 @@ const _exitPassFactory = require('./cycle/exit-pass').create({
   marketState,
   loopLocks,
   loopLastCompletedAt,
+  loopLastStartedAt,
   config,
   risk,
   CHAIN_LABELS,

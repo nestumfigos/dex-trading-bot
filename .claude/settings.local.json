@@ -241,7 +241,13 @@
       "Bash(curl -s --max-time 3 http://127.0.0.1:3001/health)",
       "Bash(curl -s --max-time 5 http://127.0.0.1:3003/)",
       "Bash(grep -oE 'data-status=\"[^\"]*\"|class=\"status[^\"]*\"|paper.{0,30}offline|down.{0,30}|wsStatus')",
-      "Bash(grep -n \"'3001', '3002'\\\\|\\\\\\\\['3001'\" C:/Users/User_/Desktop/dex-trading-bot/src/dashboard.js)"
+      "Bash(grep -n \"'3001', '3002'\\\\|\\\\\\\\['3001'\" C:/Users/User_/Desktop/dex-trading-bot/src/dashboard.js)",
+      "Bash(node --test test/strategies/deployment.test.js)",
+      "Bash(/c/Python314/python /tmp/hunk-select.py . ecosystem.config.js \"2026-07-02|TRAILING_ACTIVATION|LIVE_BSC_ENTRIES_ENABLED: 'false'|VOLUME_SPIKE_MULTIPLIER: '1.8'|BUY_RATIO_RECENT_PCT: '55'\")",
+      "Bash(git apply *)",
+      "Bash(/c/Python314/python /tmp/hunk-select.py . src/dashboard.js \"PnL reconciliation|realizedPnlDriftUsd\")",
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }

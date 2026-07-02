@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { evaluatePromotionGate } = require('../../packages/core');
 
 function stableStringify(value) {
   if (value === null || value === undefined) return 'null';
@@ -147,7 +148,85 @@ function validatePromotionCandidate(manifest) {
   if (manifest.rollout?.manualApprovalRequired === true && manifest.rollout?.manualApprovalGranted !== true) {
     return { allow: false, reason: 'manual_approval_required' };
   }
+  const v2GateRequired = manifest.promotion?.v2GateRequired === true || manifest.promotion?.gateRequired === true;
+  if (v2GateRequired) {
+    const gate = manifest.promotion?.v2Gate || manifest.promotion?.gate || manifest.gate;
+    if (!gate || gate.passed !== true) {
+      return { allow: false, reason: 'promotion_gate_evidence_required' };
+    }
+    if (Array.isArray(gate.reasons) && gate.reasons.length > 0) {
+      return { allow: false, reason: 'promotion_gate_has_failures' };
+    }
+  }
   return { allow: true, reason: 'validated_and_approved' };
+}
+
+function evaluatePromotionEvidenceGate({
+  manifest = {},
+  context = {},
+  strategyClass = manifest.strategyClass || context.strategyClass || 'generic',
+  thresholds = {},
+  now,
+} = {}) {
+  const stats = context.stats || {};
+  const promotion = manifest.promotion || {};
+  const evidence = manifest.evidence || {};
+  const metrics = {
+    sampleSize: promotion.sampleSize
+      ?? evidence.sampleSize
+      ?? context.promotionMetrics?.sampleSize
+      ?? stats.closedTrades
+      ?? stats.trades
+      ?? 0,
+    expectancyUsd: promotion.expectancyUsd
+      ?? evidence.expectancyUsd
+      ?? context.promotionMetrics?.expectancyUsd
+      ?? stats.expectancyUsd
+      ?? stats.expectancy
+      ?? 0,
+    stressedExpectancyUsd: promotion.stressedExpectancyUsd
+      ?? evidence.stressedExpectancyUsd
+      ?? context.promotionMetrics?.stressedExpectancyUsd
+      ?? context.stressedExpectancyUsd
+      ?? 0,
+    profitFactor: promotion.profitFactor
+      ?? evidence.profitFactor
+      ?? context.promotionMetrics?.profitFactor
+      ?? stats.profitFactor
+      ?? 0,
+    maxDrawdownPct: promotion.maxDrawdownPct
+      ?? evidence.maxDrawdownPct
+      ?? context.promotionMetrics?.maxDrawdownPct
+      ?? stats.maxDrawdownPct
+      ?? stats.drawdownPct
+      ?? 0,
+    symbolConcentrationPct: promotion.symbolConcentrationPct
+      ?? evidence.symbolConcentrationPct
+      ?? context.promotionMetrics?.symbolConcentrationPct
+      ?? context.symbolConcentrationPct
+      ?? 0,
+    regimeCoverageCount: promotion.regimeCoverageCount
+      ?? evidence.regimeCoverageCount
+      ?? context.promotionMetrics?.regimeCoverageCount
+      ?? context.regimeCoverageCount
+      ?? 0,
+    executionDiscrepancyPct: promotion.executionDiscrepancyPct
+      ?? evidence.executionDiscrepancyPct
+      ?? context.promotionMetrics?.executionDiscrepancyPct
+      ?? context.paperLiveComparison?.executionDiscrepancyPct
+      ?? context.paperLiveComparison?.fillDiscrepancyDeltaPct
+      ?? 0,
+  };
+
+  return evaluatePromotionGate({
+    botProfile: manifest.versioning?.sourceProfile || context.botProfile || context.sourceProfile || null,
+    targetProfile: promotion.targetProfile || context.targetProfile || 'live_spot',
+    strategy: manifest.strategy || context.strategy || context.strategyId || null,
+    strategyClass,
+    metrics,
+    thresholds,
+    now,
+  });
 }
 
 function normalizeRegimeLabel(raw = '') {
@@ -181,6 +260,7 @@ module.exports = {
   classifyPromotionImpact,
   validateGeneratedBehaviorApplication,
   validatePromotionCandidate,
+  evaluatePromotionEvidenceGate,
   normalizeRegimeLabel,
   classifyRegimeFamily,
 };

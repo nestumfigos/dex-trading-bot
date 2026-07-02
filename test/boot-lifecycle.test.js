@@ -110,6 +110,37 @@ test('shutdownAndExit drains lockManager hooks', async () => {
   }
 });
 
+test('shutdownAndExit releases singleton locks before telemetry and state cleanup', async () => {
+  const calls = [];
+  const origExit = process.exit;
+  process.exit = () => {};
+  try {
+    const lifecycle = createLifecycle({
+      logger: silentLogger,
+      wsDiscovery: { stop: async () => { calls.push('wsStop'); } },
+      getDashboardServer: () => ({
+        close(cb) {
+          calls.push('dashboardClose');
+          cb();
+        },
+      }),
+      lockManager: {
+        drain: async () => { calls.push('lockDrain'); },
+      },
+      telemetry: {
+        endRun: async () => { calls.push('telEnd'); },
+        flush: async () => { calls.push('telFlush'); },
+      },
+      saveState: async () => { calls.push('saveState'); },
+      hookTimeoutMs: 200,
+    });
+    await lifecycle.shutdownAndExit(0, 'test');
+    assert.deepEqual(calls, ['wsStop', 'dashboardClose', 'lockDrain', 'telEnd', 'telFlush', 'saveState']);
+  } finally {
+    process.exit = origExit;
+  }
+});
+
 test('shutdownAndExit second call exits immediately (no double-drain)', async () => {
   const calls = [];
   const origExit = process.exit;

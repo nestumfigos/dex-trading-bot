@@ -1,4 +1,5 @@
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const PAPER_WORKTREE_PATH = process.env.PAPER_WORKTREE_PATH || path.resolve(__dirname, '..', 'dex-trading-bot-paper');
 const PERPS_REPO_PATH    = process.env.PERPS_REPO_PATH    || path.resolve(__dirname, '..', 'dex-trading-bot-perps');
@@ -8,6 +9,7 @@ module.exports = {
     {
       name: 'dex-bot',
       script: 'src/index.js',
+      node_args: '--max-old-space-size=2048',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
@@ -16,18 +18,75 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
       watch: false,
-      max_memory_restart: '500M',
+      max_memory_restart: '1800M',
       env: {
         NODE_ENV: 'production',
         BOT_PROFILE: 'live',
         PORT: '3002',
         DASHBOARD_BIND_HOST: '0.0.0.0',
+        MOMENTUM_ENABLED: 'true',
+        MOMENTUM_ENABLED_CHAINS: 'kucoin',
+        MOMENTUM_MAX_CONCURRENT_POSITIONS: '1',
+        MOMENTUM_MIN_24H_VOLUME_USD: '5000000',
+        MOMENTUM_MIN_LIQUIDITY_USD: '500000',
+        MOMENTUM_MAX_SPREAD_BPS: '45',
+        MOMENTUM_MIN_NET_EDGE_PCT: '1.2',
+        MOMENTUM_EXPECTED_FEES_BPS: '20',
+        MOMENTUM_EXPECTED_SLIPPAGE_BPS: '25',
+        // 2026-07-02 perf audit — exit-geometry fix. Live momentum showed
+        // avgWin $0.23 < avgLoss $0.27 at 38% win (PF 0.53): trailing stop
+        // activated at +2.5% with a 2.5% trail, so winners scratched out near
+        // breakeven while stops ran the full 4.5%. New geometry: activate
+        // trailing at +4.5%, trail 3.25% — winners can reach the +8% first
+        // sell tier instead of trail-scratching; stop tightened 4.5 -> 4.0.
+        MOMENTUM_STOP_LOSS_PCT: '4.0',
+        MOMENTUM_TAKE_PROFIT_PCT: '25',
+        MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
+        MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        MOMENTUM_STOP_LOSS_THROTTLE_ENABLED: 'true',
+        MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS: '24',
+        MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER: '0.65',
+        MOMENTUM_STOP_LOSS_THROTTLE_FLOOR_MULTIPLIER: '0.25',
+        MOMENTUM_STOP_LOSS_THROTTLE_MIN_LOSS_USD: '20',
+        MOMENTUM_RSI_BUY_THRESHOLD: '40',
+        MOMENTUM_RSI_BUY_MAX_THRESHOLD: '78',
+        // Entry confirmation tightened (1.5 -> 1.8 vol spike, 52 -> 55 buy
+        // ratio): at 38% win the marginal chop entry was net-negative; fewer,
+        // better-confirmed entries raise win rate at small trade-count cost.
+        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.8',
+        MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '55',
+        MOMENTUM_MIN_NET_BUY_FLOW_USD: '5000',
+        MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: '2',
+        MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_KUCOIN: '35',
+        // 2026-07-02 perf audit: paper canary shows spot_day_bull_flag PF 0.015
+        // (11% win, -$156 over 9 trades). Strategy must NOT trade real money
+        // until it proves >1.0 PF on paper. Paper keeps it enabled for data.
+        BULL_FLAG_ENABLED: 'false',
+        BULL_FLAG_ENABLED_CHAINS: 'kucoin',
+        BULL_FLAG_MAX_CONCURRENT_POSITIONS: '1',
+        BULL_FLAG_MIN_24H_VOLUME_USD: '5000000',
+        BULL_FLAG_MIN_LIQUIDITY_USD: '500000',
+        BULL_FLAG_MIN_60M_MOVE_PCT: '5',
+        BULL_FLAG_MAX_60M_MOVE_PCT: '12',
+        BULL_FLAG_POLE_PCT_MIN: '5',
+        BULL_FLAG_LATEST_VOLUME_MIN_RATIO: '2.0',
+        BULL_FLAG_BREAKOUT_VOL_MIN_RATIO: '1.5',
+        BULL_FLAG_FLAG_VOL_CONTRACT_MAX_RATIO: '0.70',
+        BULL_FLAG_MIN_NET_EDGE_PCT: '2.5',
+        BULL_FLAG_MIN_RR: '2.0',
+        BULL_FLAG_MAX_STOP_DISTANCE_PCT: '3.5',
+        BULL_FLAG_RISK_PCT_BASE: '0.20',
+        BULL_FLAG_RISK_PCT_APLUS: '0.35',
         // Python sidecar/external models enabled. PM2's WMIC monitor path was
         // the confirmed cmd-window storm source and is patched locally.
         PYTHON_SIDECAR_ENABLED: 'true',
         EXTERNAL_MODELS_ENABLED: 'true',
         PYTHON_SIDECAR_TIMEOUT_MS: '4000',
-        LIVE_BSC_ENTRIES_ENABLED: 'true',
+        // 2026-07-02 perf audit: BSC PF 0.11 on BOTH books (live -$6.64,
+        // paper -$39.81; avgLoss 17-27x avgWin) — structural exit/slippage
+        // problem, not variance. No BSC strategy is enabled on live anyway;
+        // this master gate makes that explicit.
+        LIVE_BSC_ENTRIES_ENABLED: 'false',
         BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: '60',
         BSC_MAX_CONSECUTIVE_LOSSES: '8',
         LEARNING_ENABLED: 'false',
@@ -40,6 +99,10 @@ module.exports = {
         SQL_TELEMETRY_FLUSH_MS: '3000',
         MIN_LIQUIDITY_USD: '5000',
         PRE_TRADE_CONTRACT_MODE: 'enforce',
+        PROFITABILITY_GUARD_ENABLED: 'true',
+        PROFITABILITY_GUARD_MIN_CLOSED_TRADES: '20',
+        PROFITABILITY_GUARD_MIN_PROFIT_FACTOR: '1',
+        PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: '0',
         BOT_MIN_SCHEMA_VERSION: '17',
         SQL_AUTO_PRUNE_ENABLED: 'true',
         SQL_AUTO_PRUNE_INTERVAL_MS: '3600000',
@@ -51,12 +114,69 @@ module.exports = {
         BOT_PROFILE: 'live',
         PORT: '3002',
         DASHBOARD_BIND_HOST: '0.0.0.0',
+        MOMENTUM_ENABLED: 'true',
+        MOMENTUM_ENABLED_CHAINS: 'kucoin',
+        MOMENTUM_MAX_CONCURRENT_POSITIONS: '1',
+        MOMENTUM_MIN_24H_VOLUME_USD: '5000000',
+        MOMENTUM_MIN_LIQUIDITY_USD: '500000',
+        MOMENTUM_MAX_SPREAD_BPS: '45',
+        MOMENTUM_MIN_NET_EDGE_PCT: '1.2',
+        MOMENTUM_EXPECTED_FEES_BPS: '20',
+        MOMENTUM_EXPECTED_SLIPPAGE_BPS: '25',
+        // 2026-07-02 perf audit — exit-geometry fix. Live momentum showed
+        // avgWin $0.23 < avgLoss $0.27 at 38% win (PF 0.53): trailing stop
+        // activated at +2.5% with a 2.5% trail, so winners scratched out near
+        // breakeven while stops ran the full 4.5%. New geometry: activate
+        // trailing at +4.5%, trail 3.25% — winners can reach the +8% first
+        // sell tier instead of trail-scratching; stop tightened 4.5 -> 4.0.
+        MOMENTUM_STOP_LOSS_PCT: '4.0',
+        MOMENTUM_TAKE_PROFIT_PCT: '25',
+        MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
+        MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        MOMENTUM_STOP_LOSS_THROTTLE_ENABLED: 'true',
+        MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS: '24',
+        MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER: '0.65',
+        MOMENTUM_STOP_LOSS_THROTTLE_FLOOR_MULTIPLIER: '0.25',
+        MOMENTUM_STOP_LOSS_THROTTLE_MIN_LOSS_USD: '20',
+        MOMENTUM_RSI_BUY_THRESHOLD: '40',
+        MOMENTUM_RSI_BUY_MAX_THRESHOLD: '78',
+        // Entry confirmation tightened (1.5 -> 1.8 vol spike, 52 -> 55 buy
+        // ratio): at 38% win the marginal chop entry was net-negative; fewer,
+        // better-confirmed entries raise win rate at small trade-count cost.
+        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.8',
+        MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '55',
+        MOMENTUM_MIN_NET_BUY_FLOW_USD: '5000',
+        MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: '2',
+        MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_KUCOIN: '35',
+        // 2026-07-02 perf audit: paper canary shows spot_day_bull_flag PF 0.015
+        // (11% win, -$156 over 9 trades). Strategy must NOT trade real money
+        // until it proves >1.0 PF on paper. Paper keeps it enabled for data.
+        BULL_FLAG_ENABLED: 'false',
+        BULL_FLAG_ENABLED_CHAINS: 'kucoin',
+        BULL_FLAG_MAX_CONCURRENT_POSITIONS: '1',
+        BULL_FLAG_MIN_24H_VOLUME_USD: '5000000',
+        BULL_FLAG_MIN_LIQUIDITY_USD: '500000',
+        BULL_FLAG_MIN_60M_MOVE_PCT: '5',
+        BULL_FLAG_MAX_60M_MOVE_PCT: '12',
+        BULL_FLAG_POLE_PCT_MIN: '5',
+        BULL_FLAG_LATEST_VOLUME_MIN_RATIO: '2.0',
+        BULL_FLAG_BREAKOUT_VOL_MIN_RATIO: '1.5',
+        BULL_FLAG_FLAG_VOL_CONTRACT_MAX_RATIO: '0.70',
+        BULL_FLAG_MIN_NET_EDGE_PCT: '2.5',
+        BULL_FLAG_MIN_RR: '2.0',
+        BULL_FLAG_MAX_STOP_DISTANCE_PCT: '3.5',
+        BULL_FLAG_RISK_PCT_BASE: '0.20',
+        BULL_FLAG_RISK_PCT_APLUS: '0.35',
         // Python sidecar/external models enabled. PM2's WMIC monitor path was
         // the confirmed cmd-window storm source and is patched locally.
         PYTHON_SIDECAR_ENABLED: 'true',
         EXTERNAL_MODELS_ENABLED: 'true',
         PYTHON_SIDECAR_TIMEOUT_MS: '4000',
-        LIVE_BSC_ENTRIES_ENABLED: 'true',
+        // 2026-07-02 perf audit: BSC PF 0.11 on BOTH books (live -$6.64,
+        // paper -$39.81; avgLoss 17-27x avgWin) — structural exit/slippage
+        // problem, not variance. No BSC strategy is enabled on live anyway;
+        // this master gate makes that explicit.
+        LIVE_BSC_ENTRIES_ENABLED: 'false',
         BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: '60',
         BSC_MAX_CONSECUTIVE_LOSSES: '8',
         LEARNING_ENABLED: 'false',
@@ -69,6 +189,10 @@ module.exports = {
         SQL_TELEMETRY_FLUSH_MS: '3000',
         MIN_LIQUIDITY_USD: '5000',
         PRE_TRADE_CONTRACT_MODE: 'enforce',
+        PROFITABILITY_GUARD_ENABLED: 'true',
+        PROFITABILITY_GUARD_MIN_CLOSED_TRADES: '20',
+        PROFITABILITY_GUARD_MIN_PROFIT_FACTOR: '1',
+        PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: '0',
         BOT_MIN_SCHEMA_VERSION: '17',
         SQL_AUTO_PRUNE_ENABLED: 'true',
         SQL_AUTO_PRUNE_INTERVAL_MS: '3600000',
@@ -93,14 +217,15 @@ module.exports = {
       //   2. pm2-Windows fork mode opens a visible console wrapper for each
       //      cron-spawned child. Removing cron removes the flashing.
       // Memory mitigation now relies on:
-      //   - 4GB V8 heap (--max-old-space-size=4096) — machine has 30GB.
+      //   - 2GB V8 heap (--max-old-space-size=2048), matching the live bot
+      //     profile that avoided native Windows node crashes.
       //   - Operator memory monitoring (Task Manager / Get-Process). If RSS
-      //     climbs past ~3GB, manually `pm2 restart dex-bot-paper` once.
+      //     climbs past ~1.6GB, manually `pm2 restart dex-bot-paper` once.
       //   - Future: heap-profile the ML superset to find the actual leak.
       // If automatic recycling becomes necessary again, prefer a long
       // interval (e.g. '0 */4 * * *' = every 4h) AND bump kill_timeout to
       // 30s so the old process drains fully before the new spawn lands.
-      node_args: '--max-old-space-size=4096',
+      node_args: '--max-old-space-size=2048',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
@@ -109,7 +234,7 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
       watch: false,
-      max_memory_restart: '3500M',
+      max_memory_restart: '1800M',
       env: {
         NODE_ENV: 'production',
         PAPER_TRADING: 'true',
@@ -117,6 +242,55 @@ module.exports = {
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
+        MOMENTUM_ENABLED: 'true',
+        MOMENTUM_ENABLED_CHAINS: 'kucoin',
+        MOMENTUM_MAX_CONCURRENT_POSITIONS: '2',
+        MOMENTUM_MIN_24H_VOLUME_USD: '1000000',
+        MOMENTUM_MIN_LIQUIDITY_USD: '250000',
+        MOMENTUM_MAX_SPREAD_BPS: '80',
+        MOMENTUM_MIN_NET_EDGE_PCT: '0.8',
+        MOMENTUM_EXPECTED_FEES_BPS: '25',
+        MOMENTUM_EXPECTED_SLIPPAGE_BPS: '35',
+        // 2026-07-02: mirror live exit geometry so the canary validates it
+        // (trailing was scratching winners at +2.5%; see live block comment).
+        MOMENTUM_STOP_LOSS_PCT: '4.0',
+        MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
+        MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        MOMENTUM_RSI_BUY_THRESHOLD: '40',
+        MOMENTUM_RSI_BUY_MAX_THRESHOLD: '78',
+        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.35',
+        MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '50',
+        MOMENTUM_MIN_NET_BUY_FLOW_USD: '3500',
+        MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: '1.5',
+        BACKES_ENABLED: 'true',
+        BACKES_ENABLED_CHAINS: 'kucoin',
+        BACKES_SWING_ENABLED: 'true',
+        BACKES_SWING_ENABLED_CHAINS: 'kucoin',
+        BSC_FLOW_BREAKOUT_ENABLED: 'true',
+        BSC_FLOW_BREAKOUT_ENABLED_CHAINS: 'bsc',
+        BSC_FLOW_BREAKOUT_SCAN_ONLY: 'true',
+        BASE_DEX_MOMENTUM_RECLAIM_ENABLED: 'true',
+        BASE_DEX_MOMENTUM_RECLAIM_ENABLED_CHAINS: 'base',
+        BASE_DEX_MOMENTUM_RECLAIM_SCAN_ONLY: 'true',
+        SOLANA_BULL_FLAG_V2_ENABLED: 'true',
+        SOLANA_BULL_FLAG_V2_ENABLED_CHAINS: 'solana',
+        BULL_FLAG_ENABLED: 'true',
+        BULL_FLAG_ENABLED_CHAINS: 'kucoin',
+        BULL_FLAG_MAX_CONCURRENT_POSITIONS: '2',
+        BULL_FLAG_MIN_24H_VOLUME_USD: '5000000',
+        BULL_FLAG_MIN_LIQUIDITY_USD: '500000',
+        BULL_FLAG_MIN_60M_MOVE_PCT: '5',
+        BULL_FLAG_MAX_60M_MOVE_PCT: '12',
+        BULL_FLAG_POLE_PCT_MIN: '5',
+        BULL_FLAG_LATEST_VOLUME_MIN_RATIO: '2.0',
+        BULL_FLAG_BREAKOUT_VOL_MIN_RATIO: '1.5',
+        BULL_FLAG_FLAG_VOL_CONTRACT_MAX_RATIO: '0.70',
+        BULL_FLAG_ALLOW_CONTINUATION_SCOUT: 'false',
+        BULL_FLAG_MIN_NET_EDGE_PCT: '2.5',
+        BULL_FLAG_MIN_RR: '2.0',
+        BULL_FLAG_MAX_STOP_DISTANCE_PCT: '3.5',
+        BULL_FLAG_RISK_PCT_BASE: '0.20',
+        BULL_FLAG_RISK_PCT_APLUS: '0.35',
         // Python sidecar/external models enabled. Keep paper sidecar bounded
         // because it can evaluate many tokens per cycle.
         PYTHON_SIDECAR_ENABLED: 'true',
@@ -132,6 +306,10 @@ module.exports = {
         SQL_AUTO_PRUNE_ENABLED: 'true',
         SQL_AUTO_PRUNE_INTERVAL_MS: '3600000',
         PRE_TRADE_CONTRACT_MODE: 'enforce',
+        PROFITABILITY_GUARD_ENABLED: 'true',
+        PROFITABILITY_GUARD_MIN_CLOSED_TRADES: '20',
+        PROFITABILITY_GUARD_MIN_PROFIT_FACTOR: '1',
+        PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: '0',
         BOT_MIN_SCHEMA_VERSION: '17',
       },
       env_production: {
@@ -141,6 +319,55 @@ module.exports = {
         DASHBOARD_BIND_HOST: '0.0.0.0',
         BOT_PROFILE: 'paper',
         BOT_DATA_DIR: 'data',
+        MOMENTUM_ENABLED: 'true',
+        MOMENTUM_ENABLED_CHAINS: 'kucoin',
+        MOMENTUM_MAX_CONCURRENT_POSITIONS: '2',
+        MOMENTUM_MIN_24H_VOLUME_USD: '1000000',
+        MOMENTUM_MIN_LIQUIDITY_USD: '250000',
+        MOMENTUM_MAX_SPREAD_BPS: '80',
+        MOMENTUM_MIN_NET_EDGE_PCT: '0.8',
+        MOMENTUM_EXPECTED_FEES_BPS: '25',
+        MOMENTUM_EXPECTED_SLIPPAGE_BPS: '35',
+        // 2026-07-02: mirror live exit geometry so the canary validates it
+        // (trailing was scratching winners at +2.5%; see live block comment).
+        MOMENTUM_STOP_LOSS_PCT: '4.0',
+        MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
+        MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        MOMENTUM_RSI_BUY_THRESHOLD: '40',
+        MOMENTUM_RSI_BUY_MAX_THRESHOLD: '78',
+        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.35',
+        MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '50',
+        MOMENTUM_MIN_NET_BUY_FLOW_USD: '3500',
+        MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: '1.5',
+        BACKES_ENABLED: 'true',
+        BACKES_ENABLED_CHAINS: 'kucoin',
+        BACKES_SWING_ENABLED: 'true',
+        BACKES_SWING_ENABLED_CHAINS: 'kucoin',
+        BSC_FLOW_BREAKOUT_ENABLED: 'true',
+        BSC_FLOW_BREAKOUT_ENABLED_CHAINS: 'bsc',
+        BSC_FLOW_BREAKOUT_SCAN_ONLY: 'true',
+        BASE_DEX_MOMENTUM_RECLAIM_ENABLED: 'true',
+        BASE_DEX_MOMENTUM_RECLAIM_ENABLED_CHAINS: 'base',
+        BASE_DEX_MOMENTUM_RECLAIM_SCAN_ONLY: 'true',
+        SOLANA_BULL_FLAG_V2_ENABLED: 'true',
+        SOLANA_BULL_FLAG_V2_ENABLED_CHAINS: 'solana',
+        BULL_FLAG_ENABLED: 'true',
+        BULL_FLAG_ENABLED_CHAINS: 'kucoin',
+        BULL_FLAG_MAX_CONCURRENT_POSITIONS: '2',
+        BULL_FLAG_MIN_24H_VOLUME_USD: '5000000',
+        BULL_FLAG_MIN_LIQUIDITY_USD: '500000',
+        BULL_FLAG_MIN_60M_MOVE_PCT: '5',
+        BULL_FLAG_MAX_60M_MOVE_PCT: '12',
+        BULL_FLAG_POLE_PCT_MIN: '5',
+        BULL_FLAG_LATEST_VOLUME_MIN_RATIO: '2.0',
+        BULL_FLAG_BREAKOUT_VOL_MIN_RATIO: '1.5',
+        BULL_FLAG_FLAG_VOL_CONTRACT_MAX_RATIO: '0.70',
+        BULL_FLAG_ALLOW_CONTINUATION_SCOUT: 'false',
+        BULL_FLAG_MIN_NET_EDGE_PCT: '2.5',
+        BULL_FLAG_MIN_RR: '2.0',
+        BULL_FLAG_MAX_STOP_DISTANCE_PCT: '3.5',
+        BULL_FLAG_RISK_PCT_BASE: '0.20',
+        BULL_FLAG_RISK_PCT_APLUS: '0.35',
         // Python sidecar/external models enabled. Keep paper sidecar bounded
         // because it can evaluate many tokens per cycle.
         PYTHON_SIDECAR_ENABLED: 'true',
@@ -156,6 +383,10 @@ module.exports = {
         SQL_AUTO_PRUNE_ENABLED: 'true',
         SQL_AUTO_PRUNE_INTERVAL_MS: '3600000',
         PRE_TRADE_CONTRACT_MODE: 'enforce',
+        PROFITABILITY_GUARD_ENABLED: 'true',
+        PROFITABILITY_GUARD_MIN_CLOSED_TRADES: '20',
+        PROFITABILITY_GUARD_MIN_PROFIT_FACTOR: '1',
+        PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: '0',
         BOT_MIN_SCHEMA_VERSION: '17',
       },
     },
@@ -196,17 +427,28 @@ module.exports = {
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
         PERPS_PAPER_MARKPRICE_WS_ENABLED: 'true',
-        // 2026-05-31 (operator request): execute paper trades on raw signals
-        // without waiting for per-symbol historical backtest evidence to
-        // accumulate. Admission gate stays enforced when promoting to live —
-        // this opt-out is paper-only by virtue of liveExecutionEnabled=false
-        // being hardcoded in paper-perps-adapter / server. Set to 'true' to
-        // re-enable admission.
-        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'false',
-        // PERPS_PAPER_SYMBOLS intentionally OMITTED: when unset, src/index.js
-        // falls through to load all canonical symbols from
-        // config/kucoin-perps-universe.json (~602 KuCoin perps). To restrict
-        // back to a small list, set PERPS_PAPER_SYMBOLS='BTCUSDT,ETHUSDT,...'.
+        PERPS_PAPER_SYMBOLS: 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,LTCUSDT,BCHUSDT,TONUSDT,SUIUSDT',
+        PERPS_SQL_TELEMETRY_ENABLED: process.env.PERPS_SQL_TELEMETRY_ENABLED || 'true',
+        PERPS_SQL_TELEMETRY_REQUIRED: process.env.PERPS_SQL_TELEMETRY_REQUIRED || 'true',
+        PERPS_SQL_RESTORE_ON_STARTUP: process.env.PERPS_SQL_RESTORE_ON_STARTUP || 'true',
+        PERPS_SQL_RESTORE_REQUIRED: process.env.PERPS_SQL_RESTORE_REQUIRED || 'false',
+        PERPS_SQL_RESTORE_MAX_AGE_MS: process.env.PERPS_SQL_RESTORE_MAX_AGE_MS || '86400000',
+        PERPS_PROFITABILITY_GUARD_ENABLED: process.env.PERPS_PROFITABILITY_GUARD_ENABLED || 'true',
+        PERPS_PROFITABILITY_GUARD_MIN_CLOSED_TRADES: process.env.PERPS_PROFITABILITY_GUARD_MIN_CLOSED_TRADES || '30',
+        PERPS_PROFITABILITY_GUARD_MIN_PROFIT_FACTOR: process.env.PERPS_PROFITABILITY_GUARD_MIN_PROFIT_FACTOR || '1',
+        PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: process.env.PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD || '0',
+        SQL_CONNECTION_STRING: process.env.SQL_CONNECTION_STRING || '',
+        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'true',
+        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'false',
+        PERPS_RANGE_LOOKBACK: '12',
+        PERPS_RANGE_MAX_WIDTH_PCT: '12',
+        PERPS_RANGE_TOUCH_TOLERANCE_PCT: '0.35',
+        PERPS_RANGE_MIN_TOUCHES: '2',
+        PERPS_RANGE_REQUIRE_RECENT_TOUCHES: 'true',
+        PERPS_MIN_REWARD_RISK: '3',
+        PERPS_DEVIATION_RETEST_TOLERANCE_PCT: '0.25',
+        PERPS_DEVIATION_RECLAIM_MARGIN_PCT: '0.05',
+        PERPS_DEVIATION_MAX_TRAP_VOLUME_EXPANSION: '1.5',
       },
       env_production: {
         NODE_ENV: 'production',
@@ -217,8 +459,28 @@ module.exports = {
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
         PERPS_PAPER_MARKPRICE_WS_ENABLED: 'true',
-        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'false',
-        // PERPS_PAPER_SYMBOLS omitted — falls through to full universe.
+        PERPS_PAPER_SYMBOLS: 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,LTCUSDT,BCHUSDT,TONUSDT,SUIUSDT',
+        PERPS_SQL_TELEMETRY_ENABLED: process.env.PERPS_SQL_TELEMETRY_ENABLED || 'true',
+        PERPS_SQL_TELEMETRY_REQUIRED: process.env.PERPS_SQL_TELEMETRY_REQUIRED || 'true',
+        PERPS_SQL_RESTORE_ON_STARTUP: process.env.PERPS_SQL_RESTORE_ON_STARTUP || 'true',
+        PERPS_SQL_RESTORE_REQUIRED: process.env.PERPS_SQL_RESTORE_REQUIRED || 'false',
+        PERPS_SQL_RESTORE_MAX_AGE_MS: process.env.PERPS_SQL_RESTORE_MAX_AGE_MS || '86400000',
+        PERPS_PROFITABILITY_GUARD_ENABLED: process.env.PERPS_PROFITABILITY_GUARD_ENABLED || 'true',
+        PERPS_PROFITABILITY_GUARD_MIN_CLOSED_TRADES: process.env.PERPS_PROFITABILITY_GUARD_MIN_CLOSED_TRADES || '30',
+        PERPS_PROFITABILITY_GUARD_MIN_PROFIT_FACTOR: process.env.PERPS_PROFITABILITY_GUARD_MIN_PROFIT_FACTOR || '1',
+        PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: process.env.PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD || '0',
+        SQL_CONNECTION_STRING: process.env.SQL_CONNECTION_STRING || '',
+        PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'true',
+        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'false',
+        PERPS_RANGE_LOOKBACK: '12',
+        PERPS_RANGE_MAX_WIDTH_PCT: '12',
+        PERPS_RANGE_TOUCH_TOLERANCE_PCT: '0.35',
+        PERPS_RANGE_MIN_TOUCHES: '2',
+        PERPS_RANGE_REQUIRE_RECENT_TOUCHES: 'true',
+        PERPS_MIN_REWARD_RISK: '3',
+        PERPS_DEVIATION_RETEST_TOLERANCE_PCT: '0.25',
+        PERPS_DEVIATION_RECLAIM_MARGIN_PCT: '0.05',
+        PERPS_DEVIATION_MAX_TRAP_VOLUME_EXPANSION: '1.5',
       },
     },
   ],

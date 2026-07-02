@@ -1,8 +1,9 @@
  'use strict';
  
- const os = require('os');
- const crypto = require('crypto');
- const { getPool, ensureSchema, sql } = require('./sqlServer');
+const os = require('os');
+const crypto = require('crypto');
+const { getPool, ensureSchema, sql } = require('./sqlServer');
+const { normalizeBotProfile, normalizeTradingEvent } = require('../../packages/core');
  
  function uuid() {
    return typeof crypto.randomUUID === 'function'
@@ -74,6 +75,19 @@ function toDateOrNull(value) {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function uuidOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
+    ? text
+    : null;
+}
+
+function numberOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function loadSharedAgentMemory(pool) {
@@ -214,6 +228,14 @@ async function loadSharedAgentMemory(pool) {
     this.enqueue('pnl_point', point);
   }
 
+  logPortfolioExposureSnapshot(snapshot) {
+    this.enqueue('portfolio_exposure_snapshot', snapshot);
+  }
+
+  logCorrelationSnapshot(snapshot) {
+    this.enqueue('correlation_snapshot', snapshot);
+  }
+
   logDecision(decision) {
     this.enqueue('decision', decision);
   }
@@ -230,8 +252,20 @@ async function loadSharedAgentMemory(pool) {
     this.enqueue('promotion_event', event);
   }
 
+  logMutationProposal(proposal) {
+    this.enqueue('mutation_proposal', proposal);
+  }
+
+  logPromotionGateEvaluation(evaluation) {
+    this.enqueue('promotion_gate_evaluation', evaluation);
+  }
+
   logOpsEvent(evt) {
     this.enqueue('ops', evt);
+  }
+
+  logTradingEvent(event) {
+    this.enqueue('trading_event', event);
   }
  
    async flush() {
@@ -305,6 +339,32 @@ async function loadSharedAgentMemory(pool) {
  `);
        return;
      }
+
+    if (kind === 'trading_event') {
+      const normalized = normalizeTradingEvent({
+        ...(payload || {}),
+        botProfile: payload?.botProfile || payload?.bot_profile || this.botProfile,
+      });
+      const req = pool.request();
+      req.input('event_id', sql.UniqueIdentifier, payload?.eventId || payload?.event_id || uuid());
+      req.input('event_name', sql.NVarChar(120), String(normalized.eventName).slice(0, 120));
+      req.input('bot_profile', sql.NVarChar(20), String(normalized.botProfile || this.botProfile).slice(0, 20));
+      req.input('strategy', sql.NVarChar(80), normalized.strategy ? String(normalized.strategy).slice(0, 80) : null);
+      req.input('symbol', sql.NVarChar(80), normalized.symbol ? String(normalized.symbol).slice(0, 80) : null);
+      req.input('severity', sql.NVarChar(16), String(normalized.severity || 'info').slice(0, 16));
+      req.input('occurred_at', sql.DateTime2(3), new Date(normalized.occurredAt || Date.now()));
+      req.input('correlation_id', sql.NVarChar(120), normalized.correlationId ? String(normalized.correlationId).slice(0, 120) : null);
+      req.input('payload_json', sql.NVarChar(sql.MAX), safeJson(normalized.payload, 30000));
+      await req.query(`
+INSERT INTO dbo.trading_events(
+  event_id, event_name, bot_profile, strategy, symbol, severity, occurred_at, correlation_id, payload_json
+)
+VALUES (
+  @event_id, @event_name, @bot_profile, @strategy, @symbol, @severity, @occurred_at, @correlation_id, @payload_json
+)
+`);
+      return;
+    }
  
      if (kind === 'order') {
        const o = payload || {};
@@ -527,6 +587,57 @@ async function loadSharedAgentMemory(pool) {
       return;
     }
 
+    if (kind === 'portfolio_exposure_snapshot') {
+      const snap = payload || {};
+      const req = pool.request();
+      req.input('snapshot_id', sql.UniqueIdentifier, snap.snapshot_id || snap.snapshotId || uuid());
+      req.input('bot_profile', sql.NVarChar(20), normalizeBotProfile(snap.bot_profile || snap.botProfile || this.botProfile));
+      req.input('ts', sql.DateTime2(3), new Date(snap.timestamp || snap.ts || Date.now()));
+      req.input('market_type', sql.NVarChar(20), snap.market_type || snap.marketType || null);
+      req.input('symbol', sql.NVarChar(80), snap.symbol ? String(snap.symbol).slice(0, 80) : null);
+      req.input('strategy', sql.NVarChar(80), snap.strategy ? String(snap.strategy).slice(0, 80) : null);
+      req.input('exposure_usd', sql.Float, Number.isFinite(Number(snap.exposure_usd ?? snap.exposureUsd)) ? Number(snap.exposure_usd ?? snap.exposureUsd) : null);
+      req.input('notional_usd', sql.Float, Number.isFinite(Number(snap.notional_usd ?? snap.notionalUsd)) ? Number(snap.notional_usd ?? snap.notionalUsd) : null);
+      req.input('risk_usd', sql.Float, Number.isFinite(Number(snap.risk_usd ?? snap.riskUsd)) ? Number(snap.risk_usd ?? snap.riskUsd) : null);
+      req.input('leverage', sql.Float, Number.isFinite(Number(snap.leverage)) ? Number(snap.leverage) : null);
+      req.input('correlation_bucket', sql.NVarChar(80), snap.correlation_bucket || snap.correlationBucket || null);
+      req.input('details_json', sql.NVarChar(sql.MAX), safeJson(snap.details || snap.details_json || {}, 30000));
+      await req.query(`
+INSERT INTO dbo.portfolio_exposure_snapshots(
+  snapshot_id, bot_profile, ts, market_type, symbol, strategy, exposure_usd, notional_usd,
+  risk_usd, leverage, correlation_bucket, details_json
+)
+VALUES (
+  @snapshot_id, @bot_profile, @ts, @market_type, @symbol, @strategy, @exposure_usd, @notional_usd,
+  @risk_usd, @leverage, @correlation_bucket, @details_json
+)
+`);
+      return;
+    }
+
+    if (kind === 'correlation_snapshot') {
+      const snap = payload || {};
+      const req = pool.request();
+      req.input('snapshot_id', sql.UniqueIdentifier, snap.snapshot_id || snap.snapshotId || uuid());
+      req.input('bot_profile', sql.NVarChar(20), normalizeBotProfile(snap.bot_profile || snap.botProfile || this.botProfile));
+      req.input('ts', sql.DateTime2(3), new Date(snap.timestamp || snap.ts || Date.now()));
+      req.input('asset_a', sql.NVarChar(80), snap.asset_a || snap.assetA ? String(snap.asset_a || snap.assetA).slice(0, 80) : null);
+      req.input('asset_b', sql.NVarChar(80), snap.asset_b || snap.assetB ? String(snap.asset_b || snap.assetB).slice(0, 80) : null);
+      req.input('correlation', sql.Float, Number.isFinite(Number(snap.correlation)) ? Number(snap.correlation) : null);
+      req.input('lookback_minutes', sql.Int, Number.isFinite(Number(snap.lookback_minutes ?? snap.lookbackMinutes)) ? Number(snap.lookback_minutes ?? snap.lookbackMinutes) : null);
+      req.input('source', sql.NVarChar(80), snap.source ? String(snap.source).slice(0, 80) : null);
+      req.input('details_json', sql.NVarChar(sql.MAX), safeJson(snap.details || snap.details_json || {}, 30000));
+      await req.query(`
+INSERT INTO dbo.correlation_snapshots(
+  snapshot_id, bot_profile, ts, asset_a, asset_b, correlation, lookback_minutes, source, details_json
+)
+VALUES (
+  @snapshot_id, @bot_profile, @ts, @asset_a, @asset_b, @correlation, @lookback_minutes, @source, @details_json
+)
+`);
+      return;
+    }
+
     if (kind === 'decision') {
       const d = payload || {};
       const req = pool.request();
@@ -655,6 +766,94 @@ WHEN NOT MATCHED THEN
 INSERT INTO dbo.promotion_events(event_id, version_id, bot_profile, ts, event_type, stage, status, discrepancy_score, promotion_confidence, approval_required, approved_by, notes, context_json)
 VALUES(@event_id, @version_id, @bot_profile, @ts, @event_type, @stage, @status, @discrepancy_score, @promotion_confidence, @approval_required, @approved_by, @notes, @context_json)
 `);
+      return;
+    }
+
+    if (kind === 'mutation_proposal') {
+      const p = payload || {};
+      const patch = p.patch_json || p.patch || p.changes || null;
+      if (!patch || !p.strategy) return;
+      const req = pool.request();
+      req.input('proposal_id', sql.UniqueIdentifier, uuidOrNull(p.proposal_id || p.proposalId) || uuid());
+      req.input('bot_profile', sql.NVarChar(20), String(p.bot_profile || p.botProfile || this.botProfile).slice(0, 20));
+      req.input('target_profile', sql.NVarChar(20), p.target_profile || p.targetProfile ? String(p.target_profile || p.targetProfile).slice(0, 20) : null);
+      req.input('strategy', sql.NVarChar(80), String(p.strategy).slice(0, 80));
+      req.input('strategy_version', sql.NVarChar(80), p.strategy_version || p.strategyVersion ? String(p.strategy_version || p.strategyVersion).slice(0, 80) : null);
+      req.input('proposal_type', sql.NVarChar(40), String(p.proposal_type || p.proposalType || 'config_patch').slice(0, 40));
+      req.input('proposer', sql.NVarChar(80), p.proposer ? String(p.proposer).slice(0, 80) : null);
+      req.input('status', sql.NVarChar(40), String(p.status || 'proposed').slice(0, 40));
+      req.input('stage', sql.NVarChar(40), String(p.stage || 'proposal').slice(0, 40));
+      req.input('created_at', sql.DateTime2(3), new Date(p.created_at || p.createdAt || Date.now()));
+      req.input('reviewed_at', sql.DateTime2(3), toDateOrNull(p.reviewed_at || p.reviewedAt));
+      req.input('patch_hash', sql.NVarChar(120), p.patch_hash || p.patchHash ? String(p.patch_hash || p.patchHash).slice(0, 120) : null);
+      req.input('patch_json', sql.NVarChar(sql.MAX), typeof patch === 'string' ? patch : safeJson(patch, 200000));
+      req.input('rationale_json', sql.NVarChar(sql.MAX), typeof p.rationale_json === 'string' ? p.rationale_json : safeJson(p.rationale, 20000));
+      req.input('expected_impact_json', sql.NVarChar(sql.MAX), typeof p.expected_impact_json === 'string' ? p.expected_impact_json : safeJson(p.expectedImpact || p.expected_impact, 20000));
+      req.input('risk_notes_json', sql.NVarChar(sql.MAX), typeof p.risk_notes_json === 'string' ? p.risk_notes_json : safeJson(p.riskNotes || p.risk_notes, 20000));
+      req.input('evidence_refs_json', sql.NVarChar(sql.MAX), typeof p.evidence_refs_json === 'string' ? p.evidence_refs_json : safeJson(p.evidenceRefs || p.evidence_refs, 20000));
+      req.input('review_notes_json', sql.NVarChar(sql.MAX), typeof p.review_notes_json === 'string' ? p.review_notes_json : safeJson(p.reviewNotes || p.review_notes, 20000));
+      await req.query(`
+MERGE dbo.mutation_proposals WITH (HOLDLOCK) AS t
+USING (SELECT @proposal_id AS proposal_id) AS s
+ON t.proposal_id = s.proposal_id
+WHEN MATCHED THEN
+  UPDATE SET status=@status, stage=@stage, reviewed_at=COALESCE(@reviewed_at, t.reviewed_at),
+             expected_impact_json=@expected_impact_json, risk_notes_json=@risk_notes_json,
+             evidence_refs_json=@evidence_refs_json, review_notes_json=@review_notes_json
+WHEN NOT MATCHED THEN
+  INSERT(proposal_id, bot_profile, target_profile, strategy, strategy_version, proposal_type, proposer, status, stage,
+         created_at, reviewed_at, patch_hash, patch_json, rationale_json, expected_impact_json, risk_notes_json,
+         evidence_refs_json, review_notes_json)
+  VALUES(@proposal_id, @bot_profile, @target_profile, @strategy, @strategy_version, @proposal_type, @proposer,
+         @status, @stage, @created_at, @reviewed_at, @patch_hash, @patch_json, @rationale_json,
+         @expected_impact_json, @risk_notes_json, @evidence_refs_json, @review_notes_json);
+`);
+      return;
+    }
+
+    if (kind === 'promotion_gate_evaluation') {
+      const e = payload || {};
+      const metrics = e.metrics || {};
+      if (!e.strategy) return;
+      const req = pool.request();
+      req.input('evaluation_id', sql.UniqueIdentifier, uuidOrNull(e.evaluation_id || e.evaluationId) || uuid());
+      req.input('candidate_id', sql.UniqueIdentifier, uuidOrNull(e.candidate_id || e.candidateId));
+      req.input('proposal_id', sql.UniqueIdentifier, uuidOrNull(e.proposal_id || e.proposalId));
+      req.input('bot_profile', sql.NVarChar(20), String(e.bot_profile || e.botProfile || this.botProfile).slice(0, 20));
+      req.input('target_profile', sql.NVarChar(20), String(e.target_profile || e.targetProfile || 'live_spot').slice(0, 20));
+      req.input('strategy', sql.NVarChar(80), String(e.strategy).slice(0, 80));
+      req.input('strategy_version', sql.NVarChar(80), e.strategy_version || e.strategyVersion ? String(e.strategy_version || e.strategyVersion).slice(0, 80) : null);
+      req.input('strategy_class', sql.NVarChar(40), e.strategy_class || e.strategyClass ? String(e.strategy_class || e.strategyClass).slice(0, 40) : null);
+      req.input('ts', sql.DateTime2(3), new Date(e.ts || e.evaluatedAt || Date.now()));
+      req.input('passed', sql.Bit, Boolean(e.passed));
+      req.input('score', sql.Float, numberOrNull(e.score));
+      req.input('sample_size', sql.Int, numberOrNull(metrics.sampleSize ?? metrics.sample_size));
+      req.input('expectancy_usd', sql.Float, numberOrNull(metrics.expectancyUsd ?? metrics.expectancy_usd));
+      req.input('stressed_expectancy_usd', sql.Float, numberOrNull(metrics.stressedExpectancyUsd ?? metrics.stressed_expectancy_usd));
+      req.input('profit_factor', sql.Float, numberOrNull(metrics.profitFactor ?? metrics.profit_factor));
+      req.input('max_drawdown_pct', sql.Float, numberOrNull(metrics.maxDrawdownPct ?? metrics.max_drawdown_pct));
+      req.input('symbol_concentration_pct', sql.Float, numberOrNull(metrics.symbolConcentrationPct ?? metrics.symbol_concentration_pct));
+      req.input('regime_coverage_count', sql.Int, numberOrNull(metrics.regimeCoverageCount ?? metrics.regime_coverage_count));
+      req.input('execution_discrepancy_pct', sql.Float, numberOrNull(metrics.executionDiscrepancyPct ?? metrics.execution_discrepancy_pct));
+      req.input('failure_reasons_json', sql.NVarChar(sql.MAX), safeJson(e.reasons || e.failureReasons || e.failure_reasons, 20000));
+      req.input('metrics_json', sql.NVarChar(sql.MAX), safeJson(metrics, 20000));
+      req.input('thresholds_json', sql.NVarChar(sql.MAX), safeJson(e.thresholds, 20000));
+      req.input('raw_json', sql.NVarChar(sql.MAX), safeJson(e.raw || e, 200000));
+      await req.query(`
+INSERT INTO dbo.promotion_gate_evaluations(
+  evaluation_id, candidate_id, proposal_id, bot_profile, target_profile, strategy, strategy_version, strategy_class,
+  ts, passed, score, sample_size, expectancy_usd, stressed_expectancy_usd, profit_factor, max_drawdown_pct,
+  symbol_concentration_pct, regime_coverage_count, execution_discrepancy_pct, failure_reasons_json, metrics_json,
+  thresholds_json, raw_json
+)
+VALUES(
+  @evaluation_id, @candidate_id, @proposal_id, @bot_profile, @target_profile, @strategy, @strategy_version,
+  @strategy_class, @ts, @passed, @score, @sample_size, @expectancy_usd, @stressed_expectancy_usd,
+  @profit_factor, @max_drawdown_pct, @symbol_concentration_pct, @regime_coverage_count,
+  @execution_discrepancy_pct, @failure_reasons_json, @metrics_json, @thresholds_json, @raw_json
+)
+`);
+      return;
     }
   }
 

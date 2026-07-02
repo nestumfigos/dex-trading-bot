@@ -431,11 +431,21 @@ function createTokenDecisionPipeline(deps = {}) {
               approval,
               approvalDecisionId,
             };
-            if (cycleStats) {
-              cycleStats.passed += 1;
+            if (cycleStats) cycleStats.qualified = Number(cycleStats.qualified || 0) + 1;
+            const executionResult = await executeBuy(chainName, exchange, tokenData, strategyName);
+            if (executionResult?.executed === true) {
+              if (cycleStats) cycleStats.passed = Number(cycleStats.passed || 0) + 1;
+              return 'bought';
             }
-            await executeBuy(chainName, exchange, tokenData, strategyName);
-            return 'bought';
+            const executionReason = executionResult?.reason || 'execution_not_confirmed';
+            logger.warn(`Approved BUY did not execute for ${tokenData.symbol} (${strategyName}): ${executionReason}`);
+            if (cycleStats) {
+              cycleStats.executionBlocked = Number(cycleStats.executionBlocked || 0) + 1;
+              cycleStats.gateRejectCounts = cycleStats.gateRejectCounts || {};
+              cycleStats.gateRejectCounts[executionReason] = Number(cycleStats.gateRejectCounts[executionReason] || 0) + 1;
+              incrementRejectReason(cycleStats, classifyRejectReason(executionReason));
+            }
+            return 'continue';
           }
           logger.info(`Rotation executed but buy still blocked for ${tokenData.symbol}: ${recheck.reason}`);
         }
@@ -530,12 +540,22 @@ function createTokenDecisionPipeline(deps = {}) {
       approvalDecisionId,
     };
 
-    if (cycleStats) {
-      cycleStats.passed += 1;
-    }
+    if (cycleStats) cycleStats.qualified = Number(cycleStats.qualified || 0) + 1;
 
-    await executeBuy(chainName, exchange, tokenData, strategyName);
-    return 'bought';
+    const executionResult = await executeBuy(chainName, exchange, tokenData, strategyName);
+    if (executionResult?.executed === true) {
+      if (cycleStats) cycleStats.passed = Number(cycleStats.passed || 0) + 1;
+      return 'bought';
+    }
+    const executionReason = executionResult?.reason || 'execution_not_confirmed';
+    logger.warn(`Approved BUY did not execute for ${tokenData.symbol} (${strategyName}): ${executionReason}`);
+    if (cycleStats) {
+      cycleStats.executionBlocked = Number(cycleStats.executionBlocked || 0) + 1;
+      cycleStats.gateRejectCounts = cycleStats.gateRejectCounts || {};
+      cycleStats.gateRejectCounts[executionReason] = Number(cycleStats.gateRejectCounts[executionReason] || 0) + 1;
+      incrementRejectReason(cycleStats, classifyRejectReason(executionReason));
+    }
+    return 'continue';
   }
 
   return {

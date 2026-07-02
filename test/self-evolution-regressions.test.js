@@ -88,3 +88,10 @@ test('exposure and stale-price blocks never loosen their protections', async () 
   assert.equal(freshnessPlan.changes.length, 0);
   assert.match(freshnessPlan.summary, /preserve quote-age protection/);
 });
+
+test('paper-live comparison reads normalized V2 profile names', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'utils', 'self-evolution-orchestration.js'), 'utf8');
+  assert.match(source, /paper_spot/);
+  assert.match(source, /live_spot/);
+  assert.doesNotMatch(source, /IN \('paper','live'\)/);
+});

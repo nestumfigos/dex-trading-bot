@@ -14,6 +14,7 @@
  *   duplicate_order        — no in-flight buy/sell on the same key
  *   daily_loss_budget      — today's PnL > -DAILY_DRAWDOWN_LIMIT_USD
  *   consecutive_loss_streak— current losing streak < MAX_CONSECUTIVE_LOSSES
+ *   performance_admission — closed-trade evidence must have non-negative expectancy
  *   ai_circuit             — AI circuit closed OR explicit override flag
  *
  * Severity is per-rule (risk_rules.severity): block | warn | log.
@@ -128,6 +129,61 @@ function checkAiCircuit({ aiCircuitOpen, aiOverride }) {
   return { pass: true };
 }
 
+function checkPerformanceAdmission({ side, performanceAdmission }) {
+  if (side !== 'BUY') return { pass: true };
+  const admission = performanceAdmission || {};
+  if (admission.enabled === false) return { pass: true };
+  const checks = Array.isArray(admission.checks) ? admission.checks : [];
+  if (checks.length === 0) return { pass: true };
+
+  const minClosedDefault = num(admission.minClosedTrades, 20);
+  const minProfitFactorDefault = num(admission.minProfitFactor, 1);
+  const minExpectancyDefault = num(admission.minExpectancyUsd, 0);
+  const failures = [];
+
+  for (const row of checks) {
+    if (!row || row.unavailable === true) continue;
+    const closedTrades = num(row.closedTrades, 0);
+    const minClosedTrades = num(row.minClosedTrades, minClosedDefault);
+    if (closedTrades < minClosedTrades) continue;
+
+    const profitFactor = Number(row.profitFactor);
+    const minProfitFactor = num(row.minProfitFactor, minProfitFactorDefault);
+    const expectancyUsd = Number(row.expectancyUsd);
+    const minExpectancyUsd = num(row.minExpectancyUsd, minExpectancyDefault);
+    const reasons = [];
+
+    if (Number.isFinite(profitFactor) && Number.isFinite(minProfitFactor) && profitFactor < minProfitFactor) {
+      reasons.push(`pf ${profitFactor.toFixed(2)} < ${minProfitFactor.toFixed(2)}`);
+    }
+    if (Number.isFinite(expectancyUsd) && Number.isFinite(minExpectancyUsd) && expectancyUsd < minExpectancyUsd) {
+      reasons.push(`expectancy $${expectancyUsd.toFixed(2)} < $${minExpectancyUsd.toFixed(2)}`);
+    }
+    if (reasons.length > 0) {
+      failures.push({
+        scope: row.scope || 'unknown',
+        label: row.label || row.strategy || row.chain || 'performance',
+        closedTrades,
+        profitFactor: Number.isFinite(profitFactor) ? profitFactor : null,
+        expectancyUsd: Number.isFinite(expectancyUsd) ? expectancyUsd : null,
+        reasons,
+      });
+    }
+  }
+
+  if (failures.length === 0) return { pass: true };
+  return {
+    pass: false,
+    reason: `performance admission blocked: ${failures.map((item) => `${item.label} closed=${item.closedTrades} ${item.reasons.join(',')}`).join('; ')}`,
+    metadata: {
+      minClosedTrades: minClosedDefault,
+      minProfitFactor: minProfitFactorDefault,
+      minExpectancyUsd: minExpectancyDefault,
+      failures,
+    },
+  };
+}
+
 // ─── Catalog (mirrors seed-risk-rules.js) ──────────────────────────────────
 
 const GATE_CATALOG = Object.freeze([
@@ -137,6 +193,7 @@ const GATE_CATALOG = Object.freeze([
   { name: 'duplicate_order',         sides: ['BUY', 'SELL'],  description: 'No in-flight order for same symbol+side+chain' },
   { name: 'daily_loss_budget',       sides: ['BUY'],          description: "Today's PnL above -DAILY_DRAWDOWN_LIMIT_USD" },
   { name: 'consecutive_loss_streak', sides: ['BUY'],          description: 'Current losing streak under MAX_CONSECUTIVE_LOSSES' },
+  { name: 'performance_admission',   sides: ['BUY'],          description: 'Closed-trade evidence must meet minimum expectancy and profit factor' },
   { name: 'ai_circuit',              sides: ['BUY'],          description: 'AI circuit closed OR explicit aiOverride flag' },
 ]);
 
@@ -147,6 +204,7 @@ const GATE_RUNNERS = Object.freeze({
   duplicate_order:         checkDuplicateOrder,
   daily_loss_budget:       checkDailyLossBudget,
   consecutive_loss_streak: checkConsecutiveLossStreak,
+  performance_admission:   checkPerformanceAdmission,
   ai_circuit:              checkAiCircuit,
 });
 
@@ -209,6 +267,7 @@ function check(ctx = {}) {
         dailyDrawdownLimitUsd: conf.dailyDrawdownLimitUsd,
         consecutiveLosses:     state.consecutiveLosses,
         maxConsecutiveLosses:  conf.maxConsecutiveLosses,
+        performanceAdmission:  conf.performanceAdmission,
         aiCircuitOpen:         state.aiCircuitOpen,
         aiOverride:            conf.aiOverride,
       });
@@ -295,5 +354,6 @@ module.exports = {
   checkDuplicateOrder,
   checkDailyLossBudget,
   checkConsecutiveLossStreak,
+  checkPerformanceAdmission,
   checkAiCircuit,
 };

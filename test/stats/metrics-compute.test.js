@@ -158,6 +158,111 @@ test('recordPortfolioSnapshot: telemetry.logPnlPoint called when provided', () =
   assert.equal(calls[0].reason, 'r');
 });
 
+test('recordPortfolioSnapshot: telemetry.logPortfolioExposureSnapshot called for open positions', () => {
+  const pnlCalls = [];
+  const exposureCalls = [];
+  mc.recordPortfolioSnapshot({
+    portfolio: {},
+    getSnapshot: () => ({
+      cashBalance: 500,
+      equity: 650,
+      totalPnl: 10,
+      unrealizedPnl: 5,
+      positions: [
+        {
+          symbol: 'ABC',
+          chain: 'KuCoin',
+          chainKey: 'kucoin',
+          strategy: 'spot_day_bull_flag',
+          quantity: 10,
+          entryPrice: 10,
+          currentPrice: 12,
+          stopLoss: 9,
+          takeProfit: 15,
+          costBasisUsd: 100,
+          positionValueUsd: 120,
+          unrealizedPnl: 19,
+          unrealizedPnlPct: 19,
+        },
+      ],
+    }),
+    telemetry: {
+      logPnlPoint: (pt) => pnlCalls.push(pt),
+      logPortfolioExposureSnapshot: (row) => exposureCalls.push(row),
+    },
+    reason: 'scan_spot_day_bull_flag',
+  });
+
+  assert.equal(pnlCalls.length, 1);
+  assert.equal(exposureCalls.length, 1);
+  assert.equal(exposureCalls[0].symbol, 'ABC');
+  assert.equal(exposureCalls[0].strategy, 'spot_day_bull_flag');
+  assert.equal(exposureCalls[0].exposureUsd, 120);
+  assert.equal(exposureCalls[0].notionalUsd, 100);
+  assert.equal(exposureCalls[0].riskUsd, 10);
+  assert.equal(exposureCalls[0].correlationBucket, 'kucoin');
+  assert.equal(exposureCalls[0].details.reason, 'scan_spot_day_bull_flag');
+});
+
+test('buildCorrelationSnapshotRows: computes pairwise correlations from price histories', () => {
+  const rows = mc.buildCorrelationSnapshotRows({
+    timestamp: '2026-06-06T12:00:00.000Z',
+    reason: 'scan',
+    minBars: 4,
+    lookbackBars: 6,
+    snapshot: {
+      positions: [
+        { symbol: 'AAA', chainKey: 'kucoin', address: 'AAA', strategy: 'momentum' },
+        { symbol: 'BBB', chainKey: 'kucoin', address: 'BBB', strategy: 'spot_day_bull_flag' },
+      ],
+    },
+    priceHistories: {
+      'kucoin:aaa': [10, 11, 12, 13, 14, 15],
+      'kucoin:bbb': [20, 22, 24, 26, 28, 30],
+    },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].assetA, 'AAA');
+  assert.equal(rows[0].assetB, 'BBB');
+  assert.ok(rows[0].correlation > 0.99);
+  assert.equal(rows[0].source, 'strategy.priceHistory');
+  assert.equal(rows[0].details.leftHistoryKey, 'kucoin:aaa');
+});
+
+test('recordPortfolioSnapshot: telemetry.logCorrelationSnapshot called only with enough history', () => {
+  const correlationCalls = [];
+  mc.recordPortfolioSnapshot({
+    portfolio: {},
+    getSnapshot: () => ({
+      cashBalance: 500,
+      equity: 650,
+      totalPnl: 10,
+      unrealizedPnl: 5,
+      positions: [
+        { symbol: 'AAA', chainKey: 'kucoin', address: 'AAA', strategy: 'momentum' },
+        { symbol: 'BBB', chainKey: 'kucoin', address: 'BBB', strategy: 'momentum' },
+        { symbol: 'SHORT', chainKey: 'kucoin', address: 'SHORT', strategy: 'momentum' },
+      ],
+    }),
+    telemetry: {
+      logCorrelationSnapshot: (row) => correlationCalls.push(row),
+    },
+    priceHistories: {
+      'kucoin:aaa': [10, 11, 12, 13, 14],
+      'kucoin:bbb': [30, 31, 33, 34, 36],
+      'kucoin:short': [1, 2],
+    },
+    correlationMinBars: 4,
+    correlationLookbackBars: 5,
+    reason: 'scan',
+  });
+
+  assert.equal(correlationCalls.length, 1);
+  assert.equal(correlationCalls[0].assetA, 'AAA');
+  assert.equal(correlationCalls[0].assetB, 'BBB');
+});
+
 test('recordPortfolioSnapshot: throws on missing portfolio', () => {
   assert.throws(() => mc.recordPortfolioSnapshot({ getSnapshot: () => ({}) }), /portfolio required/);
 });

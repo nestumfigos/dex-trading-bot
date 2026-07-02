@@ -1,3 +1,10 @@
+const {
+  createOrderIntent,
+  createOrderLifecycle,
+  applyOrderLifecycleEvent,
+  buildExecutionTradingEvents,
+} = require('../../packages/core');
+
 /**
  * Classify the cause of a position exit so the agent can learn distinct failure modes.
  * Returns {code, reasoning} where code is one of:
@@ -77,6 +84,7 @@ function createExecutionFlow(deps = {}) {
     strategy,
     telemetry,
     telemetryUuid,
+    BOT_PROFILE,
     operationalDiagnostics,
     risk,
     sqlCoordination,
@@ -113,6 +121,97 @@ function createExecutionFlow(deps = {}) {
     updateWalletBalance,
     reconcileWalletPositions,
   } = deps;
+
+  function emitTradingEvent(event) {
+    if (typeof telemetry?.logTradingEvent !== 'function') return;
+    try {
+      telemetry.logTradingEvent(event);
+    } catch (error) {
+      logger?.debug?.(`[v2-events] failed to enqueue ${event?.eventName || 'event'}: ${error?.message || error}`);
+    }
+  }
+
+  function emitOrderLifecycleEvents({
+    orderId,
+    chainName,
+    tokenData = {},
+    strategyName,
+    side,
+    marketType = null,
+    quantity = null,
+    quoteUsd = null,
+    expectedPrice = null,
+    txResult = null,
+    fill = null,
+    terminalType = 'filled',
+    reason = null,
+  }) {
+    if (typeof telemetry?.logTradingEvent !== 'function') return;
+    try {
+      const intent = createOrderIntent({
+        intentId: orderId,
+        botProfile: BOT_PROFILE || process.env.BOT_PROFILE || (config?.paperTrading ? 'paper' : 'live'),
+        strategy: strategyName,
+        symbol: tokenData.symbol,
+        side,
+        marketType: marketType || (config?.paperTrading ? 'paper' : (chainName === 'kucoin' ? 'spot' : 'dex')),
+        quantity,
+        quoteUsd,
+        reduceOnly: side === 'SELL' || side === 'EXIT',
+        metadata: {
+          chainName,
+          address: tokenData.address || null,
+          setupType: tokenData.setupType || null,
+          expectedPrice,
+          txid: txResult?.txid || null,
+          reason,
+        },
+      });
+      let lifecycle = createOrderLifecycle({ intent });
+      lifecycle = applyOrderLifecycleEvent(lifecycle, {
+        type: 'submitted',
+        orderId: txResult?.orderId || txResult?.txid || orderId,
+        ts: new Date().toISOString(),
+      });
+      if (terminalType === 'filled') {
+        lifecycle = applyOrderLifecycleEvent(lifecycle, {
+          type: 'filled',
+          ts: new Date().toISOString(),
+          fill: {
+            fillId: txResult?.fillId || txResult?.txid || telemetryUuid(),
+            quantity: fill?.quantity,
+            quoteUsd: fill?.quoteUsd,
+            price: fill?.price,
+            feeUsd: fill?.feeUsd,
+            slippageBps: fill?.slippageBps,
+            filledAt: fill?.filledAt || new Date().toISOString(),
+            txid: txResult?.txid || null,
+          },
+        });
+      } else if (terminalType === 'rejected') {
+        lifecycle = applyOrderLifecycleEvent(lifecycle, {
+          type: 'rejected',
+          reason,
+          ts: new Date().toISOString(),
+        });
+      } else if (terminalType === 'canceled') {
+        lifecycle = applyOrderLifecycleEvent(lifecycle, {
+          type: 'canceled',
+          reason,
+          ts: new Date().toISOString(),
+        });
+      }
+      for (const event of buildExecutionTradingEvents(lifecycle, {
+        botProfile: intent.botProfile,
+        strategy: strategyName,
+        symbol: tokenData.symbol,
+      })) {
+        emitTradingEvent(event);
+      }
+    } catch (error) {
+      logger?.debug?.(`[v2-events] order lifecycle emit failed: ${error?.message || error}`);
+    }
+  }
 
   function classifyBuyFailure(error) {
     const message = String(error?.message || error || '');
@@ -457,6 +556,26 @@ function createExecutionFlow(deps = {}) {
       },
     });
     telemetry.logOrder({ order_id: orderId, status: 'filled' });
+    emitOrderLifecycleEvents({
+      orderId,
+      chainName,
+      tokenData,
+      strategyName,
+      side: 'BUY',
+      quantity,
+      quoteUsd: requestedQuoteUsd,
+      expectedPrice: expectedEntryPrice,
+      txResult,
+      fill: {
+        quantity,
+        quoteUsd: filledQuoteUsd,
+        price: realizedEntryPrice,
+        feeUsd: entryFeePaidUsd,
+        slippageBps: entrySlippageBps,
+      },
+      terminalType: 'filled',
+      reason: 'ENTRY',
+    });
 
     const pos = portfolio.positions[tokenKey];
     if (pos) {
@@ -528,6 +647,17 @@ function createExecutionFlow(deps = {}) {
     deps.recordBuyFailureState(chainName, tokenData, error.message);
     logger.error(`BUY execution failed for ${tokenData.symbol}: ${error.message}`);
     telemetry.logOrder({ order_id: orderId, status: orderStatus, error_text: error.message || String(error) });
+    emitOrderLifecycleEvents({
+      orderId,
+      chainName,
+      tokenData,
+      strategyName,
+      side: 'BUY',
+      quoteUsd: Number(tokenData?.requestedQuoteUsd || tokenData?.sizeUsd || 0) || 0.000001,
+      expectedPrice: Number(tokenData?.price || 0) || null,
+      terminalType: 'rejected',
+      reason: error.message || String(error),
+    });
     telemetry.logOpsEvent({
       severity: failureClass.finalAction === 'QUOTE_STALE' ? 'warning' : 'error',
       category: 'execution',
@@ -772,6 +902,25 @@ function createExecutionFlow(deps = {}) {
       block_number: txResult?.blockNumber || null,
       confirmations: txResult?.confirmations || null,
       raw_receipt: { txid: txResult?.txid, recoveredFromTradeHistory: Boolean(txResult?.recoveredFromTradeHistory) },
+    });
+    emitOrderLifecycleEvents({
+      orderId: sellOrderId,
+      chainName,
+      tokenData,
+      strategyName,
+      side: 'SELL',
+      quantity: requestedQty,
+      expectedPrice: expectedExitPrice,
+      txResult,
+      fill: {
+        quantity: filledBaseQty,
+        quoteUsd: proceedsUsd,
+        price: realizedExitPrice,
+        feeUsd: exitFeeUsd,
+        slippageBps: exitSlippageBps,
+      },
+      terminalType: 'filled',
+      reason,
     });
     if (fullyClosed && position?.sqlPositionId) {
       const entryUsd = Number(position.initialSizeUsd || 0);

@@ -67,6 +67,7 @@ function create({
   // state
   loopLocks,
   loopLastCompletedAt,
+  loopLastStartedAt,
   filterStatsState,
   // config + helpers
   config,
@@ -117,6 +118,7 @@ function create({
     const stateSaveTimeoutMs = Math.max(5_000, Number(config.bot?.stateSaveTimeoutMs || 20_000));
 
     loopLocks[lockKey] = true;
+    if (loopLastStartedAt) loopLastStartedAt[lockKey] = Date.now();
     if (typeof refreshScanInFlightFlag === 'function') refreshScanInFlightFlag();
     try {
       const chainScans = getConfiguredScanChains(config, exchanges, isStrategyScanEnabled, strategyName)
@@ -187,6 +189,7 @@ function create({
     }
 
     loopLocks.kucoinMomentumScan = true;
+    if (loopLastStartedAt) loopLastStartedAt.kucoinMomentumScan = Date.now();
     if (typeof refreshScanInFlightFlag === 'function') refreshScanInFlightFlag();
     try {
       await scanChain('kucoin', exchanges.kucoin, 'momentum', { cycleStats });

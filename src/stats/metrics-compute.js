@@ -135,7 +135,182 @@ function refreshPerformanceMetrics(portfolio) {
   });
 }
 
-function recordPortfolioSnapshot({ portfolio, telemetry, getSnapshot, reason, maxHistory = 240 }) {
+function numberOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizePriceSeries(values, limit = 60) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .slice(-Math.max(2, Number(limit) || 60));
+}
+
+function calcReturns(prices) {
+  const series = normalizePriceSeries(prices, prices?.length || 60);
+  const returns = [];
+  for (let i = 1; i < series.length; i += 1) {
+    returns.push(Math.log(series[i] / series[i - 1]));
+  }
+  return returns;
+}
+
+function pearson(a, b) {
+  const n = Math.min(Array.isArray(a) ? a.length : 0, Array.isArray(b) ? b.length : 0);
+  if (n < 2) return null;
+  const left = a.slice(-n);
+  const right = b.slice(-n);
+  const meanLeft = left.reduce((sum, value) => sum + value, 0) / n;
+  const meanRight = right.reduce((sum, value) => sum + value, 0) / n;
+  let numerator = 0;
+  let denomLeft = 0;
+  let denomRight = 0;
+  for (let i = 0; i < n; i += 1) {
+    const dl = left[i] - meanLeft;
+    const dr = right[i] - meanRight;
+    numerator += dl * dr;
+    denomLeft += dl * dl;
+    denomRight += dr * dr;
+  }
+  const denom = Math.sqrt(denomLeft * denomRight);
+  return denom > 0 ? numerator / denom : null;
+}
+
+function candidateHistoryKeys(position = {}) {
+  const chainKey = String(position.chainKey || position.chain || '').trim().toLowerCase();
+  const address = String(position.address || '').trim().toLowerCase();
+  const symbolRaw = String(position.symbol || '').trim();
+  const symbolLower = symbolRaw.toLowerCase();
+  const symbolUpper = symbolRaw.toUpperCase();
+  return [
+    position.strategyKey,
+    chainKey && address ? `${chainKey}:${address}` : null,
+    chainKey && symbolLower ? `${chainKey}:${symbolLower}` : null,
+    chainKey && symbolUpper ? `${chainKey}:${symbolUpper}` : null,
+    address || null,
+    symbolLower || null,
+    symbolUpper || null,
+  ].filter(Boolean).map(String);
+}
+
+function resolvePriceHistory(position, priceHistories = {}) {
+  for (const key of candidateHistoryKeys(position)) {
+    if (Array.isArray(priceHistories[key])) return { key, prices: priceHistories[key] };
+  }
+  return null;
+}
+
+function buildExposureSnapshotRows({ snapshot = {}, reason = null, timestamp = null } = {}) {
+  const ts = timestamp || new Date().toISOString();
+  const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
+  return positions.map((position) => {
+    const quantity = numberOrNull(position.quantity);
+    const entryPrice = numberOrNull(position.entryPrice);
+    const stopLoss = numberOrNull(position.stopLoss);
+    const positionValueUsd = numberOrNull(position.positionValueUsd);
+    const costBasisUsd = numberOrNull(position.costBasisUsd ?? position.initialSizeUsd);
+    const riskUsd = (
+      quantity != null
+      && entryPrice != null
+      && stopLoss != null
+      && entryPrice > stopLoss
+    )
+      ? Math.max(0, (entryPrice - stopLoss) * quantity)
+      : null;
+
+    return {
+      timestamp: ts,
+      marketType: position.marketType || 'spot',
+      symbol: position.symbol || null,
+      strategy: position.strategy || 'momentum',
+      exposureUsd: positionValueUsd,
+      notionalUsd: costBasisUsd ?? positionValueUsd,
+      riskUsd,
+      leverage: numberOrNull(position.leverage),
+      correlationBucket: position.correlationBucket || position.chainKey || position.symbol || null,
+      details: {
+        reason,
+        chain: position.chain || null,
+        chainKey: position.chainKey || null,
+        address: position.address || null,
+        entryPrice,
+        currentPrice: numberOrNull(position.currentPrice),
+        stopLoss,
+        takeProfit: numberOrNull(position.takeProfit),
+        unrealizedPnl: numberOrNull(position.unrealizedPnl),
+        unrealizedPnlPct: numberOrNull(position.unrealizedPnlPct),
+        estimatedRoundTripFeeUsd: numberOrNull(position.estimatedRoundTripFeeUsd),
+      },
+    };
+  });
+}
+
+function buildCorrelationSnapshotRows({
+  snapshot = {},
+  priceHistories = {},
+  reason = null,
+  timestamp = null,
+  lookbackBars = 60,
+  minBars = 20,
+} = {}) {
+  const ts = timestamp || new Date().toISOString();
+  const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
+  const withHistory = positions
+    .map((position) => {
+      const resolved = resolvePriceHistory(position, priceHistories);
+      const prices = normalizePriceSeries(resolved?.prices, lookbackBars);
+      return {
+        position,
+        historyKey: resolved?.key || null,
+        prices,
+        returns: calcReturns(prices),
+      };
+    })
+    .filter((row) => row.historyKey && row.prices.length >= minBars && row.returns.length >= Math.max(2, minBars - 1));
+
+  const rows = [];
+  for (let i = 0; i < withHistory.length; i += 1) {
+    for (let j = i + 1; j < withHistory.length; j += 1) {
+      const left = withHistory[i];
+      const right = withHistory[j];
+      const correlation = pearson(left.returns, right.returns);
+      if (!Number.isFinite(correlation)) continue;
+      const assetA = left.position.symbol || left.position.address || left.historyKey;
+      const assetB = right.position.symbol || right.position.address || right.historyKey;
+      if (!assetA || !assetB || assetA === assetB) continue;
+      rows.push({
+        timestamp: ts,
+        assetA,
+        assetB,
+        correlation,
+        lookbackMinutes: null,
+        source: 'strategy.priceHistory',
+        details: {
+          reason,
+          lookbackBars,
+          samples: Math.min(left.returns.length, right.returns.length),
+          leftHistoryKey: left.historyKey,
+          rightHistoryKey: right.historyKey,
+          leftStrategy: left.position.strategy || null,
+          rightStrategy: right.position.strategy || null,
+        },
+      });
+    }
+  }
+  return rows;
+}
+
+function recordPortfolioSnapshot({
+  portfolio,
+  telemetry,
+  getSnapshot,
+  reason,
+  maxHistory = 240,
+  priceHistories = null,
+  correlationLookbackBars = 60,
+  correlationMinBars = 20,
+}) {
   if (!portfolio) throw new Error('recordPortfolioSnapshot: portfolio required');
   if (typeof getSnapshot !== 'function') throw new Error('recordPortfolioSnapshot: getSnapshot required');
 
@@ -153,6 +328,20 @@ function recordPortfolioSnapshot({ portfolio, telemetry, getSnapshot, reason, ma
   if (telemetry && typeof telemetry.logPnlPoint === 'function') {
     telemetry.logPnlPoint(point);
   }
+  if (telemetry && typeof telemetry.logPortfolioExposureSnapshot === 'function') {
+    buildExposureSnapshotRows({ snapshot, reason, timestamp: point.timestamp })
+      .forEach((row) => telemetry.logPortfolioExposureSnapshot(row));
+  }
+  if (telemetry && typeof telemetry.logCorrelationSnapshot === 'function' && priceHistories) {
+    buildCorrelationSnapshotRows({
+      snapshot,
+      priceHistories,
+      reason,
+      timestamp: point.timestamp,
+      lookbackBars: correlationLookbackBars,
+      minBars: correlationMinBars,
+    }).forEach((row) => telemetry.logCorrelationSnapshot(row));
+  }
 
   if (portfolio.pnlHistory.length > maxHistory) {
     portfolio.pnlHistory.shift();
@@ -164,5 +353,7 @@ module.exports = {
   defaultStatsShape,
   ensureStatsShape,
   refreshPerformanceMetrics,
+  buildExposureSnapshotRows,
+  buildCorrelationSnapshotRows,
   recordPortfolioSnapshot,
 };

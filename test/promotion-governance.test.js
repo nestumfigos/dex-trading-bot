@@ -9,6 +9,7 @@ const {
   classifyPromotionImpact,
   validateGeneratedBehaviorApplication,
   validatePromotionCandidate,
+  evaluatePromotionEvidenceGate,
   hashText,
   normalizeRegimeLabel,
 } = require('../src/utils/promotion-governance');
@@ -101,6 +102,51 @@ test('promotion requires a validated eligible and explicitly approved candidate'
     promotion: { eligible: true, approved: true },
     changedEnvKeys: ['MAX_CONCURRENT_POSITIONS'],
   }).reason, 'environment_changes_are_not_promotable');
+});
+
+test('promotion candidate can require deterministic V2 evidence gate', () => {
+  assert.equal(validatePromotionCandidate({
+    validation: { passed: true },
+    promotion: { eligible: true, approved: true, v2GateRequired: true },
+  }).reason, 'promotion_gate_evidence_required');
+
+  assert.equal(validatePromotionCandidate({
+    validation: { passed: true },
+    promotion: {
+      eligible: true,
+      approved: true,
+      v2GateRequired: true,
+      v2Gate: { passed: true, reasons: [] },
+    },
+  }).allow, true);
+});
+
+test('promotion evidence gate converts portfolio stats into V2 thresholds', () => {
+  const gate = evaluatePromotionEvidenceGate({
+    manifest: {
+      strategy: 'spot_day_bull_flag',
+      versioning: { sourceProfile: 'paper_spot' },
+      promotion: { targetProfile: 'live_spot' },
+    },
+    context: {
+      stats: {
+        closedTrades: 150,
+        expectancyUsd: 1.1,
+        profitFactor: 1.35,
+        maxDrawdownPct: 4,
+      },
+      stressedExpectancyUsd: 0.2,
+      symbolConcentrationPct: 20,
+      regimeCoverageCount: 3,
+      paperLiveComparison: { executionDiscrepancyPct: 4 },
+    },
+    strategyClass: 'day_trade',
+    now: () => '2026-06-06T03:00:00.000Z',
+  });
+
+  assert.equal(gate.passed, true);
+  assert.equal(gate.strategy, 'spot_day_bull_flag');
+  assert.equal(gate.evaluatedAt, '2026-06-06T03:00:00.000Z');
 });
 
 test('candidate source hashes change when validated file content changes', () => {
