@@ -309,14 +309,23 @@ function decideExitAction({
     });
   }
 
-  // 5) MIN_HOLD_NO_GAIN — held >= minHoldHours with no profit
+  // 5) MIN_HOLD_NO_GAIN — held >= minHoldHours AND decayed past the floor.
+  // 2026-07-02 perf audit: this exit produced 22 paper trades, 0% win,
+  // -$357 — by construction it only ever realizes losses. The old trigger
+  // (profit <= 0) culled positions down a fraction of a percent that still
+  // had full stop protection and trail-out optionality (+$21 avg when they
+  // recover vs -$16 realized by the cull). The floor keeps the cull for
+  // genuinely decaying positions (default: down >1.5%) but lets barely-flat
+  // ones keep their optionality. Set noGainExitProfitFloorPct: 0 on a
+  // strategy to restore the old behavior.
   const minHoldHours = Number(strategyCfg.minHoldHours ?? 4);
+  const noGainFloor = Number(strategyCfg.noGainExitProfitFloorPct ?? -1.5) / 100;
   const hoursInTrade = minutesInTrade / 60;
-  if (hoursInTrade >= minHoldHours && currentProfit <= 0) {
+  if (hoursInTrade >= minHoldHours && currentProfit <= noGainFloor) {
     return sell({
       reason: 'MIN_HOLD_NO_GAIN',
       sellPct: 1,
-      meta: { hoursInTrade, minHoldHours, currentProfit },
+      meta: { hoursInTrade, minHoldHours, currentProfit, noGainFloorPct: noGainFloor * 100 },
     });
   }
 
