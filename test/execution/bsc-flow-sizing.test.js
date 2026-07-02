@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const { createExecutionOrchestrator } = require('../../src/execution/orchestrator');
 
 function makeDeps(overrides = {}) {
-  const captured = { buyArgs: [] };
+  const captured = { buyArgs: [], events: [] };
   const portfolio = overrides.portfolio || {
     balance: 10_000,
     positions: {},
@@ -24,7 +24,7 @@ function makeDeps(overrides = {}) {
     risk: { positionSize: () => 99 },
     positionSizingEngine: { calculateSmallIterationSize: () => overrides.fallbackSize || 42 },
     positionMutex: { lock: async () => () => {} },
-    telemetry: { logOrder() {} },
+    telemetry: { logOrder() {}, logTradingEvent: (event) => captured.events.push(event) },
     telemetryUuid: (() => { let i = 0; return () => `id-${++i}`; })(),
     sqlCoordination: { acquireLock: async () => ({ ok: true, release: async () => {} }) },
     executionFlow: {
@@ -125,6 +125,37 @@ test('bsc flow sizing falls back when stop distance is missing', async () => {
   const harness = makeDeps({ fallbackSize: 44 });
   const args = await runBuy(harness, token({ structuralStopPrice: 0, invalidationPrice: 0 }));
   assert.equal(args.sizeUsd, 44);
+});
+
+test('bsc flow buy emits first-class V2 risk audit event for advisory core block', async () => {
+  const harness = makeDeps({
+    deps: {
+      runPreTradeContract: async () => ({
+        ok: true,
+        v2RiskAudit: {
+          enabled: true,
+          advisoryOnly: true,
+          allow: false,
+          reasons: ['portfolio_heat_limit_reached'],
+          legacyBlocked: false,
+          coreBlocked: true,
+          disagreement: true,
+          input: { botProfile: 'paper_spot', strategy: 'bsc_flow_breakout', symbol: 'BSCX' },
+        },
+      }),
+    },
+  });
+
+  const args = await runBuy(harness, token({ signalId: 'sig-bsc' }));
+  const audit = harness.captured.events.find((event) => event.eventName === 'risk.audit');
+
+  assert.ok(args);
+  assert.equal(audit.symbol, 'BSCX');
+  assert.equal(audit.strategy, 'bsc_flow_breakout');
+  assert.equal(audit.correlationId, 'sig-bsc');
+  assert.equal(audit.severity, 'warn');
+  assert.equal(audit.payload.advisoryOnly, true);
+  assert.deepEqual(audit.payload.reasons, ['portfolio_heat_limit_reached']);
 });
 
 test('buy lock ttl follows actual buy timeout plus buffer', async () => {

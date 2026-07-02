@@ -49,11 +49,11 @@ function createPipeline(overrides = {}) {
     refreshBrainAvailability() {},
     incrementRejectReason: (_cycle, reason) => rejects.push(reason),
     tryRotateForStrongerMomentum: async () => null,
-    approvePortfolioDecision: () => ({ approved: true, action: 'BUY' }),
+    approvePortfolioDecision: overrides.approvePortfolioDecision || (() => ({ approved: true, action: 'BUY' })),
     queueDecisionTelemetry: () => 'decision-id',
     recordTradeBlockState() {},
     classifyRejectReason: (reason) => reason,
-    executeBuy: async () => {},
+    executeBuy: overrides.executeBuy || (async () => ({ executed: false, reason: 'execution_not_confirmed' })),
     enterSafeMode: async () => {},
     sendErrorAlert: async () => {},
   });
@@ -120,4 +120,71 @@ test('successful AI BUY must pass confidence floor', async () => {
 
   assert.equal(result.finalSignal, 'BUY');
   assert.equal(result.signalSource, 'AI');
+});
+
+test('approved BUY increments passed only after execution is confirmed', async () => {
+  const { pipeline } = createPipeline({
+    executeBuy: async () => ({ executed: true, trade: { type: 'BUY', symbol: 'ABC' } }),
+  });
+  const cycleStats = {
+    qualified: 0,
+    passed: 0,
+    executionBlocked: 0,
+    riskBlocked: 0,
+    gateRejectCounts: {},
+    rejectReasons: { other: 0 },
+  };
+
+  const result = await pipeline.handleApprovedTradeDecision({
+    chainName: 'kucoin',
+    exchange: {},
+    tokenData: { symbol: 'ABC', address: 'ABC-USDT' },
+    strategyName: 'momentum',
+    evaluation: buyEvaluation(),
+    signalSource: 'technical',
+    cycleStats,
+    proposalDecisionId: 'proposal-id',
+    proposal: {},
+    riskReview: {},
+    riskCheck: { allowed: true },
+  });
+
+  assert.equal(result, 'bought');
+  assert.equal(cycleStats.qualified, 1);
+  assert.equal(cycleStats.passed, 1);
+  assert.equal(cycleStats.executionBlocked, 0);
+});
+
+test('approved BUY records execution block when no fill is confirmed', async () => {
+  const { pipeline } = createPipeline({
+    executeBuy: async () => ({ executed: false, reason: 'execution_not_confirmed' }),
+  });
+  const cycleStats = {
+    qualified: 0,
+    passed: 0,
+    executionBlocked: 0,
+    riskBlocked: 0,
+    gateRejectCounts: {},
+    rejectReasons: { other: 0 },
+  };
+
+  const result = await pipeline.handleApprovedTradeDecision({
+    chainName: 'kucoin',
+    exchange: {},
+    tokenData: { symbol: 'ABC', address: 'ABC-USDT' },
+    strategyName: 'momentum',
+    evaluation: buyEvaluation(),
+    signalSource: 'technical',
+    cycleStats,
+    proposalDecisionId: 'proposal-id',
+    proposal: {},
+    riskReview: {},
+    riskCheck: { allowed: true },
+  });
+
+  assert.equal(result, 'continue');
+  assert.equal(cycleStats.qualified, 1);
+  assert.equal(cycleStats.passed, 0);
+  assert.equal(cycleStats.executionBlocked, 1);
+  assert.equal(cycleStats.gateRejectCounts.execution_not_confirmed, 1);
 });

@@ -17,6 +17,11 @@ const STATE = {
   chart: null,
   candleSeries: null,
   volumeSeries: null,
+  refreshSeq: 0,
+  refreshInFlight: false,
+  refreshInFlightSeq: null,
+  refreshInFlightBot: null,
+  refreshQueued: false,
 };
 
 const el = (id) => document.getElementById(id);
@@ -104,9 +109,54 @@ async function paperPost(path, body, retryOnAuthFailure = true) {
   }
 }
 
+function isRefreshCurrent(seq, bot) {
+  return seq === STATE.refreshSeq && bot === STATE.bot;
+}
+
+function setText(id, value) {
+  const node = el(id);
+  if (node) node.textContent = value;
+}
+
+function renderSwitchPending(bot) {
+  const mode = (bot || STATE.bot).toUpperCase();
+  setText('sidebar-profile', mode);
+  setText('bot-mode', mode);
+  setText('sb-status', `Loading ${mode}...`);
+  setText('sb-latency', '...');
+  ['bot-closed', 'bot-winrate', 'bot-pf', 'bot-cons-losses', 'kpi-pnl-total', 'kpi-pnl-total-pct', 'kpi-pnl-24h', 'kpi-pnl-24h-pct']
+    .forEach((id) => setText(id, '—'));
+  const switcher = el('bot-switcher');
+  if (switcher) {
+    switcher.classList.remove('bot-down');
+    switcher.classList.toggle('bot-paper', bot === 'paper');
+  }
+}
+
+function buildDisplayPortfolio(portfolio = {}, tradeSummary = null) {
+  const closedTrades = Number(tradeSummary?.closedTrades || 0);
+  if (!tradeSummary || closedTrades <= 0) return portfolio;
+  return {
+    ...portfolio,
+    closedTrades: tradeSummary.closedTrades,
+    wins: tradeSummary.wins,
+    losses: tradeSummary.losses,
+    winRate: tradeSummary.winRate,
+    winRatePct: tradeSummary.winRate,
+    profitFactor: tradeSummary.profitFactor,
+    expectancyUsd: tradeSummary.expectancyUsd,
+    avgWinUsd: tradeSummary.avgWinUsd,
+    avgLossUsd: tradeSummary.avgLossUsd,
+    grossProfit: Number.isFinite(Number(portfolio.grossProfit)) ? portfolio.grossProfit : tradeSummary.grossProfit,
+    grossLoss: Number.isFinite(Number(portfolio.grossLoss)) ? portfolio.grossLoss : tradeSummary.grossLoss,
+    realizedPnl: Number.isFinite(Number(portfolio.realizedPnl)) ? portfolio.realizedPnl : tradeSummary.realizedPnl,
+    totalPnl: Number.isFinite(Number(portfolio.totalPnl)) ? portfolio.totalPnl : tradeSummary.totalPnl,
+  };
+}
+
 // ─── Renderers ─────────────────────────────────────────────────────────────
 
-function renderTopbarAndBrand(status) {
+function renderTopbarAndBrand(status, tradeSummary = null) {
   if (!status) return;
   const mode = (status.mode || STATE.bot).toUpperCase();
   el('sidebar-profile').textContent = mode;
@@ -127,9 +177,12 @@ function renderTopbarAndBrand(status) {
     el('bot-strategy').textContent = strategies;
   }
   if (el('bot-positions')) el('bot-positions').textContent = String(p.openPositionCount || 0);
-  if (el('bot-winrate')) el('bot-winrate').textContent = `${(p.winRate || 0).toFixed(1)}%`;
-  if (el('bot-closed')) el('bot-closed').textContent = String(p.closedTrades || 0);
-  if (el('bot-pf')) el('bot-pf').textContent = (p.profitFactor || 0).toFixed(2);
+  const metrics = tradeSummary && Number(tradeSummary.closedTrades || 0) > 0 ? tradeSummary : p;
+  const winRate = Number(metrics.winRate ?? metrics.winRatePct);
+  const profitFactor = metrics.profitFactor;
+  if (el('bot-winrate')) el('bot-winrate').textContent = Number.isFinite(winRate) ? `${winRate.toFixed(1)}%` : '—';
+  if (el('bot-closed')) el('bot-closed').textContent = String(metrics.closedTrades || 0);
+  if (el('bot-pf')) el('bot-pf').textContent = profitFactor == null ? '—' : Number(profitFactor || 0).toFixed(2);
   if (el('bot-cons-losses')) el('bot-cons-losses').textContent = String(p.consecutiveLosses || 0);
   if (el('bot-slippage')) el('bot-slippage').textContent = `${(p.avgSlippageBps || 0).toFixed(1)} bps`;
 }
@@ -280,10 +333,11 @@ function renderTrades(trades) {
   const dashRows = sorted.slice(0, 6).map((t) => {
     const rawPnl = t.pnl ?? t.realizedPnl;
     const pnl = rawPnl == null ? null : Number(rawPnl);
+    const side = (t.type || t.side || 'SELL').toUpperCase();
     const pnlCell = Number.isFinite(pnl)
+      && side !== 'BUY'
       ? `<td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>`
       : '<td class="muted">-</td>';
-    const side = (t.type || t.side || 'SELL').toUpperCase();
     const value = Number(t.valueUsd || t.filledValueUsd || 0);
     return `<tr>
       <td>${fmtTime(t.timestamp)}</td>
@@ -298,10 +352,11 @@ function renderTrades(trades) {
   el('trades-full-body').innerHTML = sorted.slice(0, 100).map((t) => {
     const rawPnl = t.pnl ?? t.realizedPnl;
     const pnl = rawPnl == null ? null : Number(rawPnl);
+    const side = (t.type || t.side || 'SELL').toUpperCase();
     const pnlCell = Number.isFinite(pnl)
+      && side !== 'BUY'
       ? `<td class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}</td>`
       : '<td class="muted">-</td>';
-    const side = (t.type || t.side || 'SELL').toUpperCase();
     const value = Number(t.valueUsd || t.filledValueUsd || 0);
     return `<tr>
       <td>${fmtDateTime(t.timestamp)}</td>
@@ -1100,54 +1155,98 @@ function renderSymbolList(filter = '') {
 // ─── Orchestrator ──────────────────────────────────────────────────────────
 
 async function refreshAll() {
-  el('sb-sync').textContent = fmtTime(new Date().toISOString());
-
-  const [status, tracked, bullFlagStats] = await Promise.all([
-    api('/api/status'),
-    api('/api/tracked-tokens'),
-    api('/api/bull-flag-stats'),
-  ]);
-
-  // Update bot indicator (green=alive, yellow=paper, red=down)
-  const switcher = el('bot-switcher');
-  if (!status) {
-    switcher.classList.add('bot-down');
-    el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3003'}`;
-    renderPositions([]);
-    renderTrades([]);
-    renderSignals([]);
-    renderTracked([]);
+  if (STATE.refreshInFlight && STATE.refreshInFlightBot === STATE.bot) {
+    STATE.refreshQueued = true;
     return;
   }
-  switcher.classList.remove('bot-down');
-  switcher.classList.toggle('bot-paper', (status.mode || STATE.bot) === 'paper');
+  const seq = ++STATE.refreshSeq;
+  const bot = STATE.bot;
+  STATE.refreshInFlight = true;
+  STATE.refreshInFlightSeq = seq;
+  STATE.refreshInFlightBot = bot;
+  el('sb-sync').textContent = fmtTime(new Date().toISOString());
 
-  renderTopbarAndBrand(status);
-  const portfolio = status.portfolio || {};
-  renderBalancesAndPnl(portfolio);
-  renderPositions(portfolio.positions || []);
-  renderTrades(portfolio.recentTrades || []);
-  renderSignals(status.market?.recentSignals || []);
-  renderRiskAlerts(portfolio);
-  renderBullFlagStats(bullFlagStats);
+  try {
+    const statusPromise = api('/api/status');
+    const trackedPromise = api('/api/tracked-tokens');
+    const bullFlagStatsPromise = api('/api/bull-flag-stats');
+    const tradeHistoryPromise = api('/api/trades?limit=250');
 
-  if (tracked) {
-    renderTracked(tracked);
-    SYMBOL_LIST = (tracked?.tokens || tracked || []).filter((t) => t.symbol);
-    if (el('symbol-list')?.children?.length === 0 || !el('symbol-list')?.innerHTML) renderSymbolList();
+    const status = await statusPromise;
+    if (!isRefreshCurrent(seq, bot)) return;
+
+    // Update bot indicator (green=alive, yellow=paper, red=down)
+    const switcher = el('bot-switcher');
+    if (!status) {
+      switcher.classList.add('bot-down');
+      el('sb-status').textContent = `${STATE.bot.toUpperCase()} bot unreachable on port ${STATE.bot === 'live' ? '3002' : '3003'}`;
+      renderPositions([]);
+      renderTrades([]);
+      renderSignals([]);
+      renderTracked([]);
+      return;
+    }
+    switcher.classList.remove('bot-down');
+    switcher.classList.toggle('bot-paper', (status.mode || STATE.bot) === 'paper');
+
+    const portfolio = status.portfolio || {};
+    renderTopbarAndBrand(status);
+    renderBalancesAndPnl(portfolio);
+    renderPositions(portfolio.positions || []);
+    renderTrades(portfolio.recentTrades || []);
+    renderSignals(status.market?.recentSignals || []);
+    renderRiskAlerts(portfolio);
+
+    const [tracked, bullFlagStats, tradeHistory] = await Promise.all([
+      trackedPromise,
+      bullFlagStatsPromise,
+      tradeHistoryPromise,
+    ]);
+    if (!isRefreshCurrent(seq, bot)) return;
+
+    const tradeSummary = tradeHistory?.summary || null;
+    const displayPortfolio = buildDisplayPortfolio(portfolio, tradeSummary);
+    renderTopbarAndBrand(status, tradeSummary);
+    renderBalancesAndPnl(displayPortfolio);
+    renderTrades(Array.isArray(tradeHistory?.trades) ? tradeHistory.trades : (portfolio.recentTrades || []));
+    renderRiskAlerts(displayPortfolio);
+    renderBullFlagStats(bullFlagStats);
+
+    if (tracked) {
+      renderTracked(tracked);
+      SYMBOL_LIST = (tracked?.tokens || tracked || []).filter((t) => t.symbol);
+      if (el('symbol-list')?.children?.length === 0 || !el('symbol-list')?.innerHTML) renderSymbolList();
+    }
+    if (!isRefreshCurrent(seq, bot)) return;
+    refreshObservability();
+    refreshChart();
+    refreshMarketIndicators();
+    if (el('logs-autorefresh')?.checked) refreshLogs();
+    if (!el('view-perp-trades').classList.contains('hidden')) refreshPerpTrades();
+  } finally {
+    if (STATE.refreshInFlightSeq === seq) {
+      STATE.refreshInFlight = false;
+      STATE.refreshInFlightSeq = null;
+      STATE.refreshInFlightBot = null;
+      if (STATE.refreshQueued && STATE.bot === bot) {
+        STATE.refreshQueued = false;
+        setTimeout(refreshAll, 0);
+      }
+    }
   }
-  refreshObservability();
-  refreshChart();
-  refreshMarketIndicators();
-  if (el('logs-autorefresh')?.checked) refreshLogs();
-  if (!el('view-perp-trades').classList.contains('hidden')) refreshPerpTrades();
 }
 
 function switchBot(newBot) {
+  STATE.refreshSeq += 1;
+  STATE.refreshInFlight = false;
+  STATE.refreshInFlightSeq = null;
+  STATE.refreshInFlightBot = null;
+  STATE.refreshQueued = false;
   STATE.bot = newBot;
   localStorage.setItem('dt.bot', newBot);
   localStorage.setItem('dt.botExplicit', 'true');
   el('bot-select').value = newBot;
+  renderSwitchPending(newBot);
   refreshAll();
 }
 

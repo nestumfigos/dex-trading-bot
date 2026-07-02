@@ -6,7 +6,7 @@ const {
   computeDiscrepancyScore,
   classifyPromotionImpact,
   classifyRegimeFamily,
-  hashText,
+  evaluatePromotionEvidenceGate,
 } = require('./utils/promotion-governance');
 
 class EvolutionGovernor {
@@ -41,7 +41,10 @@ class EvolutionGovernor {
       requireManualApprovalForHighImpact: raw.requireManualApprovalForHighImpact !== false,
       shadowModeRequired: raw.shadowModeRequired !== false,
       canaryLiveSizePct: Math.max(1, Number(raw.canaryLiveSizePct || 10)),
-      minLiveCanaryClosedTrades: Math.max(1, Number(raw.minLiveCanaryClosedTrades || 3)),
+      requireV2EvidenceGate: raw.requireV2EvidenceGate === true,
+      promotionGateThresholds: raw.promotionGateThresholds && typeof raw.promotionGateThresholds === 'object'
+        ? raw.promotionGateThresholds
+        : {},
     };
   }
 
@@ -78,12 +81,6 @@ class EvolutionGovernor {
     const ts = new Date().toISOString();
     const id = `evo-${Date.now()}`;
     const changedFiles = Array.isArray(applyResult?.changedFiles) ? applyResult.changedFiles : [];
-    const fileHashes = {};
-    for (const rel of changedFiles) {
-      const normalized = String(rel).replace(/\\/g, '/');
-      const source = await fs.readFile(path.join(this.projectRoot, rel), 'utf8');
-      fileHashes[normalized] = hashText(source);
-    }
     const manifest = {
       id,
       createdAt: ts,
@@ -92,8 +89,9 @@ class EvolutionGovernor {
       summary: String(plan?.summary || ''),
       reason: String(plan?.reason || ''),
       source: String(plan?._source || 'rule_based'),
+      strategy: String(plan?.strategy || plan?.strategyId || 'multi_strategy'),
+      strategyClass: String(plan?.strategyClass || 'generic'),
       changedFiles,
-      fileHashes,
       changedEnvKeys: Array.isArray(applyResult?.changedEnvKeys) ? applyResult.changedEnvKeys : [],
       versioning: {
         versionId: String(context.strategyVersionId || id),
@@ -130,6 +128,8 @@ class EvolutionGovernor {
       promotion: {
         eligible: false,
         approved: false,
+        v2GateRequired: this.getSettings().requireV2EvidenceGate === true,
+        v2Gate: null,
         attemptedAt: null,
         completedAt: null,
         reason: null,
@@ -200,6 +200,12 @@ class EvolutionGovernor {
     const impact = classifyPromotionImpact(manifest.changedFiles || []);
     const targetRegimeFamily = classifyRegimeFamily(manifest?.regime?.target || context?.marketRegime || 'unknown');
     const currentRegimeFamily = classifyRegimeFamily(context?.marketRegime || manifest?.regime?.observed || 'unknown');
+    const evidenceGate = evaluatePromotionEvidenceGate({
+      manifest,
+      context,
+      strategyClass: manifest.strategyClass || context.strategyClass || 'generic',
+      thresholds: settings.promotionGateThresholds,
+    });
     const promotionConfidence = Math.max(
       0,
       Math.min(
@@ -251,15 +257,37 @@ class EvolutionGovernor {
     } else if (targetRegimeFamily !== 'unknown' && currentRegimeFamily !== 'unknown' && targetRegimeFamily !== currentRegimeFamily) {
       decision = 'hold';
       reasons.push(`regime_mismatch:${targetRegimeFamily}->${currentRegimeFamily}`);
-    } else if (discrepancy.score > settings.maxPaperLiveDiscrepancyScore) {
+    } else if ((discrepancy.scoreRaw ?? discrepancy.score) > settings.maxPaperLiveDiscrepancyScore) {
+      // B3.sl.11: use scoreRaw (unclamped) for threshold compare so a 150-pt
+      // divergence isn't hidden behind the clamp-to-100. Fall back to clamped
+      // for legacy callers that only populate `.score`.
       decision = 'hold';
-      reasons.push(`paper_live_discrepancy:${discrepancy.score.toFixed(2)}`);
+      reasons.push(`paper_live_discrepancy:${(discrepancy.scoreRaw ?? discrepancy.score).toFixed(2)}`);
+    } else if (settings.requireV2EvidenceGate && evidenceGate.passed !== true) {
+      decision = 'hold';
+      reasons.push(`v2_evidence_gate:${evidenceGate.reasons.join('|') || 'failed'}`);
     } else if (observationMinutes >= settings.minObservationMinutes && observedClosedTrades >= settings.minClosedTrades) {
+      // B2.22: optional belt-and-suspenders floors independent of the
+      // weighted `promotionConfidence` aggregate. Audit 05-self-learning.md
+      // #4 raised concern that the aggregate can pass on a strong showing
+      // in one dimension masking weakness elsewhere. These floors are
+      // OPT-IN via settings — default permissive so existing promotion
+      // flow is unchanged. Operators tighten by setting
+      //   strictDiscrepancyFloor (e.g. 15) and
+      //   strictProfitFactorDeltaFloor (e.g. 0.05).
+      const strictDiscrepancyFloor = Number.isFinite(Number(settings.strictDiscrepancyFloor))
+        ? Number(settings.strictDiscrepancyFloor)
+        : Infinity;
+      const strictPfFloor = Number.isFinite(Number(settings.strictProfitFactorDeltaFloor))
+        ? Number(settings.strictProfitFactorDeltaFloor)
+        : -Infinity;
+      const passStrictDiscrepancy = discrepancy.score < strictDiscrepancyFloor;
+      const passStrictPf = profitFactorDelta > strictPfFloor;
       const passPf = profitFactorDelta >= settings.promoteMinProfitFactorDelta;
       const passWr = winRateDeltaPct >= settings.promoteMinWinRateDeltaPct;
       const passDd = drawdownDeltaPct <= settings.maxDrawdownDeltaPct;
       const passConfidence = promotionConfidence >= settings.minPromotionConfidence;
-      if (passPf && passWr && passDd && passConfidence) {
+      if (passPf && passWr && passDd && passConfidence && passStrictDiscrepancy && passStrictPf) {
         decision = 'promote';
         reasons.push('observation_passed');
         if (settings.shadowModeRequired && observedClosedTrades < settings.minShadowClosedTrades) {
@@ -298,6 +326,7 @@ class EvolutionGovernor {
       },
       impact,
       discrepancy,
+      evidenceGate,
       reasons,
     };
   }

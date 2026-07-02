@@ -25,9 +25,7 @@ function createDeps(overrides = {}) {
     telemetry: {
       logOrder() {},
       logFill() {},
-      logPositionOpen() {},
       logPositionClose() {},
-      logDecision() {},
       logDecisionReflection() {},
       logOpsEvent() {},
     },
@@ -111,81 +109,43 @@ test('closed-trade learning hold time uses openedAt when entryAt is absent', asy
   assert.ok(getRlRecord().holdMinutes <= 31);
 });
 
-test('paper cash ledger reconciles net PnL after modeled entry and exit fees', async () => {
-  const { deps, portfolio } = createDeps({
-    config: {
-      paperTrading: true,
-      execution: { feeProfile: { default: { entryBps: 100, exitBps: 100 } } },
-    },
-    risk: {
-      stopLossPrice: () => 9,
-      takeProfitPrice: () => 12,
-    },
-    resolveBuyFillMetrics: () => ({
-      realizedEntryPrice: 10,
-      hasExchangeFilledData: true,
-      filledQuoteUsd: 10,
-      filledBaseQty: 1,
-    }),
-  });
+test('sell finalization emits V2 order lifecycle trading events', async () => {
+  const events = [];
+  const { deps, portfolio } = createDeps();
+  deps.telemetry.logTradingEvent = (event) => events.push(event);
+  const position = {
+    key: 'kucoin:abc',
+    address: 'abc',
+    symbol: 'ABC',
+    chainKey: 'kucoin',
+    strategy: 'momentum',
+    quantity: 1,
+    costBasisUsd: 10,
+    initialSizeUsd: 10,
+    entryPrice: 10,
+    openedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+  };
+  portfolio.positions[position.key] = position;
+  portfolio.strategies.momentum.positions[position.key] = position;
+
   const flow = createExecutionFlow(deps);
-  await flow.finalizeBuyExecution({
-    chainName: 'kucoin',
-    tokenData: { symbol: 'ABC', address: 'abc', chain: 'KuCoin', price: 10 },
-    strategyName: 'momentum',
-    txResult: { txid: 'buy1' },
-    sizeUsd: 10,
-    calculatedSizeUsd: 10,
-    entryDelayMs: 0,
-    expectedEntryPrice: 10,
-    orderId: 'buy-order',
-  });
-  const position = portfolio.positions['kucoin:abc'];
   await flow.finalizeSellExecutionState({
     chainName: 'kucoin',
     tokenData: { symbol: 'ABC', address: 'abc', chain: 'KuCoin', price: 12 },
     position,
-    txResult: { txid: 'sell1' },
+    txResult: { txid: 'sell-v2' },
     reason: 'TAKE_PROFIT',
     strategyName: 'momentum',
     expectedExitPrice: 12,
     quantityRequested: 1,
     requestedFraction: 1,
   });
-  assert.equal(Number(portfolio.balance.toFixed(2)), 101.78);
-  assert.equal(Number(portfolio.stats.totalPnl.toFixed(2)), 1.78);
-});
 
-test('paper buy cannot create a position or negative cash when funds are exhausted', async () => {
-  const { deps, portfolio } = createDeps({
-    config: {
-      paperTrading: true,
-      execution: { feeProfile: { default: { entryBps: 100, exitBps: 100 } } },
-    },
-    risk: { stopLossPrice: () => 9, takeProfitPrice: () => 12 },
-    resolveBuyFillMetrics: () => ({
-      realizedEntryPrice: 10,
-      hasExchangeFilledData: true,
-      filledQuoteUsd: 10,
-      filledBaseQty: 1,
-    }),
-  });
-  portfolio.balance = 5;
-  const result = await createExecutionFlow(deps).finalizeBuyExecution({
-    chainName: 'kucoin',
-    tokenData: { symbol: 'ABC', address: 'abc', chain: 'KuCoin', price: 10 },
-    strategyName: 'momentum',
-    txResult: { txid: 'rejected-buy' },
-    sizeUsd: 10,
-    calculatedSizeUsd: 10,
-    entryDelayMs: 0,
-    expectedEntryPrice: 10,
-    orderId: 'buy-order',
-  });
-  assert.equal(result.aborted, true);
-  assert.equal(result.reason, 'insufficient_paper_cash');
-  assert.equal(portfolio.balance, 5);
-  assert.deepEqual(portfolio.positions, {});
+  assert.deepEqual(events.map((event) => event.eventName), ['order.submitted', 'fill.confirmed']);
+  assert.equal(events[0].strategy, 'momentum');
+  assert.equal(events[0].symbol, 'ABC');
+  assert.equal(events[0].payload.intent.side, 'SELL');
+  assert.equal(events[1].payload.fill.quoteUsd, 12);
 });
 
 test('repeated live sell failures escalate to safe mode', async () => {

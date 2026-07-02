@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 
 const m = require('../../src/cycle/maintenance');
 
@@ -230,4 +232,39 @@ test('runSqlAutoPrune: preserves permanent signals and uses health check timesta
   const policies = m._testInternals.SQL_PRUNE_POLICIES;
   assert.equal(policies.find(([table]) => table === 'dbo.signals')[3], "retention_tier <> 'permanent'");
   assert.equal(policies.find(([table]) => table === 'dbo.health_checks')[2], 'checked_at');
+});
+
+test('runSqlAutoPrune: includes V2 high-churn telemetry and excludes permanent ledgers', () => {
+  const tables = new Map(m.SQL_AUTO_PRUNE_TABLES.map(([table, hours, tsColumn]) => [table, { hours, tsColumn }]));
+  assert.equal(tables.get('dbo.trading_events').hours, 2160);
+  assert.equal(tables.get('dbo.perps_signals').hours, 2160);
+  assert.equal(tables.get('dbo.portfolio_exposure_snapshots').hours, 720);
+  assert.equal(tables.get('dbo.perps_state_snapshots').hours, 168);
+  [
+    'dbo.bot_trade_ledger',
+    'dbo.positions',
+    'dbo.perps_trades',
+    'dbo.perps_positions',
+    'dbo.replay_runs',
+    'dbo.replay_trades',
+    'dbo.promotion_candidates',
+    'dbo.strategy_versions',
+  ].forEach((table) => assert.equal(tables.has(table), false, `${table} must not be auto-pruned`));
+});
+
+test('manual sql cleanup includes the same V2 telemetry retention classes', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '..', '..', 'scripts', 'sql-cleanup.js'), 'utf8');
+  [
+    'dbo.trading_events',
+    'dbo.perps_signals',
+    'dbo.portfolio_exposure_snapshots',
+    'dbo.correlation_snapshots',
+    'dbo.perps_admission_snapshots',
+    'dbo.perps_state_snapshots',
+  ].forEach((table) => assert.match(source, new RegExp(table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
+  [
+    'dbo.perps_trades',
+    'dbo.perps_positions',
+    'dbo.promotion_candidates',
+  ].forEach((table) => assert.doesNotMatch(source, new RegExp(`table:\\s*'${table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`)));
 });

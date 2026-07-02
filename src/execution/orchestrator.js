@@ -39,6 +39,11 @@ function createExecutionOrchestrator(deps) {
     return setupType === 'spot_day_bull_flag' || setupType === 'solana_bull_flag_v2';
   }
 
+  function isExecutionScanOnlyStrategy(strategyName) {
+    const cfg = config.strategies?.[strategyName] || {};
+    return cfg.scanOnly === true;
+  }
+
   function finiteNumber(value) {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
@@ -62,6 +67,190 @@ function createExecutionOrchestrator(deps) {
       tokenData.projectedTargetPrice,
       ...targetPrices,
     ]);
+  }
+
+  function normalizeV2BotProfile(profile = BOT_PROFILE) {
+    const key = String(profile || '').trim().toLowerCase();
+    if (key === 'live') return 'live_spot';
+    if (key === 'paper') return 'paper_spot';
+    if (key === 'perps') return 'paper_perps';
+    return key || 'unknown';
+  }
+
+  function estimatePositionNotionalUsd(position = {}) {
+    const quantity = Math.abs(firstFinitePositive([position.quantity, position.qty, position.size]) || 0);
+    const markPrice = firstFinitePositive([
+      position.currentPrice,
+      position.markPrice,
+      position.price,
+      position.entryPrice,
+    ]);
+    const derivedValueUsd = quantity > 0 && markPrice > 0 ? quantity * markPrice : null;
+    return firstFinitePositive([
+      position.positionValueUsd,
+      position.marketValueUsd,
+      position.currentValueUsd,
+      position.valueUsd,
+      derivedValueUsd,
+      position.costBasisUsd,
+      position.initialSizeUsd,
+      position.notionalUsd,
+    ]) || 0;
+  }
+
+  function estimatePositionRiskUsd(position = {}, notionalUsd = 0) {
+    const explicitRiskUsd = firstFinitePositive([
+      position.setupRiskUsd,
+      position.riskUsd,
+      position.maxLossUsd,
+      position.riskAmountUsd,
+    ]);
+    if (explicitRiskUsd !== null) return explicitRiskUsd;
+
+    const quantity = Math.abs(firstFinitePositive([position.quantity, position.qty, position.size]) || 0);
+    const entryPrice = firstFinitePositive([position.entryPrice, position.averageEntryPrice, position.avgEntryPrice]);
+    const stopPrice = firstFinitePositive([
+      position.stopLoss,
+      position.stopLossPrice,
+      position.stopPrice,
+      position.structuralStopPrice,
+      position.invalidationPrice,
+    ]);
+    if (quantity > 0 && entryPrice > 0 && stopPrice > 0 && entryPrice !== stopPrice) {
+      return Math.abs(entryPrice - stopPrice) * quantity;
+    }
+
+    const riskPct = firstFinitePositive([position.setupRiskPct, position.riskPct, position.maxLossPct]);
+    if (riskPct !== null && notionalUsd > 0) return notionalUsd * (riskPct / 100);
+    return 0;
+  }
+
+  function buildPortfolioExposureRows() {
+    return Object.values(portfolio?.positions || {})
+      .map((position) => {
+        const symbol = position?.symbol || position?.contract || position?.ticker || position?.address || null;
+        const notionalUsd = estimatePositionNotionalUsd(position);
+        const riskUsd = estimatePositionRiskUsd(position, notionalUsd);
+        return {
+          botProfile: normalizeV2BotProfile(BOT_PROFILE),
+          marketType: position?.marketType || position?.market || 'spot',
+          symbol,
+          strategy: position?.strategy || position?.strategyId || position?.setupType || 'unknown',
+          notionalUsd,
+          riskUsd,
+          unrealizedPnlUsd: finiteNumber(position?.unrealizedPnlUsd ?? position?.unrealizedPnl) || 0,
+          correlationKey: position?.correlationKey
+            || position?.correlationBucket
+            || position?.chainKey
+            || position?.chain
+            || symbol,
+        };
+      })
+      .filter((row) => row.symbol && (row.notionalUsd > 0 || row.riskUsd > 0));
+  }
+
+  function estimateProposedTradeRiskUsd(tokenData = {}, sizeUsd = 0, strategyName = 'momentum') {
+    const explicitRiskUsd = firstFinitePositive([
+      tokenData._bullFlagRiskUsd,
+      tokenData.setupRiskUsd,
+      tokenData.riskUsd,
+      tokenData.maxLossUsd,
+      tokenData.riskAmountUsd,
+    ]);
+    if (explicitRiskUsd !== null) return explicitRiskUsd;
+
+    const entryPrice = firstFinitePositive([
+      tokenData.price,
+      tokenData.entryPrice,
+      tokenData.breakoutClosePrice,
+      tokenData.breakoutClose,
+    ]);
+    const stopPrice = firstFinitePositive([
+      tokenData.structuralStopPrice,
+      tokenData.stopPrice,
+      tokenData.stopLossPrice,
+      tokenData.stopLoss,
+      tokenData.invalidationPrice,
+    ]);
+    const notionalUsd = Number(sizeUsd || 0);
+    if (notionalUsd > 0 && entryPrice > 0 && stopPrice > 0 && entryPrice !== stopPrice) {
+      return notionalUsd * (Math.abs(entryPrice - stopPrice) / entryPrice);
+    }
+
+    const strategyConfig = config.strategies?.[strategyName] || {};
+    const riskPct = firstFinitePositive([
+      tokenData._strategyRiskPct,
+      tokenData._bullFlagRiskPct,
+      tokenData.riskPct,
+      strategyConfig.riskPct,
+      strategyConfig.riskPctBase,
+      config.risk?.stopLossPct,
+    ]);
+    if (notionalUsd > 0 && riskPct !== null) return notionalUsd * (riskPct / 100);
+    return 0;
+  }
+
+  function buildPreTradeRiskConfig() {
+    const riskConfig = config.risk || {};
+    return {
+      aiOverride: process.env.AI_CIRCUIT_OVERRIDE === 'true'
+        || (typeof AITradeBrain.hasAnyEnabledProvider === 'function' && !AITradeBrain.hasAnyEnabledProvider()),
+      targetPortfolioHeatPct: riskConfig.v2TargetPortfolioHeatPct,
+      maxPortfolioHeatPct: riskConfig.v2MaxPortfolioHeatPct ?? riskConfig.maxPortfolioHeatPct,
+      maxCorrelation: riskConfig.v2MaxPortfolioCorrelation,
+      profileRiskBudgetsPct: riskConfig.v2ProfileRiskBudgetsPct,
+      strategyRiskBudgetsPct: riskConfig.v2StrategyRiskBudgetsPct,
+      correlationPairs: riskConfig.v2CorrelationPairs || riskConfig.correlationPairs,
+      v2RiskEnforcementMode: riskConfig.v2RiskEnforcementMode,
+      v2RiskEnforceProfiles: riskConfig.v2RiskEnforceProfiles,
+    };
+  }
+
+  function emitTradingEvent(event) {
+    if (typeof telemetry?.logTradingEvent !== 'function') return;
+    try {
+      telemetry.logTradingEvent(event);
+    } catch (error) {
+      logger?.debug?.(`[v2-events] failed to enqueue ${event?.eventName || 'event'}: ${error?.message || error}`);
+    }
+  }
+
+  function emitV2RiskAuditEvent({
+    ptResult,
+    side,
+    strategy,
+    symbol,
+    chainName,
+    sizeUsd,
+    positionValueUsd,
+    reason,
+    correlationId,
+  } = {}) {
+    const audit = ptResult?.v2RiskAudit;
+    if (!audit || audit.enabled !== true) return;
+    if (!audit.coreBlocked && !audit.disagreement) return;
+
+    emitTradingEvent({
+      eventName: 'risk.audit',
+      strategy,
+      symbol,
+      severity: audit.coreBlocked ? 'warn' : 'info',
+      correlationId,
+      payload: {
+        side,
+        chainName,
+        sizeUsd,
+        positionValueUsd,
+        reason,
+        advisoryOnly: audit.advisoryOnly === true,
+        allow: audit.allow,
+        reasons: audit.reasons || [],
+        legacyBlocked: audit.legacyBlocked === true,
+        coreBlocked: audit.coreBlocked === true,
+        disagreement: audit.disagreement === true,
+        input: audit.input || null,
+      },
+    });
   }
 
   function estimateRoundTripCostBps(chainName, tokenData = {}) {
@@ -153,6 +342,10 @@ function createExecutionOrchestrator(deps) {
   async function executeBuy(chainName, exchange, tokenData, strategyName = 'momentum') {
     if (!config.paperTrading && chainName !== 'kucoin') {
       logger.info(`Buy blocked: live bot restricted to KuCoin, ${chainName} not allowed`);
+      return;
+    }
+    if (isExecutionScanOnlyStrategy(strategyName)) {
+      logger.info(`[${strategyName}] BUY signal scan-only; execution blocked for ${tokenData.symbol || tokenData.address || 'unknown'}`);
       return;
     }
 
@@ -291,35 +484,102 @@ function createExecutionOrchestrator(deps) {
     try {
       const { getPool } = require('../utils/sqlServer');
       const ptPool = await getPool(logger).catch(() => null);
+      const proposedRiskUsd = estimateProposedTradeRiskUsd(tokenData, sizeUsd, strategyName);
       const ptResult = await runPreTradeContract({
         side: 'BUY',
-        trade: { symbol: tokenData.symbol, chain: chainName, address: tokenData.address, sizeUsd, positionValueUsd: sizeUsd },
+        trade: {
+          symbol: tokenData.symbol,
+          chain: chainName,
+          address: tokenData.address,
+          sizeUsd,
+          notionalUsd: sizeUsd,
+          positionValueUsd: sizeUsd,
+          riskUsd: proposedRiskUsd,
+          maxLossUsd: proposedRiskUsd,
+          setupType: tokenData.setupType || tokenData.setup_type || tokenData._strategySubtype || null,
+          marketType: 'spot',
+          correlationKey: tokenData.correlationKey
+            || tokenData.correlationBucket
+            || tokenData.chainKey
+            || tokenData.symbol
+            || tokenData.address,
+        },
         state: {
           walletUsd: Number(portfolio?.balance) || 0,
           todaysPnlUsd: Number(portfolio?.stats?.todaysPnl) || 0,
           consecutiveLosses: Number(portfolio?.stats?.consecutiveLosses) || 0,
           aiCircuitOpen: aiCircuit.cooldownUntil > Date.now(),
+          portfolioExposures: buildPortfolioExposureRows(),
         },
         scope: BOT_PROFILE,
         strategy: strategyName,
         sql: ptPool,
         logger,
         botVersion: process.env.BOT_VERSION || null,
-        config: {
-          aiOverride: process.env.AI_CIRCUIT_OVERRIDE === 'true'
-            || (typeof AITradeBrain.hasAnyEnabledProvider === 'function' && !AITradeBrain.hasAnyEnabledProvider()),
-        },
+        config: buildPreTradeRiskConfig(),
+      });
+      const riskCorrelationId = tokenData.signalId || tokenData._decisionTelemetry?.approvalDecisionId || null;
+      emitV2RiskAuditEvent({
+        ptResult,
+        side: 'BUY',
+        strategy: strategyName,
+        symbol: tokenData.symbol,
+        chainName,
+        sizeUsd,
+        positionValueUsd: sizeUsd,
+        correlationId: riskCorrelationId,
       });
       if (!ptResult.ok) {
+        emitTradingEvent({
+          eventName: 'risk.rejected',
+          strategy: strategyName,
+          symbol: tokenData.symbol,
+          severity: 'warn',
+          correlationId: riskCorrelationId,
+          payload: {
+            side: 'BUY',
+            chainName,
+            sizeUsd,
+            reasons: ptResult.reasons || ptResult.rejectReasons || [],
+            result: ptResult,
+          },
+        });
         logger.warn(`[pre-trade-contract] enforce: ${tokenData.symbol} BUY blocked, skipping`);
         return;
       }
+      emitTradingEvent({
+        eventName: 'risk.approved',
+        strategy: strategyName,
+        symbol: tokenData.symbol,
+        severity: 'info',
+        correlationId: riskCorrelationId,
+        payload: {
+          side: 'BUY',
+          chainName,
+          sizeUsd,
+          result: ptResult,
+        },
+      });
     } catch (e) {
       // Fail CLOSED on entry: if the pre-trade risk contract can't run (e.g. SQL
       // pool down), we cannot confirm daily-loss / consecutive-loss / duplicate-
       // order / AI-circuit limits — so we must NOT open new risk. Worst case is a
       // skipped buy, never a forced one. SELL stays fail-OPEN (below) — an infra
       // error must never block an exit. Brings live to parity with paper.
+      emitTradingEvent({
+        eventName: 'risk.rejected',
+        strategy: strategyName,
+        symbol: tokenData.symbol,
+        severity: 'error',
+        correlationId: tokenData.signalId || tokenData._decisionTelemetry?.approvalDecisionId || null,
+        payload: {
+          side: 'BUY',
+          chainName,
+          sizeUsd,
+          reasons: ['pre_trade_contract_failed_closed'],
+          error: e?.message || String(e),
+        },
+      });
       logger.warn(`[pre-trade-contract] BUY check threw: ${e?.message || e} — failing closed (skipping entry)`);
       return;
     }
@@ -512,10 +772,50 @@ function createExecutionOrchestrator(deps) {
           logger,
           botVersion: process.env.BOT_VERSION || null,
         });
+        const riskCorrelationId = position?.sqlDecisionId || position?.sqlApprovalDecisionId || null;
+        emitV2RiskAuditEvent({
+          ptResult,
+          side: 'SELL',
+          strategy: strategyName,
+          symbol: tokenData.symbol,
+          chainName,
+          positionValueUsd,
+          reason,
+          correlationId: riskCorrelationId,
+        });
         if (!ptResult.ok) {
+          emitTradingEvent({
+            eventName: 'risk.rejected',
+            strategy: strategyName,
+            symbol: tokenData.symbol,
+            severity: 'warn',
+            correlationId: riskCorrelationId,
+            payload: {
+              side: 'SELL',
+              chainName,
+              reason,
+              positionValueUsd,
+              reasons: ptResult.reasons || ptResult.rejectReasons || [],
+              result: ptResult,
+            },
+          });
           logger.warn(`[pre-trade-contract] enforce: ${tokenData.symbol} SELL blocked (reason=${reason}), skipping`);
           return;
         }
+        emitTradingEvent({
+          eventName: 'risk.approved',
+          strategy: strategyName,
+          symbol: tokenData.symbol,
+          severity: 'info',
+          correlationId: riskCorrelationId,
+          payload: {
+            side: 'SELL',
+            chainName,
+            reason,
+            positionValueUsd,
+            result: ptResult,
+          },
+        });
       } catch (e) {
         logger.debug(`[pre-trade-contract] SELL check threw: ${e?.message || e} — proceeding`);
       }

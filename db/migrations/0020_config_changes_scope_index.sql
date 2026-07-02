@@ -1,4 +1,5 @@
--- M0020: support hot queries filtered by scope and knob.
+-- M0020: index on (scope, knob, changed_at DESC) — hot queries filter by scope+knob.
+-- Existing indexes cover knob or changed_at alone but not the composite hot path.
 BEGIN TRANSACTION;
 BEGIN TRY
 

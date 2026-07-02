@@ -17,6 +17,9 @@
 // restart storms where an orphaned old ProcessContainerFork keeps the port.
 //
 // Sibling-takeover: if a lock is held by a DEAD pid, take it over.
+// Active holders refresh `heartbeatAt`; PM2 replacement logs fresh heartbeats
+// but still performs a bounded same-port takeover so PM2 can regain ownership
+// of an orphaned process without looping forever.
 //
 // Signal-handling: if `lockManager` is passed, release is registered as a
 // cleanup hook there (drained by boot/lifecycle on SIGINT/SIGTERM through the
@@ -95,6 +98,11 @@ function parseNonNegativeMs(name, fallback) {
   return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
 }
 
+function parseTimestampMs(value) {
+  const ts = Date.parse(String(value || ''));
+  return Number.isFinite(ts) ? ts : null;
+}
+
 function acquireRuntimeSingleton({
   dataDirAbs,
   profile,
@@ -109,11 +117,14 @@ function acquireRuntimeSingleton({
 
   const profileLockPath = path.join(dataDirAbs, `runtime-${profile}.lock`);
   const portLockPath    = path.join(dataDirAbs, `runtime-${profile}-${port}.lock`);
-  const pidPayload = JSON.stringify({
+  const startedAt = new Date().toISOString();
+  const lockPayloadJson = () => JSON.stringify({
     pid: process.pid,
     profile,
     port,
-    startedAt: new Date().toISOString(),
+    startedAt,
+    heartbeatAt: new Date().toISOString(),
+    pmId: process.env.pm_id || null,
   });
 
   const pidExists = (pid) => {
@@ -138,6 +149,17 @@ function acquireRuntimeSingleton({
     try { return JSON.parse(fsSync.readFileSync(lockPath, 'utf8')); } catch (_) { return null; }
   };
 
+  const heartbeatAgeMs = (payload) => {
+    const heartbeatTs = parseTimestampMs(payload?.heartbeatAt);
+    if (heartbeatTs == null) return null;
+    return Math.max(0, Date.now() - heartbeatTs);
+  };
+
+  const isFreshHeartbeat = (payload, staleMs) => {
+    const age = heartbeatAgeMs(payload);
+    return age != null && age <= staleMs;
+  };
+
   const shouldUsePm2ReplacementPath = (existing) => {
     if (!process.env.pm_id) return false;
     if (!existing || Number(existing.pid) === process.pid) return false;
@@ -145,43 +167,126 @@ function acquireRuntimeSingleton({
       && Number(existing.port) === Number(port);
   };
 
+  const replacementLeasePath = () => path.join(dataDirAbs, `runtime-${profile}-${port}.replace.lock`);
+
+  const tryAcquireReplacementLease = (scope, targetPid, ttlMs) => {
+    const leasePath = replacementLeasePath(scope);
+    const payload = {
+      pid: process.pid,
+      targetPid: Number(targetPid),
+      profile,
+      port,
+      scope,
+      acquiredAt: new Date().toISOString(),
+    };
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        fsSync.writeFileSync(leasePath, JSON.stringify(payload), { flag: 'wx' });
+        return { acquired: true, leasePath };
+      } catch (error) {
+        if (error?.code !== 'EEXIST') return { acquired: false, leasePath };
+      }
+      const existing = readLockPayload(leasePath);
+      const age = existing ? Math.max(0, Date.now() - (parseTimestampMs(existing.acquiredAt) || 0)) : ttlMs + 1;
+      if (existing?.pid && pidExists(existing.pid) && age <= ttlMs) {
+        return { acquired: false, leasePath };
+      }
+      try { fsSync.unlinkSync(leasePath); } catch (_) {}
+    }
+    return { acquired: false, leasePath };
+  };
+
+  const releaseReplacementLease = (leasePath) => {
+    try {
+      const existing = readLockPayload(leasePath);
+      if (Number(existing?.pid) === process.pid) fsSync.unlinkSync(leasePath);
+    } catch (_) {}
+  };
+
   const waitForPm2Replacement = (lockPath, scope, existing) => {
     if (!shouldUsePm2ReplacementPath(existing)) return 'duplicate';
 
-    const defaultReplaceMs = profile === 'paper' ? 20000 : 0;
+    const defaultReplaceMs = 20000;
     const replaceAfterMs = parseNonNegativeMs('PM2_SINGLETON_REPLACE_AFTER_MS', defaultReplaceMs);
     const sigtermGraceMs = parseNonNegativeMs('PM2_SINGLETON_SIGTERM_GRACE_MS', 5000);
     const pollMs = Math.max(50, parseNonNegativeMs('PM2_SINGLETON_POLL_MS', 500));
-
-    logger.warn(
-      `PM2 replacement ${process.pid} waiting for previous ${profile} runtime ` +
-      `pid=${existing.pid} (${scope} lock, port=${existing.port}) for up to ${replaceAfterMs}ms.`
+    const freshHeartbeatLogMs = Math.max(0, parseNonNegativeMs('PM2_SINGLETON_FRESH_HEARTBEAT_LOG_MS', 5000));
+    const staleHeartbeatMs = Math.max(
+      pollMs * 2,
+      parseNonNegativeMs('PM2_SINGLETON_STALE_HEARTBEAT_MS', Math.max(replaceAfterMs, 120000))
     );
-
-    const started = Date.now();
-    while (Date.now() - started < replaceAfterMs) {
-      sleepSync(Math.min(pollMs, Math.max(1, replaceAfterMs - (Date.now() - started))));
-      if (!pidExists(existing.pid)) return 'takeover';
-      const current = readLockPayload(lockPath);
-      if (!current || Number(current.pid) !== Number(existing.pid)) return 'retry';
-    }
 
     if (replaceAfterMs <= 0) return 'duplicate';
 
-    logger.warn(
-      `PM2 replacement ${process.pid} replacing stale previous ${profile} runtime ` +
-      `pid=${existing.pid} after ${replaceAfterMs}ms.`
-    );
-    try { process.kill(Number(existing.pid), 'SIGTERM'); } catch (_) {}
-    sleepSync(sigtermGraceMs);
-    if (!pidExists(existing.pid)) return 'takeover';
+    const leaseTtlMs = Math.max(replaceAfterMs + sigtermGraceMs + 5000, staleHeartbeatMs);
+    const lease = tryAcquireReplacementLease(scope, existing.pid, leaseTtlMs);
+    if (!lease.acquired) {
+      logger.warn(
+        `PM2 replacement ${process.pid} found another replacement owner for ${profile} ` +
+        `pid=${existing.pid} (${scope} lock); exiting duplicate.`
+      );
+      return 'duplicate';
+    }
 
-    logger.warn(`Previous ${profile} runtime pid=${existing.pid} survived SIGTERM; forcing termination.`);
-    try { process.kill(Number(existing.pid), 'SIGKILL'); } catch (_) {}
-    sleepSync(1000);
-    if (!pidExists(existing.pid)) return 'takeover';
+    try {
+      logger.warn(
+        `PM2 replacement ${process.pid} waiting for previous ${profile} runtime ` +
+        `pid=${existing.pid} (${scope} lock, port=${existing.port}) for up to ${replaceAfterMs}ms.`
+      );
 
-    return 'duplicate';
+      const started = Date.now();
+      let lastFreshHeartbeatLogAt = 0;
+      while (Date.now() - started < replaceAfterMs) {
+        sleepSync(Math.min(pollMs, Math.max(1, replaceAfterMs - (Date.now() - started))));
+        if (!pidExists(existing.pid)) return 'takeover';
+        const current = readLockPayload(lockPath);
+        if (!current || Number(current.pid) !== Number(existing.pid)) return 'retry';
+        if (isFreshHeartbeat(current, staleHeartbeatMs)) {
+          const now = Date.now();
+          if (!lastFreshHeartbeatLogAt || freshHeartbeatLogMs <= 0 || now - lastFreshHeartbeatLogAt >= freshHeartbeatLogMs) {
+            lastFreshHeartbeatLogAt = now;
+            logger.warn(
+              `PM2 replacement ${process.pid} saw fresh ${profile} heartbeat from ` +
+              `pid=${existing.pid}; waiting for graceful release before forced replacement.`
+            );
+          }
+        }
+      }
+
+      const current = readLockPayload(lockPath);
+      if (!current || Number(current.pid) !== Number(existing.pid)) return 'retry';
+      if (!pidExists(existing.pid)) return 'takeover';
+
+      logger.warn(
+        `PM2 replacement ${process.pid} replacing stale previous ${profile} runtime ` +
+        `pid=${existing.pid} after ${replaceAfterMs}ms.`
+      );
+      try { process.kill(Number(existing.pid), 'SIGTERM'); } catch (_) {}
+      sleepSync(sigtermGraceMs);
+      if (!pidExists(existing.pid)) return 'takeover';
+
+      logger.warn(`Previous ${profile} runtime pid=${existing.pid} survived SIGTERM; forcing termination.`);
+      try { process.kill(Number(existing.pid), 'SIGKILL'); } catch (_) {}
+      sleepSync(1000);
+      if (!pidExists(existing.pid)) return 'takeover';
+
+      return 'duplicate';
+    } finally {
+      releaseReplacementLease(lease.leasePath);
+    }
+  };
+
+  const heldLockPaths = [];
+  const rememberHeldLock = (lockPath) => {
+    if (!heldLockPaths.includes(lockPath)) heldLockPaths.push(lockPath);
+  };
+  const releaseHeldLocks = () => {
+    for (const lockPath of [...heldLockPaths].reverse()) {
+      try {
+        const existing = readLockPayload(lockPath);
+        if (Number(existing?.pid) === process.pid) fsSync.unlinkSync(lockPath);
+      } catch (_) {}
+    }
   };
 
   // Generic acquire: either writes the lock or calls process.exit(0) on duplicate.
@@ -198,7 +303,8 @@ function acquireRuntimeSingleton({
   const acquireLock = (lockPath, scope) => {
     for (let attempt = 1; attempt <= MAX_ACQUIRE_ATTEMPTS; attempt += 1) {
       try {
-        fsSync.writeFileSync(lockPath, pidPayload, { flag: 'wx' });
+        fsSync.writeFileSync(lockPath, lockPayloadJson(), { flag: 'wx' });
+        rememberHeldLock(lockPath);
         return;
       } catch (error) {
         if (error?.code !== 'EEXIST') throw error;
@@ -224,10 +330,13 @@ function acquireRuntimeSingleton({
               `Another ${profile} runtime is active (${scope} lock held by pid=${existing.pid}, ` +
               `port=${existing.port || 'unknown'}). Exiting duplicate process ${process.pid} cleanly.${suffix}`
             );
-            if (delayMs > 0) {
-              sleepSync(delayMs);
-            }
-            process.exit(0);
+              if (delayMs > 0) {
+                releaseHeldLocks();
+                sleepSync(delayMs);
+              } else {
+                releaseHeldLocks();
+              }
+              process.exit(0);
             }
           }
           logger.info(`Sibling pid ${existing.pid} released ${scope} lock — taking over.`);
@@ -235,7 +344,8 @@ function acquireRuntimeSingleton({
       } catch (_) { /* unreadable; replace below */ }
       try { fsSync.unlinkSync(lockPath); } catch (_) {}
       try {
-        fsSync.writeFileSync(lockPath, pidPayload, { flag: 'wx' });
+        fsSync.writeFileSync(lockPath, lockPayloadJson(), { flag: 'wx' });
+        rememberHeldLock(lockPath);
         return;
       } catch (writeError) {
         if (writeError?.code !== 'EEXIST') throw writeError;
@@ -255,15 +365,24 @@ function acquireRuntimeSingleton({
   acquireLock(profileLockPath, 'profile');  // FIRST — blocks cross-port duplicates
   acquireLock(portLockPath, 'port');        // SECOND — port-specific guard
 
-  const release = () => {
-    for (const lockPath of [portLockPath, profileLockPath]) {
+  const heartbeatIntervalMs = Math.max(1000, parseNonNegativeMs('SINGLETON_HEARTBEAT_INTERVAL_MS', 15000));
+  const refreshHeartbeat = () => {
+    const now = new Date().toISOString();
+    for (const lockPath of [profileLockPath, portLockPath]) {
       try {
-        const existing = JSON.parse(fsSync.readFileSync(lockPath, 'utf8'));
-        if (Number(existing?.pid) === process.pid) {
-          fsSync.unlinkSync(lockPath);
-        }
+        const existing = readLockPayload(lockPath);
+        if (Number(existing?.pid) !== process.pid) continue;
+        existing.heartbeatAt = now;
+        fsSync.writeFileSync(lockPath, JSON.stringify(existing));
       } catch (_) {}
     }
+  };
+  const heartbeatTimer = setInterval(refreshHeartbeat, heartbeatIntervalMs);
+  if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
+
+  const release = () => {
+    try { clearInterval(heartbeatTimer); } catch (_) {}
+    releaseHeldLocks();
   };
 
   // Final-chance fallback: process is exiting (after lifecycle ran or hard-exit).

@@ -36,8 +36,8 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
     paper: { defaultEnabled: true, defaultChains: ['kucoin'] },
   }),
   bsc_flow_breakout: Object.freeze({
-    label: 'Plan F BSC liquidity-flow breakout paper',
-    stage: 'paper_runtime_canary',
+    label: 'Plan F BSC liquidity-flow breakout scan-only',
+    stage: 'paper_scan_only',
     implemented: true,
     paperOnly: true,
     priority: 30,
@@ -45,8 +45,8 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
     paper: { defaultEnabled: true, defaultChains: ['bsc'] },
   }),
   base_dex_momentum_reclaim: Object.freeze({
-    label: 'Plan G Base DEX momentum reclaim paper',
-    stage: 'paper_runtime_canary',
+    label: 'Plan G Base DEX momentum reclaim scan-only',
+    stage: 'paper_scan_only',
     implemented: true,
     paperOnly: true,
     priority: 35,
@@ -99,7 +99,7 @@ function getStrategyConfig(config, strategyName) {
   const strategy = normalizeStrategyName(strategyName);
   const strategies = config?.strategies || {};
   return strategies[strategy]
-    || (strategy === 'backes' ? strategies.swing || strategies.backes_swing : null)
+    || (strategy === 'backes' ? strategies.backes_swing || strategies.swing : null)
     || {};
 }
 

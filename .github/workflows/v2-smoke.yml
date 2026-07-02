@@ -1,0 +1,39 @@
+name: V2 Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v2-smoke:
+    name: Paper Spot V2 Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      SQL_ENABLED: "false"
+      SQL_STATE_RESTORE_ENABLED: "false"
+      PAPER_TRADING: "true"
+      BOT_PROFILE: paper
+      NODE_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run V2 smoke suite
+        run: npm run test:v2-smoke

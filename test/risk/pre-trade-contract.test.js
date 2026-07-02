@@ -13,13 +13,14 @@ const {
   checkDuplicateOrder,
   checkDailyLossBudget,
   checkConsecutiveLossStreak,
+  checkPerformanceAdmission,
   checkAiCircuit,
 } = require('../../src/risk/pre-trade-contract');
 
 // ─── Catalog sanity ────────────────────────────────────────────────────────
 
-test('GATE_CATALOG has 7 gates', () => {
-  assert.equal(GATE_CATALOG.length, 7);
+test('GATE_CATALOG has 8 gates', () => {
+  assert.equal(GATE_CATALOG.length, 8);
   const names = GATE_CATALOG.map((g) => g.name);
   assert.deepEqual(names, [
     'tier_feasibility',
@@ -28,6 +29,7 @@ test('GATE_CATALOG has 7 gates', () => {
     'duplicate_order',
     'daily_loss_budget',
     'consecutive_loss_streak',
+    'performance_admission',
     'ai_circuit',
   ]);
 });
@@ -178,6 +180,58 @@ test('consecutive_loss_streak: at cap → BLOCK', () => {
 
 test('consecutive_loss_streak: under cap → pass', () => {
   const res = checkConsecutiveLossStreak({ consecutiveLosses: 2, maxConsecutiveLosses: 5 });
+  assert.equal(res.pass, true);
+});
+
+// ─── performance_admission ────────────────────────────────────────────────
+
+test('performance_admission: enough bad evidence blocks new BUY risk', () => {
+  const res = checkPerformanceAdmission({
+    side: 'BUY',
+    performanceAdmission: {
+      enabled: true,
+      minClosedTrades: 20,
+      minProfitFactor: 1,
+      minExpectancyUsd: 0,
+      checks: [{
+        label: 'strategy:momentum',
+        closedTrades: 42,
+        profitFactor: 0.72,
+        expectancyUsd: -0.35,
+      }],
+    },
+  });
+  assert.equal(res.pass, false);
+  assert.match(res.reason, /performance admission blocked/);
+  assert.equal(res.metadata.failures[0].label, 'strategy:momentum');
+});
+
+test('performance_admission: small samples do not block', () => {
+  const res = checkPerformanceAdmission({
+    side: 'BUY',
+    performanceAdmission: {
+      enabled: true,
+      minClosedTrades: 20,
+      checks: [{
+        label: 'setup:spot_day_bull_flag',
+        closedTrades: 6,
+        profitFactor: 0.2,
+        expectancyUsd: -5,
+      }],
+    },
+  });
+  assert.equal(res.pass, true);
+});
+
+test('performance_admission: SELL side bypasses gate', () => {
+  const res = checkPerformanceAdmission({
+    side: 'SELL',
+    performanceAdmission: {
+      enabled: true,
+      minClosedTrades: 1,
+      checks: [{ label: 'chain:bsc', closedTrades: 99, profitFactor: 0.1, expectancyUsd: -1 }],
+    },
+  });
   assert.equal(res.pass, true);
 });
 

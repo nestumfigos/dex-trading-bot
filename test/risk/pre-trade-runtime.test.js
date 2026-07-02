@@ -87,3 +87,177 @@ test('paper disable flag bypasses pre-trade consecutive-loss enforcement', async
     invalidateCaches();
   }
 });
+
+test('runPreTrade blocks new BUY when strategy or chain closed-trade evidence is negative', async () => {
+  invalidateCaches();
+  const queries = [];
+  const sql = {
+    request() {
+      return {
+        input() { return this; },
+        async query(text) {
+          queries.push(text);
+          if (text.includes('dbo.bot_trade_ledger')) {
+            return { recordset: [{
+              closed_trades: 30,
+              wins: 8,
+              losses: 22,
+              gross_profit_usd: 8,
+              gross_loss_usd: 22,
+              pnl_usd: -14,
+            }] };
+          }
+          return { recordset: [] };
+        },
+      };
+    },
+  };
+
+  const outcome = await runPreTrade({
+    side: 'BUY',
+    scope: 'paper',
+    strategy: 'momentum',
+    trade: {
+      symbol: 'KCS',
+      chain: 'kucoin',
+      sizeUsd: 50,
+      positionValueUsd: 50,
+      setupType: 'spot_day_bull_flag',
+    },
+    state: { walletUsd: 1000, consecutiveLosses: 0 },
+    config: {
+      mode: 'enforce',
+      profitabilityGuard: {
+        enabled: true,
+        minClosedTrades: 20,
+        minProfitFactor: 1,
+        minExpectancyUsd: 0,
+      },
+    },
+    sql,
+  });
+
+  assert.ok(queries.some((query) => query.includes('dbo.bot_trade_ledger')));
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.result.blocked[0].gate, 'performance_admission');
+  assert.match(outcome.result.blocked[0].reason, /performance admission blocked/);
+});
+
+test('paper research override bypasses profitability admission without affecting live defaults', async () => {
+  invalidateCaches();
+  const previousOverride = process.env.PAPER_DISABLE_PROFITABILITY_GUARD;
+  process.env.PAPER_DISABLE_PROFITABILITY_GUARD = 'true';
+  const sql = {
+    request() {
+      return {
+        input() { return this; },
+        async query(text) {
+          if (text.includes('dbo.bot_trade_ledger')) {
+            return { recordset: [{
+              closed_trades: 30,
+              wins: 8,
+              losses: 22,
+              gross_profit_usd: 8,
+              gross_loss_usd: 22,
+              pnl_usd: -14,
+            }] };
+          }
+          return { recordset: [] };
+        },
+      };
+    },
+  };
+
+  try {
+    const outcome = await runPreTrade({
+      side: 'BUY',
+      scope: 'paper',
+      strategy: 'momentum',
+      trade: { symbol: 'KCS', chain: 'kucoin', sizeUsd: 50, positionValueUsd: 50 },
+      state: { walletUsd: 1000, consecutiveLosses: 0 },
+      config: {
+        mode: 'enforce',
+        profitabilityGuard: {
+          enabled: true,
+          minClosedTrades: 20,
+          minProfitFactor: 1,
+          minExpectancyUsd: 0,
+        },
+      },
+      sql,
+    });
+
+    assert.equal(outcome.ok, true);
+    assert.deepEqual(outcome.result.blocked, []);
+  } finally {
+    if (previousOverride == null) delete process.env.PAPER_DISABLE_PROFITABILITY_GUARD;
+    else process.env.PAPER_DISABLE_PROFITABILITY_GUARD = previousOverride;
+    invalidateCaches();
+  }
+});
+
+test('V2 risk audit stays advisory by default even when core rejects', async () => {
+  invalidateCaches();
+
+  const outcome = await runPreTrade({
+    side: 'BUY',
+    scope: 'live',
+    strategy: 'momentum',
+    trade: { symbol: 'KCS', chain: 'kucoin', sizeUsd: 50, positionValueUsd: 50 },
+    state: { walletUsd: 1000, killSwitch: true },
+    config: { mode: 'enforce' },
+  });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.v2Blocked, false);
+  assert.equal(outcome.v2RiskEnforcementMode, 'advisory');
+  assert.equal(outcome.v2RiskAudit.coreBlocked, true);
+  assert.equal(outcome.v2RiskAudit.advisoryOnly, true);
+  assert.deepEqual(outcome.v2RiskAudit.reasons, ['kill_switch_active']);
+});
+
+test('V2 risk enforcement blocks core rejection when enabled for profile', async () => {
+  invalidateCaches();
+
+  const outcome = await runPreTrade({
+    side: 'BUY',
+    scope: 'paper',
+    strategy: 'momentum',
+    trade: { symbol: 'KCS', chain: 'kucoin', sizeUsd: 50, positionValueUsd: 50 },
+    state: { walletUsd: 1000, killSwitch: true },
+    config: {
+      mode: 'shadow',
+      v2RiskEnforcementMode: 'block_core',
+      v2RiskEnforceProfiles: 'paper_spot',
+    },
+  });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.v2Blocked, true);
+  assert.equal(outcome.v2RiskEnforcementMode, 'block_core');
+  assert.equal(outcome.v2EnforcementActive, true);
+  assert.equal(outcome.v2RiskAudit.advisoryOnly, false);
+  assert.deepEqual(outcome.reasons, ['kill_switch_active']);
+});
+
+test('V2 risk enforcement profile scope prevents accidental live block', async () => {
+  invalidateCaches();
+
+  const outcome = await runPreTrade({
+    side: 'BUY',
+    scope: 'live',
+    strategy: 'momentum',
+    trade: { symbol: 'KCS', chain: 'kucoin', sizeUsd: 50, positionValueUsd: 50 },
+    state: { walletUsd: 1000, killSwitch: true },
+    config: {
+      mode: 'shadow',
+      v2RiskEnforcementMode: 'block_core',
+      v2RiskEnforceProfiles: 'paper_spot',
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.v2Blocked, false);
+  assert.equal(outcome.v2EnforcementActive, false);
+  assert.equal(outcome.v2RiskAudit.advisoryOnly, true);
+});

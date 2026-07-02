@@ -1,4 +1,7 @@
--- M0022: constrain rollup uniqueness only for populated model identifiers.
+-- M0022: convert UX_ai_decisions_rollup_day to a filtered unique index that excludes
+-- NULL model rows. SQL Server treats multiple NULLs in a unique index as distinct,
+-- which works but is brittle if the column semantics ever change. Filtered unique
+-- with WHERE model IS NOT NULL captures intent and stays valid if NULL counts grow.
 BEGIN TRANSACTION;
 BEGIN TRY
 

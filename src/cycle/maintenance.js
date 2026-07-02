@@ -160,6 +160,12 @@ const SQL_PRUNE_POLICIES = [
   ['dbo.trade_rejections',       720,       'rejected_at'],
   ['dbo.ai_decisions',           720,       'decided_at'],
   ['dbo.health_checks',          720,       'checked_at'],
+  ['dbo.trading_events',         2160,      'occurred_at'],
+  ['dbo.perps_signals',          2160,      'ts'],
+  ['dbo.portfolio_exposure_snapshots', 720, 'ts'],
+  ['dbo.correlation_snapshots',  720,       'ts'],
+  ['dbo.perps_admission_snapshots', 720,    'ts'],
+  ['dbo.perps_state_snapshots',  168,       'ts'],
 ];
 
 async function runSqlAutoPrune(log) {
@@ -203,5 +209,6 @@ module.exports = {
   createEvictStuckPositions,
   createRefreshSwingWatchlists,
   runSqlAutoPrune,
+  SQL_AUTO_PRUNE_TABLES: SQL_PRUNE_POLICIES,
   _testInternals: { SQL_PRUNE_POLICIES },
 };

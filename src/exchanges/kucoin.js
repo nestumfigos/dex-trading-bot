@@ -14,6 +14,7 @@ const ccxt = require('ccxt');
 const config = require('../../config');
 const logger = require('../utils/logger');
 const { getTokenMetrics } = require('../utils/coingecko');
+const { simulatePaperFill } = require('../utils/paper-fill-sim');
 
 const LEVERAGED_TOKEN_PATTERN = /3L|3S|5L|5S|10L|10S|BEAR|BULL|UP|DOWN/i;
 
@@ -633,7 +634,20 @@ class KuCoinExchange {
     symbol = this.normalizeSymbol(symbol);
     if (config.paperTrading) {
       logger.info(`[PAPER] KuCoin BUY ${symbol} with ${usdtAmount} USDT`);
-      return { txid: `paper_tx_${Date.now()}`, simulated: true };
+      // 2026-07-02 fill realism: fill at top-of-book ASK (not mid/last) +
+      // jittered slippage + taker fee, so paper metrics stop overstating the
+      // edge vs live (was 59% vs 38% win rate on the same strategy).
+      let referencePriceUsd = Number(options?.expectedPriceUsd || 0);
+      try {
+        const { bestAsk } = await this.getTopOfBook(symbol);
+        if (Number.isFinite(bestAsk) && bestAsk > 0) referencePriceUsd = bestAsk;
+      } catch (_) { /* keep expected-price fallback */ }
+      return simulatePaperFill({
+        side: 'buy',
+        referencePriceUsd,
+        requestedQuoteUsd: Number(usdtAmount || 0),
+        venueClass: 'kucoin',
+      });
     }
 
     try {
@@ -827,7 +841,19 @@ class KuCoinExchange {
     symbol = this.normalizeSymbol(symbol);
     if (config.paperTrading) {
       logger.info(`[PAPER] KuCoin SELL ${symbol} amount ${amount}`);
-      return { txid: `paper_tx_${Date.now()}`, simulated: true };
+      // 2026-07-02 fill realism: fill at top-of-book BID + jittered slippage
+      // + taker fee (see executeBuy note).
+      let referencePriceUsd = 0;
+      try {
+        const { bestBid } = await this.getTopOfBook(symbol);
+        if (Number.isFinite(bestBid) && bestBid > 0) referencePriceUsd = bestBid;
+      } catch (_) { /* fall through to legacy ideal fill */ }
+      return simulatePaperFill({
+        side: 'sell',
+        referencePriceUsd,
+        requestedBaseQty: Number(amount || 0),
+        venueClass: 'kucoin',
+      });
     }
 
     try {

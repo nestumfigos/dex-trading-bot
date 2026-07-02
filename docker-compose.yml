@@ -1,13 +1,24 @@
 version: '3.9'
 services:
-  dex-bot:
+  dex-bot-paper:
     build: .
-    container_name: dex-momentum-bot
+    container_name: dex-momentum-bot-paper
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      BOT_PROFILE: paper
+      PAPER_TRADING: "true"
+      PORT: "3003"
+      SQL_STATE_RESTORE_ENABLED: "false"
     ports:
-      - "3002:3002"
+      - "127.0.0.1:3003:3003"
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s

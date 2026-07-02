@@ -22,6 +22,7 @@ function baseDeps(over = {}) {
       marketState: { trackedTokens: {} },
       loopLocks: { momentumExit: false, swingExit: false, bullFlagExit: false, realtimeStop: false },
       loopLastCompletedAt: {},
+      loopLastStartedAt: {},
       config: {
         risk: {
           realtimeStopLossEnabled: true,
@@ -212,12 +213,23 @@ test('strategy exit: updates loopLastCompletedAt[lockKey] after processing posit
   assert.equal(typeof deps.loopLastCompletedAt.momentumExit, 'number');
 });
 
-test('strategy exit: no positions -> early return WITHOUT setting timestamp', async () => {
+test('strategy exit: updates loopLastStartedAt[lockKey] when acquired', async () => {
+  const { deps } = baseDeps({
+    exchanges: { kucoin: { getTokenData: async () => ({ symbol: 'BTC', price: 100 }) } },
+  });
+  deps.portfolio.positions = {
+    'kucoin:btc': { strategy: 'momentum', symbol: 'BTC', chainKey: 'kucoin', address: 'BTC' },
+  };
+  const ep = create(deps);
+  await ep.runStrategyExitCycle('momentum');
+  assert.equal(typeof deps.loopLastStartedAt.momentumExit, 'number');
+});
+
+test('strategy exit: no positions -> updates completed timestamp', async () => {
   const { deps } = baseDeps();
   const ep = create(deps);
   await ep.runStrategyExitCycle('momentum');
-  // Documented behavior: timestamp only set after processing positions
-  assert.equal(deps.loopLastCompletedAt.momentumExit, undefined);
+  assert.equal(typeof deps.loopLastCompletedAt.momentumExit, 'number');
 });
 
 test('strategy exit: releases loopLocks even on error', async () => {

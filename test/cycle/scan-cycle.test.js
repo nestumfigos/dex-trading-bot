@@ -16,6 +16,7 @@ function baseDeps(over = {}) {
     deps: {
       loopLocks: { momentumScan: false, bsc_flow_breakoutScan: false, kucoinMomentumScan: false },
       loopLastCompletedAt: {},
+      loopLastStartedAt: {},
       filterStatsState: { currentCycle: { momentum: {}, bsc_flow_breakout: {} } },
       config: { bot: { scanDiscoveryTimeoutMs: 60_000, stateSaveTimeoutMs: 10_000 } },
       logger: silentLogger(),
@@ -192,6 +193,15 @@ test('strategy scan: updates loopLastCompletedAt[lockKey]', async () => {
   assert.equal(typeof deps.loopLastCompletedAt.momentumScan, 'number');
   await sc.runStrategyScanCycle('bsc_flow_breakout');
   assert.equal(typeof deps.loopLastCompletedAt.bsc_flow_breakoutScan, 'number');
+});
+
+test('strategy scan: updates loopLastStartedAt[lockKey] when acquired', async () => {
+  const { deps } = baseDeps();
+  const sc = create(deps);
+  await sc.runStrategyScanCycle('momentum');
+  assert.equal(typeof deps.loopLastStartedAt.momentumScan, 'number');
+  await sc.runStrategyScanCycle('bsc_flow_breakout');
+  assert.equal(typeof deps.loopLastStartedAt.bsc_flow_breakoutScan, 'number');
 });
 
 test('strategy scan: releases lock + refreshes flag in finally', async () => {

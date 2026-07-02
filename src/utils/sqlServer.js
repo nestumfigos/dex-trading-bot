@@ -4,7 +4,6 @@ const sql = require('mssql');
 
 let poolPromise = null;
 let schemaEnsured = false;
-const sqlBackoff = { nextRetryAfterMs: 0, currentDelayMs: 1000 };
 let lastStatus = {
   enabled: false,
   connected: false,
@@ -64,31 +63,40 @@ async function getPool(logger = console) {
     return null;
   }
 
+  // B3.sql.10: pool creation with exponential backoff. Previous code set
+  // poolPromise=null and rethrew on connect failure → caller saw immediate
+  // failure, re-called getPool, hit same code path, infinite tight-loop
+  // failure during a transient SQL outage. Now retry up to 5 attempts with
+  // 500ms→8s backoff before surfacing the error, and emit a clear log line
+  // for each attempt so the operator sees the recovery progress.
   if (!poolPromise) {
-    if (Date.now() < sqlBackoff.nextRetryAfterMs) {
-      const waitSec = Math.ceil((sqlBackoff.nextRetryAfterMs - Date.now()) / 1000);
-      logger.debug(`[SQL] Reconnect suppressed by backoff — retrying in ~${waitSec}s`);
-      return null;
-    }
-
-    poolPromise = sql.connect(conn).then((pool) => {
-      sqlBackoff.currentDelayMs = 1000;
-      sqlBackoff.nextRetryAfterMs = 0;
-      return pool;
-    }).catch((err) => {
+    poolPromise = (async () => {
+      const maxAttempts = Math.max(1, Number(process.env.SQL_POOL_RETRY_ATTEMPTS || 5));
+      let lastErr = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await sql.connect(conn);
+        } catch (err) {
+          lastErr = err;
+          if (attempt >= maxAttempts) {
+            updateStatus({
+              connected: false,
+              schemaReady: false,
+              databaseExplicit: hasExplicitDatabase(conn),
+              lastError: err.message,
+            });
+            poolPromise = null;
+            throw err;
+          }
+          const delay = Math.min(8000, 500 * (2 ** (attempt - 1)));
+          logger.warn(`[SQL] pool connect attempt ${attempt}/${maxAttempts} failed (${err.code || err.message}); retrying in ${delay}ms`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      // Defensive — loop always returns or throws.
       poolPromise = null;
-      schemaEnsured = false;
-      sqlBackoff.nextRetryAfterMs = Date.now() + sqlBackoff.currentDelayMs;
-      sqlBackoff.currentDelayMs = Math.min(sqlBackoff.currentDelayMs * 2, 60_000);
-      logger.warn(`[SQL] Connection failed (next retry in ${sqlBackoff.currentDelayMs / 1000}s): ${err.message}`);
-      updateStatus({
-        connected: false,
-        schemaReady: false,
-        databaseExplicit: hasExplicitDatabase(conn),
-        lastError: err.message,
-      });
-      throw err;
-    });
+      throw lastErr;
+    })();
   }
 
   const pool = await poolPromise;
@@ -352,14 +360,9 @@ BEGIN
     txid NVARCHAR(200) NULL,
     signal_source NVARCHAR(80) NULL,
     reason NVARCHAR(200) NULL,
-    exit_category NVARCHAR(60) NULL,
     setup_type NVARCHAR(40) NULL,
     raw_trade_json NVARCHAR(MAX) NULL
   );
-END;
-IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.bot_trade_ledger') AND name = 'exit_category')
-BEGIN
-  ALTER TABLE dbo.bot_trade_ledger ADD exit_category NVARCHAR(60) NULL;
 END;
 IF COL_LENGTH('dbo.bot_trade_ledger', 'setup_type') IS NULL
 BEGIN
@@ -369,24 +372,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_bot_trade_ledger_profi
 BEGIN
   CREATE INDEX IX_bot_trade_ledger_profile_ts ON dbo.bot_trade_ledger(bot_profile, ts DESC);
 END;
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_bot_trade_ledger_symbol_chain_ts' AND object_id = OBJECT_ID('dbo.bot_trade_ledger'))
-BEGIN
-  CREATE INDEX IX_bot_trade_ledger_symbol_chain_ts ON dbo.bot_trade_ledger(symbol, chain_key, ts DESC);
-END;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_bot_trade_ledger_setup_type_ts' AND object_id = OBJECT_ID('dbo.bot_trade_ledger'))
 BEGIN
   CREATE INDEX IX_bot_trade_ledger_setup_type_ts
     ON dbo.bot_trade_ledger(bot_profile, setup_type, ts DESC)
     INCLUDE (trade_type, symbol, chain_key, strategy, pnl_usd)
     WHERE setup_type IS NOT NULL;
-END;
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ops_events_run' AND object_id = OBJECT_ID('dbo.ops_events'))
-BEGIN
-  CREATE INDEX IX_ops_events_run ON dbo.ops_events(run_id, ts DESC);
-END;
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_decision_log_run' AND object_id = OBJECT_ID('dbo.decision_log'))
-BEGIN
-  CREATE INDEX IX_decision_log_run ON dbo.decision_log(run_id, ts DESC);
 END;
 
 IF OBJECT_ID('dbo.bot_pnl_history', 'U') IS NULL
@@ -693,7 +684,6 @@ BEGIN
     entry_conditions_json NVARCHAR(MAX) NULL
   );
 END;
-
 IF COL_LENGTH('dbo.agent_trade_lessons', 'bot_profile') IS NULL
 BEGIN
   ALTER TABLE dbo.agent_trade_lessons ADD bot_profile NVARCHAR(20) NULL;
@@ -806,9 +796,11 @@ WITH trade_stats AS (
     SUM(CASE WHEN trade_type = ''SELL'' THEN 1 ELSE 0 END) AS sell_count,
     SUM(CASE WHEN trade_type = ''BUY'' THEN 1 ELSE 0 END) AS buy_count,
     SUM(CASE WHEN trade_type = ''SELL_FAILED'' THEN 1 ELSE 0 END) AS sell_failed_count,
-    SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
-    SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS loss_count,
-    SUM(COALESCE(pnl_usd, 0)) AS realized_pnl_usd,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd <= 0 THEN 1 ELSE 0 END) AS loss_count,
+    SUM(CASE WHEN trade_type = ''SELL'' THEN COALESCE(pnl_usd, 0) ELSE 0 END) AS realized_pnl_usd,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS gross_profit_usd,
+    SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS gross_loss_usd,
     MAX(ts) AS last_trade_at
   FROM dbo.bot_trade_ledger
   GROUP BY bot_profile
@@ -860,7 +852,13 @@ SELECT
     THEN (CAST(t.win_count AS FLOAT) / CAST(t.win_count + t.loss_count AS FLOAT)) * 100
     ELSE NULL
   END AS win_rate_pct,
+  CASE WHEN COALESCE(t.gross_loss_usd, 0) > 0
+    THEN CAST(t.gross_profit_usd AS FLOAT) / CAST(t.gross_loss_usd AS FLOAT)
+    ELSE NULL
+  END AS profit_factor,
   COALESCE(t.realized_pnl_usd, 0) AS realized_pnl_usd,
+  COALESCE(t.gross_profit_usd, 0) AS gross_profit_usd,
+  COALESCE(t.gross_loss_usd, 0) AS gross_loss_usd,
   t.last_trade_at,
   COALESCE(ps.open_positions, 0) AS open_positions,
   COALESCE(ps.open_cost_basis_usd, 0) AS open_cost_basis_usd,
@@ -1027,9 +1025,25 @@ SELECT
   SUM(CASE WHEN trade_type = ''BUY'' THEN 1 ELSE 0 END) AS buy_count,
   SUM(CASE WHEN trade_type = ''SELL'' THEN 1 ELSE 0 END) AS sell_count,
   SUM(CASE WHEN trade_type = ''SELL_FAILED'' THEN 1 ELSE 0 END) AS sell_failed_count,
-  SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
-  SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS loss_count,
-  SUM(COALESCE(pnl_usd, 0)) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd <= 0 THEN 1 ELSE 0 END) AS loss_count,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) > 0
+    THEN (
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT)
+    ) * 100
+    ELSE NULL
+  END AS win_rate_pct,
+  SUM(CASE WHEN trade_type = ''SELL'' THEN COALESCE(pnl_usd, 0) ELSE 0 END) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS gross_profit_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS gross_loss_usd,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) > 0
+    THEN (
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS FLOAT)
+    )
+    ELSE NULL
+  END AS profit_factor,
   MAX(ts) AS last_trade_at
 FROM dbo.bot_trade_ledger
 GROUP BY bot_profile, COALESCE(chain_key, ''unknown'');
@@ -1044,16 +1058,25 @@ SELECT
   SUM(CASE WHEN trade_type = ''BUY'' THEN 1 ELSE 0 END) AS buy_count,
   SUM(CASE WHEN trade_type = ''SELL'' THEN 1 ELSE 0 END) AS sell_count,
   SUM(CASE WHEN trade_type = ''SELL_FAILED'' THEN 1 ELSE 0 END) AS sell_failed_count,
-  SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
-  SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS loss_count,
-  CASE WHEN SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) + SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) > 0
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS win_count,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd <= 0 THEN 1 ELSE 0 END) AS loss_count,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) > 0
     THEN (
-      CAST(SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS FLOAT)
-      / CAST(SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) + SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) AS FLOAT)
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN 1 ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT)
     ) * 100
     ELSE NULL
   END AS win_rate_pct,
-  SUM(COALESCE(pnl_usd, 0)) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' THEN COALESCE(pnl_usd, 0) ELSE 0 END) AS realized_pnl_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS gross_profit_usd,
+  SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS gross_loss_usd,
+  CASE WHEN SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) > 0
+    THEN (
+      CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd > 0 THEN pnl_usd ELSE 0 END) AS FLOAT)
+      / CAST(SUM(CASE WHEN trade_type = ''SELL'' AND pnl_usd < 0 THEN -pnl_usd ELSE 0 END) AS FLOAT)
+    )
+    ELSE NULL
+  END AS profit_factor,
   MAX(ts) AS last_trade_at
 FROM dbo.bot_trade_ledger
 GROUP BY bot_profile, COALESCE(strategy, ''unknown'');
@@ -1311,13 +1334,8 @@ async function ensureSchema(logger = console) {
   const pool = await getPool(logger);
   if (!pool) return false;
 
-  try {
-    await pool.request().batch(getSchemaDdl());
-    schemaEnsured = true;
-  } catch (schemaErr) {
-    logger.warn(`[SQL] ensureSchema failed: ${schemaErr.message}`);
-    return false;
-  }
+  await pool.request().batch(getSchemaDdl());
+  schemaEnsured = true;
   updateStatus({
     connected: true,
     schemaReady: true,

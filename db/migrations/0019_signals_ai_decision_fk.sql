@@ -1,7 +1,9 @@
--- M0019: constrain signals.ai_decision_id to existing AI decisions.
+-- M0019: add FK signals.ai_decision_id -> ai_decisions.id ON DELETE SET NULL.
+-- Day 5 fix: ai_decision_id was added in M0012 but never constrained, allowing orphaned references.
 BEGIN TRANSACTION;
 BEGIN TRY
 
+  -- Confirm both columns exist before adding FK.
   IF COL_LENGTH('dbo.signals', 'ai_decision_id') IS NOT NULL
      AND COL_LENGTH('dbo.ai_decisions', 'id') IS NOT NULL
      AND NOT EXISTS (

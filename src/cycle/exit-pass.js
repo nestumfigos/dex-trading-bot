@@ -41,6 +41,7 @@ function create({
   marketState,
   loopLocks,
   loopLastCompletedAt,
+  loopLastStartedAt,
   // config + risk
   config,
   risk,
@@ -77,8 +78,11 @@ function create({
     }
 
     loopLocks[lockKey] = true;
+    if (loopLastStartedAt) loopLastStartedAt[lockKey] = Date.now();
+    let cycleCompleted = false;
     try {
       if (portfolio.safeMode) {
+        cycleCompleted = true;
         return;
       }
 
@@ -103,6 +107,7 @@ function create({
       );
 
       if (!positions.length) {
+        cycleCompleted = true;
         return;
       }
 
@@ -208,10 +213,13 @@ function create({
         }
       }
 
-      loopLastCompletedAt[lockKey] = Date.now();
+      cycleCompleted = true;
     } catch (error) {
       logger.error(`${strategyName} exit cycle failed: ${error.message}`);
     } finally {
+      if (cycleCompleted && loopLastCompletedAt) {
+        loopLastCompletedAt[lockKey] = Date.now();
+      }
       loopLocks[lockKey] = false;
     }
   }
@@ -222,6 +230,7 @@ function create({
     }
 
     loopLocks.realtimeStop = true;
+    if (loopLastStartedAt) loopLastStartedAt.realtimeStop = Date.now();
     try {
       if (config.risk?.realtimeStopLossEnabled === false) {
         return;

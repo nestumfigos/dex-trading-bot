@@ -127,25 +127,32 @@ function getStrategyExitTimerKey(strategyName) {
   return null;
 }
 
+function getStrategyConfig(config, strategyName) {
+  if (strategyName === 'backes') {
+    return config.strategies?.backes || config.strategies?.backes_swing || config.strategies?.swing || {};
+  }
+  return config.strategies?.[strategyName] || {};
+}
+
 function isStrategyEnabled(config, strategyName) {
   if (strategyName === 'momentum') {
     return config.strategies?.momentum?.enabled !== false;
   }
-  return config.strategies?.[strategyName]?.enabled === true;
+  return getStrategyConfig(config, strategyName).enabled === true;
 }
 
 function getStrategyScanMs(config, strategyName, defaults) {
   if (isBullFlagStrategy(strategyName)) return defaults.bullFlagScanMs;
   if (strategyName === 'backes') {
-    return Math.max(10 * 60_000, Number(config.strategies?.backes?.scanIntervalMinutes || 30) * 60_000);
+    return Math.max(10 * 60_000, Number(getStrategyConfig(config, strategyName).scanIntervalMinutes || 30) * 60_000);
   }
-  return Math.max(60_000, Number(config.strategies?.[strategyName]?.scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
+  return Math.max(60_000, Number(getStrategyConfig(config, strategyName).scanIntervalSeconds || config.bot.momentumScanIntervalSeconds || 75) * 1000);
 }
 
 function getStrategyExitMs(config, strategyName, defaults) {
   if (isBullFlagStrategy(strategyName)) return defaults.bullFlagExitMs;
   if (strategyName === 'backes') {
-    return Math.max(30 * 60_000, Number(config.strategies?.backes?.exitCheckMinutes || 60) * 60_000);
+    return Math.max(30 * 60_000, Number(getStrategyConfig(config, strategyName).exitCheckMinutes || 60) * 60_000);
   }
   return defaults.momentumExitMs;
 }

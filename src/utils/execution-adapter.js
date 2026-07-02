@@ -45,7 +45,9 @@ async function executeBuyViaVenue({
 
   if (chainName === 'kucoin') {
     return withTimeout(
-      exchange.executeBuy(tokenData.address, sizeUsd, { strategyName }),
+      // expectedPriceUsd: paper-fill-sim fallback reference when the order
+      // book fetch fails (2026-07-02 fill realism). Live path ignores it.
+      exchange.executeBuy(tokenData.address, sizeUsd, { strategyName, expectedPriceUsd: Number(tokenData.price || 0) }),
       execTimeoutMs,
       `KuCoin buy timed out for ${tokenData.symbol}`
     );

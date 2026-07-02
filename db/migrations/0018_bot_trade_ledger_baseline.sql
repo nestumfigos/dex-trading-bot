@@ -1,6 +1,6 @@
--- M0018: bot_trade_ledger baseline (formalize inline schema from sqlServer.js).
--- M0017 safely defers if this table is absent; this baseline also supplies the
--- setup_type index so a fresh database ends in the same shape.
+-- M0018: bot_trade_ledger + signals baseline (formalize inline schema from sqlServer.js)
+-- Backfills the missing migration that should have created bot_trade_ledger BEFORE 0017
+-- altered it. Idempotent — only creates if missing. Bootstrap fix; no behavior change in code.
 BEGIN TRANSACTION;
 BEGIN TRY
 
@@ -35,18 +35,6 @@ BEGIN TRY
   )
   BEGIN
     CREATE INDEX IX_bot_trade_ledger_profile_ts ON dbo.bot_trade_ledger(bot_profile, ts DESC);
-  END;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_bot_trade_ledger_setup_type_ts'
-      AND object_id = OBJECT_ID('dbo.bot_trade_ledger')
-  )
-  BEGIN
-    CREATE INDEX IX_bot_trade_ledger_setup_type_ts
-      ON dbo.bot_trade_ledger(bot_profile, setup_type, ts DESC)
-      INCLUDE (trade_type, symbol, chain_key, strategy, pnl_usd)
-      WHERE setup_type IS NOT NULL;
   END;
 
   COMMIT TRANSACTION;

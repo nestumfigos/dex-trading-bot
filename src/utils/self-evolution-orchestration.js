@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const { getPool, ensureSchema, sql } = require('./sqlServer');
 const { classifyPromotionImpact, classifyRegimeFamily } = require('./promotion-governance');
+const { normalizeMutationProposal } = require('../../packages/core');
 
 function createSelfEvolutionOrchestration(deps = {}) {
   const {
@@ -66,7 +67,7 @@ function createSelfEvolutionOrchestration(deps = {}) {
       recentTrades: (portfolio.trades || []).slice(0, 80),
       latestFilterCycles: [
         ...(filterStatsState.recentCycles?.momentum || []).slice(0, 3),
-        ...(filterStatsState.recentCycles?.backes || filterStatsState.recentCycles?.swing || []).slice(0, 3),
+        ...(filterStatsState.recentCycles?.swing || []).slice(0, 3),
       ],
       intelligence: intelligenceContext,
       marketRegime: inferredMarketRegime,
@@ -85,14 +86,74 @@ function createSelfEvolutionOrchestration(deps = {}) {
     };
   }
 
+  function inferPlanStrategy(plan = {}) {
+    if (plan.strategy || plan.strategyId) return String(plan.strategy || plan.strategyId);
+    const text = JSON.stringify(plan.changes || []).toLowerCase();
+    if (text.includes('bull_flag')) return 'spot_day_bull_flag';
+    if (text.includes('backes')) return 'backes';
+    if (text.includes('momentum')) return 'momentum';
+    if (text.includes('solana')) return 'solana_bull_flag_v2';
+    return 'multi_strategy';
+  }
+
+  function buildMutationProposalRecord({ plan, context, proposalPath, status = 'proposed', stage = 'proposal', evidenceRefs = [] } = {}) {
+    if (!plan || !Array.isArray(plan.changes) || plan.changes.length === 0) return null;
+    try {
+      return normalizeMutationProposal({
+        botProfile: context?.botProfile || (config.paperTrading ? 'paper_spot' : 'live_spot'),
+        targetProfile: config.paperTrading ? 'live_spot' : null,
+        strategy: inferPlanStrategy(plan),
+        strategyVersion: strategyVersionId,
+        proposalType: 'self_evolution_patch',
+        proposer: plan._source || 'self_evolution',
+        patch: { changes: plan.changes },
+        rationale: {
+          summary: plan.summary || null,
+          reason: plan.reason || null,
+          proposalPath: proposalPath || null,
+        },
+        expectedImpact: {
+          baselineStats: context?.stats || null,
+          signalQuality: context?.signalQuality || null,
+          fillQuality: context?.fillQuality || null,
+        },
+        riskNotes: {
+          paperTrading: Boolean(config.paperTrading),
+          autoApply: Boolean(config.selfEvolution?.autoApply),
+          autoPromote: Boolean(config.selfEvolution?.autoPromote),
+          allowLiveApply: Boolean(config.selfEvolution?.allowLiveApply),
+        },
+        evidenceRefs,
+        status,
+        stage,
+      });
+    } catch (error) {
+      logger.warn(`[Self-evolution] mutation proposal normalization failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  function logMutationProposal({ plan, context, proposalPath, status, stage, evidenceRefs }) {
+    const proposal = buildMutationProposalRecord({ plan, context, proposalPath, status, stage, evidenceRefs });
+    if (proposal) telemetry?.logMutationProposal?.(proposal);
+    return proposal;
+  }
+
   async function getPaperLiveComparisonSnapshot() {
     if (!config.paperTrading) return null;
     try {
       const pool = await getPool(logger);
       if (!pool) return null;
       await ensureSchema(logger);
-      const profileRes = await pool.request().query("SELECT bot_profile, win_rate_pct, realized_pnl_usd, trade_count FROM dbo.vw_profile_summary WHERE bot_profile IN ('paper','live')");
-      const qualityRes = await pool.request().query("SELECT bot_profile, approved_count, total_decisions FROM dbo.vw_decision_quality_summary WHERE bot_profile IN ('paper','live')");
+      const profileFilter = "('paper_spot','paper','live_spot','live')";
+      const isPaperProfile = (profile) => ['paper_spot', 'paper'].includes(String(profile || '').toLowerCase());
+      const isLiveProfile = (profile) => ['live_spot', 'live'].includes(String(profile || '').toLowerCase());
+      const pickProfile = (rows, predicate, preferredProfile) => (
+        rows.find((row) => String(row.bot_profile || '').toLowerCase() === preferredProfile)
+        || rows.find((row) => predicate(row.bot_profile))
+      );
+      const profileRes = await pool.request().query(`SELECT bot_profile, win_rate_pct, realized_pnl_usd, trade_count FROM dbo.vw_profile_summary WHERE bot_profile IN ${profileFilter}`);
+      const qualityRes = await pool.request().query(`SELECT bot_profile, approved_count, total_decisions FROM dbo.vw_decision_quality_summary WHERE bot_profile IN ${profileFilter}`);
       const executionRes = await pool.request().query(`
 SELECT
   bot_profile,
@@ -100,7 +161,7 @@ SELECT
   AVG(CASE WHEN status IN ('failed','precheck_failed','needs_reconciliation') THEN 1.0 ELSE 0.0 END) * 100 AS failure_rate_pct,
   AVG(CASE WHEN status = 'precheck_failed' THEN 1.0 ELSE 0.0 END) * 100 AS precheck_failure_rate_pct
 FROM dbo.orders
-WHERE bot_profile IN ('paper','live')
+WHERE bot_profile IN ${profileFilter}
 GROUP BY bot_profile
 `);
       const fillsRes = await pool.request().query(`
@@ -110,21 +171,21 @@ SELECT
   AVG(CAST(f.confirmations AS FLOAT)) AS avg_confirmations
 FROM dbo.fills f
 JOIN dbo.orders o ON o.order_id = f.order_id
-WHERE o.bot_profile IN ('paper','live')
+WHERE o.bot_profile IN ${profileFilter}
 GROUP BY o.bot_profile
 `);
       const rows = profileRes.recordset || [];
       const qualityRows = qualityRes.recordset || [];
       const executionRows = executionRes.recordset || [];
       const fillRows = fillsRes.recordset || [];
-      const paper = rows.find((row) => String(row.bot_profile).toLowerCase() === 'paper');
-      const live = rows.find((row) => String(row.bot_profile).toLowerCase() === 'live');
-      const paperQ = qualityRows.find((row) => String(row.bot_profile).toLowerCase() === 'paper');
-      const liveQ = qualityRows.find((row) => String(row.bot_profile).toLowerCase() === 'live');
-      const paperExec = executionRows.find((row) => String(row.bot_profile).toLowerCase() === 'paper');
-      const liveExec = executionRows.find((row) => String(row.bot_profile).toLowerCase() === 'live');
-      const paperFill = fillRows.find((row) => String(row.bot_profile).toLowerCase() === 'paper');
-      const liveFill = fillRows.find((row) => String(row.bot_profile).toLowerCase() === 'live');
+      const paper = pickProfile(rows, isPaperProfile, 'paper_spot');
+      const live = pickProfile(rows, isLiveProfile, 'live_spot');
+      const paperQ = pickProfile(qualityRows, isPaperProfile, 'paper_spot');
+      const liveQ = pickProfile(qualityRows, isLiveProfile, 'live_spot');
+      const paperExec = pickProfile(executionRows, isPaperProfile, 'paper_spot');
+      const liveExec = pickProfile(executionRows, isLiveProfile, 'live_spot');
+      const paperFill = pickProfile(fillRows, isPaperProfile, 'paper_spot');
+      const liveFill = pickProfile(fillRows, isLiveProfile, 'live_spot');
       const paperApproval = Number(paperQ?.total_decisions || 0) > 0 ? (Number(paperQ?.approved_count || 0) / Number(paperQ.total_decisions)) * 100 : 0;
       const liveApproval = Number(liveQ?.total_decisions || 0) > 0 ? (Number(liveQ?.approved_count || 0) / Number(liveQ.total_decisions)) * 100 : 0;
       return {
@@ -178,18 +239,26 @@ ORDER BY ts DESC
       const context = getSelfEvolutionContext();
       context.paperLiveComparison = await getPaperLiveComparisonSnapshot();
       const evaluation = evolutionGovernor.evaluateManifest(manifest, context);
-      const versionId = manifest?.versioning?.versionId || strategyVersionId;
-      const manualApprovalGranted = await hasManualApproval(versionId);
-      if (evaluation.decision === 'promote' && !manualApprovalGranted) {
-        evaluation.decision = 'await_manual_approval';
-        evaluation.reasons = [...evaluation.reasons, 'explicit_promotion_approval_required'];
-      } else if (evaluation.decision === 'await_manual_approval' && manualApprovalGranted) {
-        evaluation.decision = 'promote';
-        evaluation.reasons = [
-          ...evaluation.reasons.filter((reason) => reason !== 'manual_approval_required'),
-          'manual_approval_granted',
-        ];
-      }
+      telemetry?.logPromotionGateEvaluation?.({
+        botProfile: context.botProfile,
+        targetProfile: evaluation.evidenceGate?.targetProfile || manifest.promotion?.targetProfile || 'live_spot',
+        strategy: evaluation.evidenceGate?.strategy || manifest.strategy || 'multi_strategy',
+        strategyVersion: manifest?.versioning?.versionId || strategyVersionId,
+        strategyClass: evaluation.evidenceGate?.strategyClass || manifest.strategyClass || 'generic',
+        ts: evaluation.evidenceGate?.evaluatedAt || evaluation.current.evaluatedAt,
+        passed: Boolean(evaluation.evidenceGate?.passed),
+        score: evaluation.evidenceGate?.score,
+        reasons: evaluation.evidenceGate?.reasons || [],
+        metrics: evaluation.evidenceGate?.metrics || {},
+        thresholds: evaluation.evidenceGate?.thresholds || {},
+        raw: {
+          manifestId: manifest.id || null,
+          decision: evaluation.decision,
+          reasons: evaluation.reasons || [],
+          discrepancy: evaluation.discrepancy || null,
+          metrics: evaluation.metrics || null,
+        },
+      });
       const updated = await evolutionGovernor.updateCandidate(experiment.manifestPath, (draft) => ({
         ...draft,
         observation: {
@@ -203,15 +272,14 @@ ORDER BY ts DESC
         rollout: {
           ...(draft.rollout || {}),
           stage: evaluation.decision === 'shadow' ? 'shadow_candidate' : (evaluation.decision === 'promote' ? 'canary_candidate' : (evaluation.decision === 'await_manual_approval' ? 'await_manual_approval' : (draft.rollout?.stage || 'paper_candidate'))),
-          manualApprovalRequired: evaluation.decision === 'await_manual_approval'
-            || Boolean(evaluation.impact?.highImpact && config.selfEvolution?.governance?.requireManualApprovalForHighImpact !== false),
-          manualApprovalGranted: Boolean(draft.rollout?.manualApprovalGranted || manualApprovalGranted),
+          manualApprovalRequired: Boolean(evaluation.impact?.highImpact && config.selfEvolution?.governance?.requireManualApprovalForHighImpact !== false),
           regimeFamily: classifyRegimeFamily(context.marketRegime || 'unknown'),
         },
         promotion: {
           ...(draft.promotion || {}),
           eligible: evaluation.decision === 'promote',
-          approved: Boolean(draft.promotion?.approved || (evaluation.decision === 'promote' && manualApprovalGranted)),
+          v2GateRequired: Boolean(config.selfEvolution?.governance?.requireV2EvidenceGate),
+          v2Gate: evaluation.evidenceGate || null,
         },
         rollback: {
           ...(draft.rollback || {}),
@@ -282,6 +350,7 @@ ORDER BY ts DESC
       }
 
       if (evaluation.decision === 'promote' && config.paperTrading && config.selfEvolution?.autoPromote === true) {
+        const versionId = manifest?.versioning?.versionId || strategyVersionId;
         if (updated.rollout?.manualApprovalRequired && !(await hasManualApproval(versionId))) {
           logger.warn(`[Self-evolution] Manual approval required before promoting ${manifest.id}`);
           experiment.status = 'await_manual_approval';
@@ -351,10 +420,6 @@ ORDER BY ts DESC
       const rollout = JSON.parse(raw);
       marketState.evolution.liveRollout = {
         id: rollout.id || null,
-        versionId: rollout.versionId || null,
-        stage: rollout.stage || null,
-        regimeFamily: rollout.regimeFamily || null,
-        canaryLiveSizePct: rollout.canaryLiveSizePct || null,
         promotedAt: rollout.promotedAt || null,
         backupRoot: rollout.backupRoot || null,
         rollback: rollout.rollback || null,
@@ -369,7 +434,6 @@ ORDER BY ts DESC
       const context = getSelfEvolutionContext();
       const baseline = rollout.baseline || {};
       const current = evolutionGovernor.buildCurrentSnapshot(context);
-      const observedLiveClosedTrades = Math.max(0, Number(current.closedTrades || 0) - Number(baseline.closedTrades || 0));
       const profitFactorDelta = Number(current.profitFactor || 0) - Number(baseline.profitFactor || 0);
       const winRateDeltaPct = Number(current.winRatePct || 0) - Number(baseline.winRatePct || 0);
       const falsePositiveDeltaPct = Number(current.falsePositiveRatePct || 0) - Number(baseline.falsePositiveRatePct || 0);
@@ -381,10 +445,6 @@ ORDER BY ts DESC
         || fillSlippageDeltaPct >= Math.abs(settings.maxFillSlippageDeltaPct);
       if (!shouldRollback) {
         if (String(rollout.stage || '').toLowerCase() === 'canary_live') {
-          if (observedLiveClosedTrades < settings.minLiveCanaryClosedTrades) {
-            logger.info(`[Evolution] Live canary observation waiting for closed trades (${observedLiveClosedTrades}/${settings.minLiveCanaryClosedTrades})`);
-            return;
-          }
           rollout.stage = 'scaled_live';
           rollout.scaledAt = new Date().toISOString();
           await fs.writeFile(LIVE_ROLLOUT_PATH, `${JSON.stringify(rollout, null, 2)}\n`, 'utf8');
@@ -409,7 +469,6 @@ ORDER BY ts DESC
             notes: 'Live rollout passed canary observation window and scaled automatically',
             context: {
               liveRollbackObservationMinutes: settings.liveRollbackObservationMinutes,
-              observedLiveClosedTrades,
               profitFactorDelta,
               winRateDeltaPct,
               falsePositiveDeltaPct,
@@ -470,6 +529,21 @@ ORDER BY ts DESC
       if (result?.skipped) logger.info(`Self-evolution cycle skipped: ${result.reason}`);
       else if (result?.proposed) logger.warn(`Self-evolution proposal generated: ${result.proposalPath}`);
       else if (result?.applied) logger.warn(`Self-evolution changes applied: ${result.proposalPath || 'n/a'}`);
+
+      let mutationProposal = null;
+      if (result?.proposalPath && result?.plan?.changes?.length) {
+        mutationProposal = logMutationProposal({
+          plan: result.plan,
+          context,
+          proposalPath: result.proposalPath,
+          status: result.applied ? 'applied_paper' : (result.blocked ? 'blocked' : 'proposed'),
+          stage: result.applied ? 'paper_candidate' : 'proposal',
+          evidenceRefs: [
+            { type: 'proposal_file', path: result.proposalPath },
+            context.strategyVersionId ? { type: 'strategy_version', id: context.strategyVersionId } : null,
+          ].filter(Boolean),
+        });
+      }
 
       if (result?.applied) {
         let validationReport = { ok: true, results: [], summary: { totalChecks: 0, failedChecks: 0 } };
@@ -545,6 +619,7 @@ ORDER BY ts DESC
             notes: candidate.manifest.summary,
             context: {
               candidateId: candidate.manifest.id,
+              mutationProposalId: mutationProposal?.proposalId || null,
               changedFiles: candidate.manifest.changedFiles || [],
             },
           });

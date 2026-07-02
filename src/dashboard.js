@@ -2,6 +2,7 @@
 
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -14,86 +15,323 @@ const { redactObject, redactSecretsInText } = require('./utils/redaction');
 const { getPool, ensureSchema, sql } = require('./utils/sqlServer');
 const { runRegimeAwareMonteCarlo } = require('./utils/backtest-utils');
 const { getImplementedStrategyNames } = require('./strategies/deployment');
-
-const DEFAULT_PERPS_PAPER_HISTORY_PATH = path.resolve(
-  __dirname,
-  '..',
-  '..',
-  'dex-trading-bot-perps',
-  'data',
-  'perps-paper-trades.json',
-);
-const DEFAULT_PERPS_PAPER_STATE_PATH = path.resolve(
-  __dirname,
-  '..',
-  '..',
-  'dex-trading-bot-perps',
-  'data',
-  'perps-paper-state.json',
-);
-
-function readPerpsPaperHistory(historyPath = process.env.PERPS_PAPER_HISTORY_PATH || DEFAULT_PERPS_PAPER_HISTORY_PATH) {
-  return readPerpsPaperHistorySnapshot(historyPath).trades;
-}
-
-function isApprovedPerpsTrade(trade) {
-  return trade?.market === 'perps'
-    && trade?.strategy === 'traderxo_perps'
-    && !String(trade.positionId || '').startsWith('paper-spot:')
-    && !String(trade.signalId || '').startsWith('spot-');
-}
-
-function readPerpsPaperHistorySnapshot(
-  historyPath = process.env.PERPS_PAPER_HISTORY_PATH || DEFAULT_PERPS_PAPER_HISTORY_PATH,
-  statePath = process.env.PERPS_PAPER_STATE_PATH
-    || (historyPath === DEFAULT_PERPS_PAPER_HISTORY_PATH ? DEFAULT_PERPS_PAPER_STATE_PATH : null),
-) {
-  try {
-    const authoritative = statePath && fs.existsSync(statePath);
-    const parsed = JSON.parse(fs.readFileSync(authoritative ? statePath : historyPath, 'utf8'));
-    const rows = authoritative ? parsed?.trades : parsed;
-    if (!Array.isArray(rows)) return { trades: [], historyStatus: 'invalid', historyError: 'Paper perp history is not an array.' };
-    const trades = rows.filter(isApprovedPerpsTrade);
-    return {
-      trades: trades.slice().sort((left, right) => (
-        Date.parse(right.closedAt || right.timestamp || 0) - Date.parse(left.closedAt || left.timestamp || 0)
-      )),
-      historyStatus: 'available',
-      historyError: null,
-      excludedNonPerpsTrades: rows.length - trades.length,
-    };
-  } catch (error) {
-    if (error.code === 'ENOENT') return { trades: [], historyStatus: 'not_started', historyError: null };
-    return { trades: [], historyStatus: 'unavailable', historyError: 'Paper perp history could not be read.' };
-  }
-}
-
-function buildPerpsPaperStats(trades = []) {
-  const grouped = new Map();
-  (Array.isArray(trades) ? trades : []).filter((trade) => trade.type === 'EXIT').forEach((trade, index) => {
-    const key = String(trade.positionId || trade.id || `legacy-exit-${index}`);
-    const fills = grouped.get(key) || [];
-    fills.push(trade);
-    grouped.set(key, fills);
-  });
-  const closed = Array.from(grouped.values())
-    .filter((fills) => fills.some((trade) => trade.closed === true) || fills.every((trade) => trade.closed == null))
-    .map((fills) => ({ pnlUsd: fills.reduce((sum, trade) => sum + Number(trade.pnlUsd || 0), 0) }));
-  const pnlUsd = closed.reduce((sum, trade) => sum + Number(trade.pnlUsd || 0), 0);
-  const wins = closed.filter((trade) => Number(trade.pnlUsd || 0) > 0).length;
-  const grossProfit = closed.reduce((sum, trade) => sum + Math.max(0, Number(trade.pnlUsd || 0)), 0);
-  const grossLoss = closed.reduce((sum, trade) => sum + Math.min(0, Number(trade.pnlUsd || 0)), 0);
-  return {
-    closed: closed.length,
-    wins,
-    winRatePct: closed.length ? (wins / closed.length) * 100 : 0,
-    pnlUsd,
-    profitFactor: grossLoss < 0 ? grossProfit / Math.abs(grossLoss) : null,
-  };
-}
+const {
+  buildConfigProvenance,
+  renderPrometheusMetrics,
+  buildBotHealthMetrics,
+  normalizeBotProfile,
+} = require('../packages/core');
+const { KNOBS } = require('./config/schema');
+const configSourceAudit = require('./config/source-audit');
 
 function roundMetric(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
+}
+
+function normalizeV2RiskEnforcementMode(value) {
+  const mode = String(value || 'advisory').trim().toLowerCase();
+  if (mode === 'enforce') return 'block_core';
+  return mode === 'block_core' ? mode : 'advisory';
+}
+
+function parseCsvValues(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim().toLowerCase()).filter(Boolean);
+  return String(value || '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+function parsePositiveInt(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function toNumberOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function safeParseObject(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeTradeHistoryEntry(entry = {}) {
+  const timestamp = toIsoOrNull(entry.timestamp || entry.ts || entry.closedAt || entry.openedAt);
+  return {
+    ...entry,
+    type: entry.type ? String(entry.type).toUpperCase() : undefined,
+    chainKey: entry.chainKey || entry.chain_key || null,
+    valueUsd: toNumberOrNull(entry.valueUsd ?? entry.value_usd ?? entry.filledValueUsd),
+    pnl: toNumberOrNull(entry.pnl ?? entry.pnl_usd ?? entry.realizedPnl),
+    price: toNumberOrNull(entry.price),
+    quantity: toNumberOrNull(entry.quantity),
+    signalSource: entry.signalSource || entry.signal_source || null,
+    setupType: entry.setupType || entry.setup_type || null,
+    timestamp,
+  };
+}
+
+function normalizeTradeLedgerRow(row = {}) {
+  const raw = safeParseObject(row.raw_trade_json);
+  return normalizeTradeHistoryEntry({
+    ...raw,
+    tradeId: row.trade_id || raw.tradeId || raw.trade_id || null,
+    botProfile: row.bot_profile || raw.botProfile || raw.bot_profile || null,
+    timestamp: row.ts || raw.timestamp || raw.ts,
+    type: row.trade_type || raw.type,
+    symbol: row.symbol ?? raw.symbol,
+    chain: row.chain ?? raw.chain,
+    chainKey: row.chain_key ?? raw.chainKey,
+    strategy: row.strategy ?? raw.strategy,
+    address: row.address ?? raw.address,
+    price: row.price ?? raw.price,
+    quantity: row.quantity ?? raw.quantity,
+    valueUsd: row.value_usd ?? raw.valueUsd,
+    pnl: row.pnl_usd ?? raw.pnl,
+    txid: row.txid ?? raw.txid,
+    signalSource: row.signal_source ?? raw.signalSource,
+    reason: row.reason ?? raw.reason,
+    setupType: row.setup_type ?? raw.setupType,
+  });
+}
+
+function buildTradeProfileAliases(profileValue, paperTrading) {
+  const raw = String(profileValue || process.env.BOT_PROFILE || (paperTrading ? 'paper_spot' : 'live_spot')).trim().toLowerCase();
+  const normalized = normalizeBotProfile(raw);
+  const aliases = new Set([normalized, raw]);
+
+  if (normalized === 'live_spot' || raw === 'live') {
+    aliases.add('live');
+    aliases.add('live_spot');
+  }
+  if (normalized === 'paper_spot' || raw === 'paper') {
+    aliases.add('paper');
+    aliases.add('paper_spot');
+  }
+
+  return [...aliases].filter(Boolean);
+}
+
+function tradeHistoryKey(trade = {}) {
+  const txid = String(trade.txid || '').trim();
+  if (txid) return `tx:${txid}`;
+
+  const timestamp = trade.timestamp || trade.closedAt || trade.openedAt || '';
+  const side = trade.type || trade.side || '';
+  const symbol = trade.symbol || '';
+  const value = trade.valueUsd ?? trade.value_usd ?? trade.notionalUsd ?? '';
+  const pnl = trade.pnl ?? trade.pnlUsd ?? trade.realizedPnl ?? '';
+  if (timestamp || side || symbol || value || pnl) {
+    return `logical:${timestamp}:${side}:${symbol}:${value}:${pnl}`;
+  }
+
+  return String(trade.tradeId || trade.trade_id || Math.random());
+}
+
+function mergeTradeHistory(runtimeTrades = [], sqlTrades = [], limit = 250) {
+  const merged = [];
+  const seen = new Set();
+  for (const trade of [...sqlTrades, ...runtimeTrades]) {
+    if (!trade || typeof trade !== 'object') continue;
+    const normalized = normalizeTradeHistoryEntry(trade);
+    const key = tradeHistoryKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(normalized);
+  }
+  return merged
+    .sort((left, right) => {
+      const lt = Date.parse(left.timestamp || left.closedAt || left.openedAt || 0) || 0;
+      const rt = Date.parse(right.timestamp || right.closedAt || right.openedAt || 0) || 0;
+      return rt - lt;
+    })
+    .slice(0, limit);
+}
+
+function filterTradeHistoryByWindow(trades = [], windowHours = null, nowMs = Date.now()) {
+  const hours = Number(windowHours);
+  if (!Number.isFinite(hours) || hours <= 0) return Array.isArray(trades) ? trades : [];
+  const cutoffMs = Number(nowMs) - (hours * 60 * 60 * 1000);
+  return (Array.isArray(trades) ? trades : []).filter((trade) => {
+    const timestampMs = Date.parse(trade?.timestamp || trade?.closedAt || trade?.openedAt || '');
+    return Number.isFinite(timestampMs) && timestampMs >= cutoffMs && timestampMs <= Number(nowMs);
+  });
+}
+
+async function loadSpotTradeHistoryFromSql({ profiles, limit, log = logger } = {}) {
+  const safeProfiles = Array.isArray(profiles) ? profiles.filter(Boolean).slice(0, 8) : [];
+  if (safeProfiles.length === 0) return [];
+  const pool = await getPool(log);
+  if (!pool) return [];
+  await ensureSchema(log);
+
+  const req = pool.request();
+  req.input('limit', sql.Int, limit);
+  const params = safeProfiles.map((profile, index) => {
+    const name = `profile${index}`;
+    req.input(name, sql.NVarChar(20), String(profile).slice(0, 20));
+    return `@${name}`;
+  });
+
+  const result = await req.query(`
+    SELECT TOP (@limit)
+      trade_id, bot_profile, ts, trade_type, symbol, chain, chain_key, strategy,
+      address, price, quantity, value_usd, pnl_usd, txid, signal_source, reason,
+      setup_type, raw_trade_json
+    FROM dbo.bot_trade_ledger
+    WHERE bot_profile IN (${params.join(', ')})
+    ORDER BY ts DESC
+  `);
+  return (result.recordset || []).map(normalizeTradeLedgerRow);
+}
+
+function requestJson(url, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      resolve(null);
+      return;
+    }
+    const client = parsedUrl.protocol === 'https:' ? https : http;
+    const req = client.get(parsedUrl, { timeout: timeoutMs, headers: { accept: 'application/json' } }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 2_000_000) req.destroy(new Error('response too large'));
+      });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', () => resolve(null));
+  });
+}
+
+function computePerpsTradeStats(trades = []) {
+  const closed = (Array.isArray(trades) ? trades : []).filter((trade) => trade?.closed !== false && Number.isFinite(Number(trade?.pnlUsd ?? trade?.pnl)));
+  const pnlValues = closed.map((trade) => Number(trade.pnlUsd ?? trade.pnl));
+  const wins = pnlValues.filter((value) => value > 0);
+  const losses = pnlValues.filter((value) => value < 0);
+  const grossProfit = wins.reduce((sum, value) => sum + value, 0);
+  const grossLoss = Math.abs(losses.reduce((sum, value) => sum + value, 0));
+  const pnlUsd = pnlValues.reduce((sum, value) => sum + value, 0);
+  return {
+    trades: closed.length,
+    closed: closed.length,
+    wins: wins.length,
+    winRatePct: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
+    pnlUsd,
+    profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? null : 0),
+    feesPaidUsd: closed.reduce((sum, trade) => sum + Number(trade.feeUsd || 0), 0),
+    fundingPaidUsd: closed.reduce((sum, trade) => sum + Number(trade.fundingUsd || 0), 0),
+    slippagePaidUsd: closed.reduce((sum, trade) => sum + Number(trade.slippageUsd || 0), 0),
+    expectancyUsd: closed.length > 0 ? pnlUsd / closed.length : 0,
+  };
+}
+
+function summarizeClosedSpotTrades(trades = []) {
+  const rows = Array.isArray(trades) ? trades : [];
+  const closed = rows.filter((trade) => {
+    const type = String(trade?.type || trade?.trade_type || '').toUpperCase();
+    return type === 'SELL' && Number.isFinite(Number(trade?.pnl ?? trade?.pnl_usd));
+  });
+  const pnlValues = closed.map((trade) => Number(trade.pnl ?? trade.pnl_usd));
+  const wins = pnlValues.filter((value) => value > 0);
+  const nonWins = pnlValues.filter((value) => value <= 0);
+  const grossProfit = wins.reduce((sum, value) => sum + value, 0);
+  const grossLoss = Math.abs(pnlValues.filter((value) => value < 0).reduce((sum, value) => sum + value, 0));
+  const realizedPnl = pnlValues.reduce((sum, value) => sum + value, 0);
+
+  return {
+    tradeRows: rows.length,
+    closedTrades: closed.length,
+    wins: wins.length,
+    losses: nonWins.length,
+    winRate: closed.length > 0 ? roundMetric((wins.length / closed.length) * 100, 2) : null,
+    winRatePct: closed.length > 0 ? roundMetric((wins.length / closed.length) * 100, 2) : null,
+    grossProfit: roundMetric(grossProfit),
+    grossLoss: roundMetric(grossLoss),
+    realizedPnl: roundMetric(realizedPnl),
+    totalPnl: roundMetric(realizedPnl),
+    profitFactor: grossLoss > 0 ? roundMetric(grossProfit / grossLoss, 4) : (grossProfit > 0 ? null : 0),
+    expectancyUsd: closed.length > 0 ? roundMetric(realizedPnl / closed.length) : 0,
+    avgWinUsd: wins.length > 0 ? roundMetric(grossProfit / wins.length) : 0,
+    avgLossUsd: nonWins.length > 0 ? roundMetric(grossLoss / nonWins.length) : 0,
+  };
+}
+
+function buildGroupedSpotTradeSummaries(trades = [], keyFn = () => 'unknown') {
+  const groups = new Map();
+  for (const trade of Array.isArray(trades) ? trades : []) {
+    const key = String(keyFn(trade) || 'unknown').trim().toLowerCase() || 'unknown';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(trade);
+  }
+  return [...groups.entries()]
+    .map(([key, rows]) => ({ key, ...summarizeClosedSpotTrades(rows) }))
+    .sort((left, right) => {
+      if (right.closedTrades !== left.closedTrades) return right.closedTrades - left.closedTrades;
+      return String(left.key).localeCompare(String(right.key));
+    });
+}
+
+function buildSpotTradeMetrics(trades = []) {
+  const normalized = (Array.isArray(trades) ? trades : []).map(normalizeTradeHistoryEntry);
+  const summary = summarizeClosedSpotTrades(normalized);
+  return {
+    ...summary,
+    byChain: buildGroupedSpotTradeSummaries(normalized, (trade) => trade.chainKey || trade.chain || 'unknown'),
+    byStrategy: buildGroupedSpotTradeSummaries(normalized, (trade) => trade.strategy || trade.setupType || 'unknown'),
+  };
+}
+
+function buildRiskEnforcementStatus() {
+  const profile = normalizeBotProfile(process.env.BOT_PROFILE || (config.paperTrading ? 'paper' : 'live'));
+  const mode = normalizeV2RiskEnforcementMode(
+    config.risk?.v2RiskEnforcementMode || process.env.V2_RISK_ENFORCEMENT_MODE,
+  );
+  const enforceProfiles = parseCsvValues(
+    config.risk?.v2RiskEnforceProfiles
+    || process.env.V2_RISK_ENFORCE_PROFILES
+    || process.env.V2_RISK_ENFORCEMENT_PROFILES,
+  );
+  const activeForProfile = enforceProfiles.length === 0
+    || enforceProfiles.includes(profile)
+    || enforceProfiles.includes(String(process.env.BOT_PROFILE || '').trim().toLowerCase());
+  const v2AuditEnabled = String(process.env.V2_RISK_AUDIT_ENABLED || 'true').trim().toLowerCase() !== 'false';
+  return [{
+    bot_profile: profile,
+    pre_trade_contract_mode: String(process.env.PRE_TRADE_CONTRACT_MODE || 'shadow').trim().toLowerCase(),
+    v2_risk_audit_enabled: v2AuditEnabled,
+    v2_risk_enforcement_mode: mode,
+    v2_enforce_profiles: enforceProfiles.join(','),
+    v2_enforcement_active_for_profile: v2AuditEnabled && mode !== 'advisory' && activeForProfile,
+    v2_can_block_core_rejections: v2AuditEnabled && mode === 'block_core' && activeForProfile,
+    advisory_only: !v2AuditEnabled || mode === 'advisory' || !activeForProfile,
+  }];
 }
 
 function buildResearchAnalytics(tradeRows = [], decisionRows = []) {
@@ -217,6 +455,44 @@ function buildRotationDebugPayload(ctx) {
   return {
     openPositions,
     blockedCandidates,
+  };
+}
+
+function buildDashboardConfigProvenance() {
+  const defaults = Object.entries(KNOBS).reduce((acc, [name, spec]) => {
+    acc[name] = spec.default;
+    return acc;
+  }, {});
+  return buildConfigProvenance({
+    schema: KNOBS,
+    defaults,
+    env: process.env,
+    pm2Env: process.env,
+    dbOverrides: {},
+  });
+}
+
+function buildDashboardConfigSourceAudit({ projectRoot = path.resolve(__dirname, '..'), profile = process.env.BOT_PROFILE } = {}) {
+  const result = configSourceAudit.auditBoot({
+    envPath: path.join(projectRoot, '.env'),
+    ecoPath: path.join(projectRoot, 'ecosystem.config.js'),
+    profile: String(profile || (process.env.PAPER_TRADING === 'true' ? 'paper' : 'live')).toLowerCase(),
+    lenient: true,
+    logger: { info() {}, warn() {} },
+  });
+  return {
+    ok: result.conflicts.length === 0,
+    profile: String(profile || '').toLowerCase(),
+    envCount: Number(result.envCount || 0),
+    ecoCount: Number(result.ecoCount || 0),
+    conflictCount: result.conflicts.length,
+    conflicts: result.conflicts.map((conflict) => ({
+      key: conflict.key,
+      severity: conflict.severity,
+      note: conflict.note,
+    })),
+    onlyEnvCount: Array.isArray(result.onlyEnv) ? result.onlyEnv.length : 0,
+    onlyEcoCount: Array.isArray(result.onlyEco) ? result.onlyEco.length : 0,
   };
 }
 
@@ -376,38 +652,6 @@ function validateConfigPayloadSchema(payload = {}) {
 
 function startDashboard(portfolio, ctx) {
   app = express();
-  app.use(express.json({ limit: '1mb' }));
-  app.use((req, res, next) => {
-    const origin = String(req.headers.origin || '').trim();
-    const configuredOrigins = new Set(
-      String(process.env.DASHBOARD_CORS_ORIGINS || process.env.DASHBOARD_CORS_ORIGIN || '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => value && value !== '*'),
-    );
-    let allowOrigin = configuredOrigins.has(origin);
-    if (!allowOrigin && origin) {
-      try {
-        const parsed = new URL(origin);
-        allowOrigin = parsed.protocol === `${req.protocol}:`
-          && parsed.hostname.toLowerCase() === String(req.hostname || '').toLowerCase()
-          // 2026-05-31: paper port 3001 -> 3003. Keep 3001 in allowlist for
-          // legacy bookmark tolerance (no-op since paper no longer binds 3001
-          // but a CORS preflight from an old tab still needs an Allow-Origin).
-          && ['3001', '3002', '3003'].includes(parsed.port);
-      } catch (_) {
-        allowOrigin = false;
-      }
-    }
-    if (allowOrigin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token');
-    }
-    if (req.method === 'OPTIONS') return res.sendStatus(allowOrigin ? 204 : 403);
-    next();
-  });
   // Week 6 API extensions (rejections, evolution-history, ai-decisions, symbol-overrides, health-canary, ml-models, backtest-runs).
   try {
     const { mountWeek6Routes } = require('./dashboard-extensions');
@@ -487,21 +731,8 @@ function startDashboard(portfolio, ctx) {
       return ctx.market.recentSignals.length;
     };
   }
-  function requireDiagnosticAccess(req, res, next) {
-    const configuredToken = String(config.dashboard?.adminToken || '').trim();
-    if (configuredToken) {
-      const authHeader = String(req.headers.authorization || '');
-      const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-      const token = String(req.headers['x-admin-token'] || '').trim() || bearer;
-      if (token !== configuredToken) return res.status(401).json({ error: 'Unauthorized' });
-      return next();
-    }
-    const remote = String(req.ip || req.socket?.remoteAddress || '');
-    const local = remote === '127.0.0.1' || remote === '::1' || remote.endsWith('::ffff:127.0.0.1');
-    return local ? next() : res.status(403).json({ error: 'Diagnostics require local access or DASHBOARD_ADMIN_TOKEN' });
-  }
   // Archive search endpoint
-  app.get('/api/signals/archive-search', requireDiagnosticAccess, (req, res) => {
+  app.get('/api/signals/archive-search', (req, res) => {
     const { symbol, from, to, signal } = req.query;
     searchArchive({ symbol, from, to, signal }, (err, results) => {
       if (err) {
@@ -514,7 +745,7 @@ function startDashboard(portfolio, ctx) {
 
   // --- AI Provider Health (B.2) ---
   // Combined per-provider snapshot: enabled, hasKey, backoffUntil, quota, circuit, status text.
-  app.get('/api/ai-health', requireDiagnosticAccess, (req, res) => {
+  app.get('/api/ai-health', (req, res) => {
     try {
       const ensemble = require('./ai/ensemble');
       const stats = ensemble.getQuotaStats ? ensemble.getQuotaStats() : {};
@@ -577,7 +808,7 @@ function startDashboard(portfolio, ctx) {
 
   // --- AI API Quota Endpoint (must be before static serving) ---
   // This must be registered BEFORE app.use(express.static(...))
-  app.get('/api/ai-quota', requireDiagnosticAccess, (req, res) => {
+  app.get('/api/ai-quota', (req, res) => {
     try {
       if (process.env.DEBUG_AI_QUOTA === 'true') {
         logger.debug('[AI-QUOTA DEBUG]', redactObject({
@@ -706,6 +937,20 @@ function startDashboard(portfolio, ctx) {
     return next();
   }
 
+  app.use(express.json({ limit: '1mb' }));
+
+  // CORS for cross-port dashboard fetches (Week 7 sidebar dashboard hits
+  // both 3001 paper + 3002 live from a single UI via bot-switcher dropdown).
+  // Allow any origin since this is LAN-only; tighten via DASHBOARD_CORS_ORIGIN env if needed.
+  const corsOrigin = process.env.DASHBOARD_CORS_ORIGIN || '*';
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+    next();
+  });
+
   app.use((req, res, next) => {
     if (req.path === '/health' || req.path.startsWith('/api/')) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -729,103 +974,93 @@ function startDashboard(portfolio, ctx) {
   }));
 
   app.get('/api/status', (req, res) => {
-    res.json(ctx.getDashboardState({ compact: true }));
-  });
-
-  async function proxyPerpsResearch(req, res, upstreamPath, method = 'GET') {
-    const perpsApiBaseUrl = String(process.env.PERPS_PAPER_API_URL || 'http://127.0.0.1:3004').replace(/\/$/, '');
-    const perpsAdminToken = String(process.env.PERPS_ADMIN_TOKEN || '').trim();
-    const headers = method === 'POST' ? { 'Content-Type': 'application/json' } : undefined;
-    if (headers && perpsAdminToken) headers['X-Admin-Token'] = perpsAdminToken;
-    try {
-      const response = await fetch(`${perpsApiBaseUrl}${upstreamPath}`, {
-        method,
-        headers,
-        body: method === 'POST' ? JSON.stringify(req.body || {}) : undefined,
-      });
-      const payload = await response.json().catch(() => ({ error: 'invalid_perps_research_response' }));
-      return res.status(response.status).json(payload);
-    } catch (error) {
-      logger.warn(`Perps paper research API unavailable: ${error.message}`);
-      return res.status(503).json({
-        mode: 'historical-replay',
-        liveExecutionEnabled: false,
-        persistsPaperTrades: false,
-        error: 'perps_research_unavailable',
-      });
-    }
-  }
-
-  app.get('/api/perps/trades', async (req, res) => {
-    const perpsApiBaseUrl = String(process.env.PERPS_PAPER_API_URL || 'http://127.0.0.1:3004').replace(/\/$/, '');
-    try {
-      const [tradesResponse, statsResponse, evidenceResponse] = await Promise.all([
-        fetch(`${perpsApiBaseUrl}/api/trades`),
-        fetch(`${perpsApiBaseUrl}/api/stats`),
-        fetch(`${perpsApiBaseUrl}/api/evidence`),
-      ]);
-      if (tradesResponse.ok && statsResponse.ok && evidenceResponse.ok) {
-        const [tradesPayload, statsPayload, evidence] = await Promise.all([
-          tradesResponse.json(),
-          statsResponse.json(),
-          evidenceResponse.json(),
-        ]);
-        return res.json({
-          mode: 'perps-paper',
-          liveExecutionEnabled: false,
-          paperHistoryEnabled: true,
-          historyStatus: 'available',
-          historySource: 'perps_api',
-          historyError: null,
-          excludedNonPerpsTrades: Number(tradesPayload.excludedNonPerpsTrades || statsPayload.stats?.excludedNonPerpsTrades || 0),
-          trades: Array.isArray(tradesPayload.trades) ? tradesPayload.trades : [],
-          stats: statsPayload.stats || {},
-          evidence,
-          livePromotionEligible: Boolean(statsPayload.livePromotionEligible),
-        });
-      }
-    } catch (error) {
-      logger.warn(`Perps paper API unavailable, using filtered local history: ${error.message}`);
-    }
-    const history = readPerpsPaperHistorySnapshot();
-    const trades = history.trades;
+    // B4.dash.4: surface fetchedAt so the UI can render "as of HH:MM:SS" and
+    // operators can spot stale data. Inject at the response edge — does not
+    // require touching ctx.getDashboardState.
+    const state = ctx.getDashboardState({ compact: true });
     res.json({
-      mode: 'perps-paper',
-      liveExecutionEnabled: false,
-      paperHistoryEnabled: true,
-      historySource: 'filtered_local_fallback',
-      historyStatus: history.historyStatus,
-      historyError: history.historyError,
-      excludedNonPerpsTrades: history.excludedNonPerpsTrades || 0,
-      trades,
-      stats: buildPerpsPaperStats(trades),
+      ...state,
+      fetchedAt: new Date().toISOString(),
+      fetchedAtEpochMs: Date.now(),
     });
   });
 
-  app.get('/api/perps/backtests/traderxo/latest', (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/latest')
-  ));
-  app.get('/api/perps/backtests/traderxo/study/latest', (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/study/latest')
-  ));
-  app.get('/api/perps/backtests/traderxo/walk-forward/latest', (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/walk-forward/latest')
-  ));
-  app.get('/api/perps/backtests/traderxo/benchmark/latest', (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/benchmark/latest')
-  ));
-  app.post('/api/perps/backtests/traderxo', requireWriteAccess, (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo', 'POST')
-  ));
-  app.post('/api/perps/backtests/traderxo/study', requireWriteAccess, (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/study', 'POST')
-  ));
-  app.post('/api/perps/backtests/traderxo/walk-forward', requireWriteAccess, (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/walk-forward', 'POST')
-  ));
-  app.post('/api/perps/backtests/traderxo/benchmark', requireWriteAccess, (req, res) => (
-    proxyPerpsResearch(req, res, '/api/backtests/traderxo/benchmark', 'POST')
-  ));
+  app.get('/api/trades', async (req, res) => {
+    const limit = parsePositiveInt(req.query.limit, 250, 500);
+    const metricLimit = parsePositiveInt(req.query.metricLimit, 5000, 10000);
+    const windowHours = parsePositiveInt(req.query.windowHours, null, 8760);
+    const profileAliases = buildTradeProfileAliases(req.query.profile, config.paperTrading);
+    const state = ctx.getDashboardState({ compact: false });
+    const portfolioState = state?.portfolio || {};
+    const runtimeTrades = Array.isArray(portfolioState.trades)
+      ? portfolioState.trades
+      : (Array.isArray(portfolioState.recentTrades) ? portfolioState.recentTrades : []);
+
+    let sqlTrades = [];
+    let sqlError = null;
+    try {
+      sqlTrades = await loadSpotTradeHistoryFromSql({ profiles: profileAliases, limit: Math.max(limit, metricLimit), log: logger });
+    } catch (error) {
+      sqlError = error.message;
+      logger.warn(`Trade history SQL fallback to runtime state: ${error.message}`);
+    }
+
+    const mergedTrades = mergeTradeHistory(runtimeTrades, sqlTrades, Math.max(limit, metricLimit));
+    const allTrades = filterTradeHistoryByWindow(mergedTrades, windowHours);
+    const trades = allTrades.slice(0, limit);
+    const metrics = buildSpotTradeMetrics(allTrades);
+    res.json({
+      ok: true,
+      mode: state?.mode || (config.paperTrading ? 'paper' : 'live'),
+      profiles: profileAliases,
+      count: trades.length,
+      source: sqlTrades.length > 0 ? 'sql_runtime_merged' : 'runtime',
+      metricScope: windowHours ? `rolling_${windowHours}h` : 'merged_available_history',
+      window: windowHours ? {
+        hours: windowHours,
+        from: new Date(Date.now() - (windowHours * 60 * 60 * 1000)).toISOString(),
+        to: new Date().toISOString(),
+      } : null,
+      sqlBacked: sqlTrades.length > 0,
+      sqlError,
+      summary: metrics,
+      byChain: metrics.byChain,
+      byStrategy: metrics.byStrategy,
+      trades,
+    });
+  });
+
+  app.get('/api/perps/trades', async (req, res) => {
+    const limit = parsePositiveInt(req.query.limit, 250, 500);
+    const baseUrl = String(
+      process.env.PERPS_DASHBOARD_URL
+      || process.env.PERPS_API_URL
+      || `http://127.0.0.1:${process.env.PERPS_DASHBOARD_PORT || process.env.PERPS_PORT || 3004}`
+    ).replace(/\/+$/, '');
+
+    const [tradePayload, statsPayload] = await Promise.all([
+      requestJson(`${baseUrl}/api/trades`, 5000),
+      requestJson(`${baseUrl}/api/stats`, 5000),
+    ]);
+
+    const trades = Array.isArray(tradePayload?.trades)
+      ? tradePayload.trades
+      : (Array.isArray(tradePayload) ? tradePayload : []);
+    const visibleTrades = trades.slice(0, limit);
+    const stats = statsPayload?.stats || computePerpsTradeStats(trades);
+
+    res.json({
+      ok: Boolean(tradePayload),
+      mode: tradePayload?.mode || statsPayload?.mode || 'perps-paper',
+      source: tradePayload ? 'perps_api' : 'unavailable',
+      historyError: tradePayload ? null : 'Perps trade API unavailable',
+      count: visibleTrades.length,
+      totalCount: trades.length,
+      stats,
+      trades: visibleTrades,
+      excludedNonPerpsTrades: tradePayload?.excludedNonPerpsTrades || stats?.excludedNonPerpsTrades || 0,
+    });
+  });
 
   app.get('/health', (req, res) => {
     const health = typeof ctx.getHealthStatus === 'function'
@@ -833,6 +1068,23 @@ function startDashboard(portfolio, ctx) {
       : { ok: true, timestamp: new Date().toISOString() };
 
     return res.status(health.ok ? 200 : 503).json(health);
+  });
+
+  app.get('/metrics', (req, res) => {
+    const health = typeof ctx.getHealthStatus === 'function'
+      ? ctx.getHealthStatus()
+      : { ok: true, timestamp: new Date().toISOString() };
+    const botProfile = normalizeBotProfile(process.env.BOT_PROFILE || (config.paperTrading ? 'paper_spot' : 'live_spot'));
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    return res.send(renderPrometheusMetrics(buildBotHealthMetrics({
+      botProfile,
+      health,
+      extra: {
+        live_execution_enabled: !config.paperTrading,
+        safe_mode: Boolean(health.safeMode),
+        signal_drought_global: Boolean(health.signalDrought?.global),
+      },
+    })));
   });
 
   app.get('/api/health-lite', (req, res) => {
@@ -870,6 +1122,21 @@ function startDashboard(portfolio, ctx) {
         hasApiKey: Boolean(config.anthropic.apiKey),
       },
     });
+  });
+
+  app.get('/api/config-provenance', requireAdminToken, (req, res) => {
+    res.json({
+      ok: true,
+      report: buildDashboardConfigProvenance(),
+    });
+  });
+
+  app.get('/api/config-source-audit', requireAdminToken, (req, res) => {
+    const report = buildDashboardConfigSourceAudit({
+      projectRoot: ctx.projectRoot || path.resolve(__dirname, '..'),
+      profile: process.env.BOT_PROFILE || (config.paperTrading ? 'paper' : 'live'),
+    });
+    res.status(report.ok ? 200 : 409).json({ ok: report.ok, report });
   });
 
   app.post('/api/config', requireWriteAccess, (req, res) => {
@@ -1120,27 +1387,107 @@ function startDashboard(portfolio, ctx) {
     res.json({ ok: true, cached: false, data: merged });
   });
 
-  app.get('/api/performance', (req, res) => {
+  app.get('/api/performance', async (req, res) => {
     const state = ctx.getDashboardState();
+    const windowHours = parsePositiveInt(req.query.windowHours, null, 8760);
+    const runtimeTrades = Array.isArray(state.portfolio?.trades)
+      ? state.portfolio.trades
+      : (Array.isArray(state.portfolio?.recentTrades) ? state.portfolio.recentTrades : []);
+    let summary = null;
+    let metricSource = 'runtime';
+    let sqlError = null;
+    try {
+      const profileAliases = buildTradeProfileAliases(req.query.profile, config.paperTrading);
+      const sqlTrades = await loadSpotTradeHistoryFromSql({ profiles: profileAliases, limit: 5000, log: logger });
+      const mergedTrades = mergeTradeHistory(runtimeTrades, sqlTrades, 5000);
+      summary = buildSpotTradeMetrics(filterTradeHistoryByWindow(mergedTrades, windowHours));
+      if (sqlTrades.length > 0) metricSource = 'sql_runtime_merged';
+    } catch (error) {
+      sqlError = error.message;
+      logger.warn(`Performance SQL metric fallback to runtime state: ${error.message}`);
+      summary = buildSpotTradeMetrics(filterTradeHistoryByWindow(runtimeTrades, windowHours));
+    }
+    const portfolioMetrics = summary && (windowHours || summary.closedTrades > 0)
+      ? summary
+      : {
+          closedTrades: state.portfolio.closedTrades,
+          wins: state.portfolio.wins,
+          losses: state.portfolio.losses,
+          winRate: state.portfolio.winRate,
+          profitFactor: state.portfolio.profitFactor,
+          expectancyUsd: state.portfolio.expectancyUsd,
+          avgWinUsd: state.portfolio.avgWinUsd,
+          avgLossUsd: state.portfolio.avgLossUsd,
+          realizedPnl: state.portfolio.realizedPnl,
+          totalPnl: state.portfolio.totalPnl,
+          grossProfit: state.portfolio.grossProfit,
+          grossLoss: state.portfolio.grossLoss,
+        };
+
     res.json({
       timestamp: state.timestamp,
       mode: state.mode,
+      source: metricSource,
+      metricScope: windowHours ? `rolling_${windowHours}h` : 'merged_available_history',
+      window: windowHours ? {
+        hours: windowHours,
+        from: new Date(Date.now() - (windowHours * 60 * 60 * 1000)).toISOString(),
+        to: new Date().toISOString(),
+      } : null,
+      sqlError,
       performanceGate: state.performanceGate,
-      portfolio: {
+      runtimeState: {
         closedTrades: state.portfolio.closedTrades,
         wins: state.portfolio.wins,
         losses: state.portfolio.losses,
         winRate: state.portfolio.winRate,
         profitFactor: state.portfolio.profitFactor,
-        expectancyUsd: state.portfolio.expectancyUsd,
-        avgWinUsd: state.portfolio.avgWinUsd,
-        avgLossUsd: state.portfolio.avgLossUsd,
+        realizedPnl: state.portfolio.realizedPnl,
+        totalPnl: state.portfolio.totalPnl,
+      },
+      // 2026-07-02 PnL reconciliation. The two views can legitimately diverge:
+      // runtimeState = lifetime in-memory counters (survive via state snapshot,
+      // no per-trade rows); portfolio = recomputed from merged trade-history
+      // rows (runtime recentTrades capped at 80 by SQL_STATE_RECENT_TRADE_LIMIT
+      // + whatever reached SQL). Rows lost during SQL outages / restart storms
+      // are unrecoverable, so the merged view understates history. When drift
+      // is material, per-strategy/per-chain splits below must be read as
+      // "known-history only", not ground truth. Equity movement tracks
+      // runtimeState, which is authoritative for total PnL.
+      reconciliation: (() => {
+        const rt = Number(state.portfolio.realizedPnl || 0);
+        const merged = Number(portfolioMetrics.realizedPnl || 0);
+        const driftUsd = Number((rt - merged).toFixed(2));
+        const closedDrift = Number(state.portfolio.closedTrades || 0) - Number(portfolioMetrics.closedTrades || 0);
+        return {
+          realizedPnlDriftUsd: driftUsd,
+          closedTradesDrift: closedDrift,
+          materialDrift: Math.abs(driftUsd) > Math.max(5, Math.abs(rt) * 0.05),
+          authoritativeTotal: 'runtimeState',
+          note: Math.abs(driftUsd) > Math.max(5, Math.abs(rt) * 0.05)
+            ? 'trade_history_incomplete_vs_runtime_counters — per-strategy splits cover known history only'
+            : null,
+        };
+      })(),
+      portfolio: {
+        closedTrades: portfolioMetrics.closedTrades,
+        wins: portfolioMetrics.wins,
+        losses: portfolioMetrics.losses,
+        winRate: portfolioMetrics.winRate,
+        profitFactor: portfolioMetrics.profitFactor,
+        expectancyUsd: portfolioMetrics.expectancyUsd,
+        avgWinUsd: portfolioMetrics.avgWinUsd,
+        avgLossUsd: portfolioMetrics.avgLossUsd,
         consecutiveLosses: state.portfolio.consecutiveLosses,
         maxConsecutiveLosses: state.portfolio.maxConsecutiveLosses,
         avgSlippageBps: state.portfolio.avgSlippageBps,
         slippageSamples: state.portfolio.slippageSamples,
-        realizedPnl: state.portfolio.realizedPnl,
-        totalPnl: state.portfolio.totalPnl,
+        grossProfit: portfolioMetrics.grossProfit,
+        grossLoss: portfolioMetrics.grossLoss,
+        realizedPnl: portfolioMetrics.realizedPnl,
+        totalPnl: portfolioMetrics.totalPnl,
+        byChain: summary?.byChain || [],
+        byStrategy: summary?.byStrategy || [],
       },
     });
   });
@@ -1282,7 +1629,11 @@ function startDashboard(portfolio, ctx) {
       byStructureType,
       exitReasonBreakdown,
       macroRegime: state.macroRegime || null,
-      enabled: Boolean(state?.config?.strategies?.backes?.enabled || state?.config?.strategies?.swing?.enabled),
+      enabled: Boolean(
+        state?.config?.strategies?.backes?.enabled
+        || state?.config?.strategies?.swing?.enabled
+        || state?.config?.strategies?.backes_swing?.enabled
+      ),
     });
   });
 
@@ -1398,6 +1749,171 @@ function startDashboard(portfolio, ctx) {
           SHARED_REPORT_QUERIES.researchTradeRows,
           SHARED_REPORT_QUERIES.researchDecisionRows,
         ],
+        v2: [
+          ['riskEnforcementStatus', null],
+          ['botPerformance24h', 'SELECT * FROM dbo.v_bot_performance_24h ORDER BY bot_profile, strategy'],
+          ['strategyRejectionWaterfall', 'SELECT TOP 500 * FROM dbo.v_strategy_rejection_waterfall ORDER BY ts DESC'],
+          ['openRiskExposure', 'SELECT * FROM dbo.v_open_risk_exposure ORDER BY bot_profile, market_type, symbol'],
+          ['portfolioAllocationSummary', `
+            WITH recent_equity AS (
+              SELECT TOP 250
+                bot_profile,
+                equity,
+                ts
+              FROM dbo.bot_pnl_history
+              WHERE equity IS NOT NULL
+              ORDER BY ts DESC
+            ),
+            latest_equity AS (
+              SELECT
+                bot_profile,
+                equity,
+                ts,
+                ROW_NUMBER() OVER (PARTITION BY bot_profile ORDER BY ts DESC) AS rn
+              FROM recent_equity
+            ),
+            recent_exposure AS (
+              SELECT TOP 500
+                bot_profile,
+                market_type,
+                symbol,
+                strategy,
+                exposure_usd,
+                notional_usd,
+                risk_usd,
+                ts
+              FROM dbo.portfolio_exposure_snapshots
+              ORDER BY ts DESC
+            ),
+            latest_exposure AS (
+              SELECT
+                *,
+                ROW_NUMBER() OVER (
+                  PARTITION BY bot_profile, market_type, symbol, strategy
+                  ORDER BY ts DESC
+                ) AS rn
+              FROM recent_exposure
+            ),
+            current_exposure AS (
+              SELECT * FROM latest_exposure WHERE rn = 1
+            )
+            SELECT
+              ce.bot_profile,
+              ce.market_type,
+              ce.strategy,
+              COUNT(*) AS open_exposure_count,
+              SUM(ABS(COALESCE(ce.exposure_usd, ce.notional_usd, 0))) AS exposure_usd,
+              SUM(ABS(COALESCE(ce.notional_usd, ce.exposure_usd, 0))) AS notional_usd,
+              SUM(ABS(COALESCE(ce.risk_usd, 0))) AS risk_usd,
+              MAX(le.equity) AS equity_usd,
+              CASE
+                WHEN MAX(le.equity) > 0
+                THEN SUM(ABS(COALESCE(ce.risk_usd, 0))) / MAX(le.equity) * 100.0
+                ELSE NULL
+              END AS heat_pct,
+              MAX(ce.ts) AS last_snapshot_at
+            FROM current_exposure ce
+            LEFT JOIN latest_equity le
+              ON le.bot_profile = ce.bot_profile
+             AND le.rn = 1
+            GROUP BY ce.bot_profile, ce.market_type, ce.strategy
+            ORDER BY heat_pct DESC, risk_usd DESC
+          `],
+          ['latestPortfolioExposureSnapshots', 'SELECT TOP 500 * FROM dbo.portfolio_exposure_snapshots ORDER BY ts DESC'],
+          ['latestCorrelationSnapshots', 'SELECT TOP 500 * FROM dbo.correlation_snapshots ORDER BY ts DESC'],
+          ['strategyVersionPerformance', 'SELECT TOP 200 * FROM dbo.v_strategy_version_performance ORDER BY last_trade_at DESC'],
+          ['latestStrategyVersions', 'SELECT TOP 100 * FROM dbo.strategy_versions ORDER BY created_at DESC'],
+          ['executionQuality', 'SELECT TOP 500 * FROM dbo.v_execution_quality ORDER BY ts DESC'],
+          ['latestTradingEvents', 'SELECT TOP 250 * FROM dbo.trading_events ORDER BY occurred_at DESC'],
+          ['latestPerpsCanaryPolicyAudits', `
+            SELECT TOP 100
+              event_id,
+              bot_profile,
+              strategy,
+              symbol,
+              occurred_at,
+              severity,
+              correlation_id,
+              JSON_VALUE(payload_json, '$.policyEvaluationId') AS policy_evaluation_id,
+              JSON_VALUE(payload_json, '$.proposal.stage') AS canary_stage,
+              JSON_VALUE(payload_json, '$.proposal.submitMode') AS submit_mode,
+              JSON_VALUE(payload_json, '$.policy.ok') AS policy_ok,
+              JSON_QUERY(payload_json, '$.policy.reasons') AS reasons_json,
+              TRY_CONVERT(float, JSON_VALUE(payload_json, '$.policy.limits.maxCanaryNotionalUsd')) AS max_canary_notional_usd,
+              TRY_CONVERT(float, JSON_VALUE(payload_json, '$.policy.limits.maxCanaryLeverage')) AS max_canary_leverage,
+              JSON_VALUE(payload_json, '$.runtimeFacts.sqlHealthy') AS sql_healthy,
+              payload_json
+            FROM dbo.trading_events
+            WHERE event_name = 'live_canary.policy_evaluated'
+            ORDER BY occurred_at DESC
+          `],
+          ['latestPortfolioAllocationAudits', `
+            WITH recent_events AS (
+              SELECT TOP 1000
+                event_id,
+                bot_profile,
+                strategy,
+                symbol,
+                occurred_at,
+                severity,
+                payload_json,
+                event_name
+              FROM dbo.trading_events
+              ORDER BY occurred_at DESC
+            )
+            SELECT TOP 100
+              event_id,
+              bot_profile,
+              strategy,
+              symbol,
+              occurred_at,
+              severity,
+              JSON_VALUE(payload_json, '$.input.portfolioAllocation.proposedTrade.allow') AS allocation_allow,
+              TRY_CONVERT(float, JSON_VALUE(payload_json, '$.input.portfolioAllocation.proposedTrade.proposedRiskUsd')) AS proposed_risk_usd,
+              TRY_CONVERT(float, JSON_VALUE(payload_json, '$.input.portfolioAllocation.proposedTrade.recommendedRiskUsd')) AS recommended_risk_usd,
+              TRY_CONVERT(float, JSON_VALUE(payload_json, '$.input.portfolioAllocation.proposedTrade.riskMultiplier')) AS risk_multiplier,
+              TRY_CONVERT(float, JSON_VALUE(payload_json, '$.input.portfolioAllocation.proposedTrade.afterHeatPct')) AS after_heat_pct,
+              JSON_QUERY(payload_json, '$.input.portfolioAllocation.proposedTrade.reasons') AS allocation_reasons_json,
+              JSON_QUERY(payload_json, '$.reasons') AS audit_reasons_json
+            FROM recent_events
+            WHERE event_name = 'risk.audit'
+              AND JSON_QUERY(payload_json, '$.input.portfolioAllocation') IS NOT NULL
+            ORDER BY occurred_at DESC
+          `],
+          ['latestStrategyRouting', `
+            SELECT TOP 150
+              event_id,
+              bot_profile,
+              strategy,
+              occurred_at,
+              correlation_id,
+              JSON_VALUE(payload_json, '$.generatedAt') AS generated_at,
+              JSON_QUERY(payload_json, '$.enabledStrategies') AS enabled_strategies_json,
+              JSON_QUERY(payload_json, '$.decisions') AS decisions_json,
+              JSON_QUERY(payload_json, '$.cycle.topGateRejects') AS top_gate_rejects_json,
+              TRY_CONVERT(int, JSON_VALUE(payload_json, '$.cycle.evaluated')) AS evaluated,
+              TRY_CONVERT(int, JSON_VALUE(payload_json, '$.cycle.passed')) AS passed,
+              TRY_CONVERT(int, JSON_VALUE(payload_json, '$.scan.symbolsScanned')) AS perps_symbols_scanned,
+              TRY_CONVERT(int, JSON_VALUE(payload_json, '$.scan.shadowQualified')) AS perps_shadow_qualified,
+              JSON_QUERY(payload_json, '$.scan.topReasons') AS perps_top_reasons_json,
+              JSON_VALUE(payload_json, '$.admission.allowNewPaperEntries') AS perps_admission_allow_new_entries
+            FROM dbo.trading_events
+            WHERE event_name = 'strategy.routing'
+            ORDER BY occurred_at DESC
+          `],
+          ['perpsControlPlaneSummary', 'SELECT * FROM dbo.v_perps_control_plane_summary ORDER BY bot_profile'],
+          ['perpsRiskExposure', 'SELECT * FROM dbo.v_perps_risk_exposure ORDER BY bot_profile, status, updated_at DESC'],
+          ['perpsExecutionQualitySummary', 'SELECT TOP 200 * FROM dbo.v_perps_execution_quality_summary ORDER BY last_trade_at DESC'],
+          ['perpsPromotionReadiness', 'SELECT TOP 200 * FROM dbo.v_perps_promotion_readiness ORDER BY bot_profile, strategy'],
+          ['latestPerpsSignals', 'SELECT TOP 250 * FROM dbo.perps_signals ORDER BY ts DESC'],
+          ['latestPerpsTrades', 'SELECT TOP 250 * FROM dbo.perps_trades ORDER BY ts DESC'],
+          ['openPerpsPositions', "SELECT * FROM dbo.perps_positions WHERE status = 'open' ORDER BY updated_at DESC"],
+          ['latestPerpsAdmission', 'SELECT TOP 20 * FROM dbo.perps_admission_snapshots ORDER BY ts DESC'],
+          ['promotionCandidates', 'SELECT TOP 100 * FROM dbo.promotion_candidates ORDER BY created_at DESC'],
+          ['walkForwardResults', 'SELECT TOP 100 * FROM dbo.walk_forward_results ORDER BY ts DESC'],
+          ['mutationProposals', 'SELECT TOP 100 * FROM dbo.v_mutation_proposals_latest ORDER BY created_at DESC'],
+          ['promotionGateEvaluations', 'SELECT TOP 100 * FROM dbo.v_promotion_gate_evaluations_latest ORDER BY ts DESC'],
+        ],
         overview: [
           ['profileSummary', 'SELECT * FROM dbo.vw_profile_summary ORDER BY bot_profile'],
           ['learningSummary', 'SELECT * FROM dbo.vw_learning_summary ORDER BY bot_profile'],
@@ -1424,6 +1940,22 @@ function startDashboard(portfolio, ctx) {
         ],
       };
 
+      const v2SmokeObjects = {
+        botPerformance24h: { name: 'dbo.v_bot_performance_24h', type: 'V' },
+        strategyRejectionWaterfall: { name: 'dbo.v_strategy_rejection_waterfall', type: 'V' },
+        openRiskExposure: { name: 'dbo.v_open_risk_exposure', type: 'V' },
+        portfolioAllocationSummary: { name: 'dbo.portfolio_exposure_snapshots', type: 'U' },
+        latestPortfolioExposureSnapshots: { name: 'dbo.portfolio_exposure_snapshots', type: 'U' },
+        latestCorrelationSnapshots: { name: 'dbo.correlation_snapshots', type: 'U' },
+        executionQuality: { name: 'dbo.v_execution_quality', type: 'V' },
+        latestStrategyVersions: { name: 'dbo.strategy_versions', type: 'U' },
+        latestPerpsCanaryPolicyAudits: { name: 'dbo.trading_events', type: 'U' },
+        latestPortfolioAllocationAudits: { name: 'dbo.trading_events', type: 'U' },
+        latestStrategyRouting: { name: 'dbo.trading_events', type: 'U' },
+        perpsControlPlaneSummary: { name: 'dbo.v_perps_control_plane_summary', type: 'V' },
+        perpsPromotionReadiness: { name: 'dbo.v_perps_promotion_readiness', type: 'V' },
+      };
+
       if (!Object.prototype.hasOwnProperty.call(allowedReports, requested)) {
         const error = new Error('Unknown report');
         error.statusCode = 400;
@@ -1439,8 +1971,44 @@ function startDashboard(portfolio, ctx) {
       }
       await ensureSchema(logger);
 
+      if (requested === 'v2' && String(req.query.smoke || '').trim() === '1') {
+        const payload = {};
+        const missingObjects = [];
+        for (const [key, spec] of Object.entries(v2SmokeObjects)) {
+          // eslint-disable-next-line no-await-in-loop
+          const result = await pool.request().query(`
+            SELECT
+              CASE
+                WHEN OBJECT_ID(N'${spec.name}', N'${spec.type}') IS NULL THEN CAST(0 AS bit)
+                ELSE CAST(1 AS bit)
+              END AS object_exists;
+          `);
+          const exists = Boolean(result.recordset?.[0]?.object_exists);
+          if (!exists) missingObjects.push(spec.name);
+          payload[key] = [{
+            objectName: spec.name,
+            objectType: spec.type,
+            exists,
+          }];
+        }
+        payload.riskEnforcementStatus = buildRiskEnforcementStatus();
+        payload.rotationDebug = buildRotationDebugPayload(ctx);
+        return {
+          ok: missingObjects.length === 0,
+          report: requested,
+          smoke: true,
+          generatedAt: new Date().toISOString(),
+          missingObjects,
+          data: payload,
+        };
+      }
+
       const payload = {};
       for (const [key, queryText] of allowedReports[requested]) {
+        if (!queryText && key === 'riskEnforcementStatus') {
+          payload[key] = buildRiskEnforcementStatus();
+          continue;
+        }
         // eslint-disable-next-line no-await-in-loop
         const result = await pool.request().query(queryText);
         payload[key] = result.recordset || [];
@@ -1604,9 +2172,6 @@ WHERE version_id = @version_id
       }
 
       const configuredSecret = String(config.webhooks?.tradingViewSecret || '').trim();
-      if (!configuredSecret) {
-        return res.status(503).json({ error: 'TradingView webhook secret is required when enabled' });
-      }
       const providedSecret = String(
         req.headers['x-webhook-secret']
         || req.headers['x-tradingview-secret']
@@ -1614,6 +2179,11 @@ WHERE version_id = @version_id
         || req.body?.secret
         || ''
       ).trim();
+      // Fail CLOSED: if the webhook is enabled but no secret is configured,
+      // refuse unauthenticated signal injection rather than accepting anything.
+      if (!configuredSecret) {
+        return res.status(503).json({ error: 'Webhook enabled but no secret configured — refusing unauthenticated signals' });
+      }
       if (!safeEqual(providedSecret, configuredSecret)) {
         return res.status(401).json({ error: 'Unauthorized webhook secret' });
       }
@@ -1623,12 +2193,13 @@ WHERE version_id = @version_id
         provider: 'tradingview',
         source: 'tradingview',
         symbol: payload.symbol || payload.ticker,
-        chain: payload.chain || payload.chainKey || payload.exchange || null,
+        chainKey: payload.chain || payload.chainKey || payload.exchange || null,
         strategy: payload.strategy || null,
         signal: payload.signal || payload.action || payload.side,
         confidence: payload.confidence,
         note: payload.note || payload.message || payload.comment,
-        ttlMs: Number(config.webhooks?.tradingViewMaxAgeMs || 21600000),
+        raw: payload,
+        expiresAt: payload.expiresAt || new Date(Date.now() + Number(config.webhooks?.tradingViewMaxAgeMs || 21600000)).toISOString(),
       });
       return res.json({ ok: true, signal });
     } catch (error) {
@@ -1651,7 +2222,7 @@ WHERE version_id = @version_id
   });
 
   // Portfolio correlation matrix endpoint
-  app.get('/api/correlation', requireAdminToken, (req, res) => {
+  app.get('/api/correlation', (req, res) => {
     try {
       const { buildCorrelationMatrix } = require('./utils/correlation');
       let priceHistories = ctx.strategy?.priceHistory || {};
@@ -1835,7 +2406,7 @@ WHERE version_id = @version_id
     }
   });
 
-  app.post('/api/admin/safe-mode/clear', requireAdminToken, (req, res) => {
+  app.get('/api/admin/safe-mode/clear', requireAdminToken, (req, res) => {
     try {
       if (typeof ctx.clearSafeMode !== 'function') {
         return res.status(503).json({ error: 'Safe mode control unavailable' });
@@ -2119,5 +2690,11 @@ WHERE version_id = @version_id
 
 module.exports = {
   startDashboard,
-  _testInternals: { readPerpsPaperHistory, readPerpsPaperHistorySnapshot, buildPerpsPaperStats },
+  buildSpotTradeMetrics,
+  buildTradeProfileAliases,
+  computePerpsTradeStats,
+  filterTradeHistoryByWindow,
+  mergeTradeHistory,
+  normalizeTradeLedgerRow,
+  summarizeClosedSpotTrades,
 };

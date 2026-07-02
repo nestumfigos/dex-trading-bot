@@ -121,8 +121,13 @@ function createStatePersistence(deps = {}) {
       balanceDriftHalt: portfolio.balanceDriftHalt,
       statePersistenceError: portfolio.statePersistenceError,
       stateReconciliation: portfolio.stateReconciliation,
-      trades: compactArray(portfolio.trades, Number(process.env.SQL_STATE_TRADE_LIMIT || 80)),
-      recentTrades: compactArray(portfolio.recentTrades, Number(process.env.SQL_STATE_RECENT_TRADE_LIMIT || 80)),
+      // 2026-07-02: caps raised 80 -> 400. The 80-row cap was the root cause
+      // of a $170 realized-PnL drift between runtime counters and the merged
+      // trade history: rows aged out of the snapshot before SQL persisted
+      // them (restart storms + SQL outages), permanently losing per-trade
+      // history. Rows are small; 400 gives ~2 months of paper volume.
+      trades: compactArray(portfolio.trades, Number(process.env.SQL_STATE_TRADE_LIMIT || 400)),
+      recentTrades: compactArray(portfolio.recentTrades, Number(process.env.SQL_STATE_RECENT_TRADE_LIMIT || 400)),
       pnlHistory: compactArray(portfolio.pnlHistory, Number(process.env.SQL_STATE_PNL_HISTORY_LIMIT || 200)),
       executionJournal: compactArray(portfolio.executionJournal, Number(process.env.SQL_STATE_EXECUTION_JOURNAL_LIMIT || 80)),
       strategies: {},

@@ -11,18 +11,15 @@
 const KNOBS = {
   // ── Boot / runtime ──────────────────────────────────────────────────
   NODE_ENV: { type: 'enum', enum: ['production', 'development', 'test'], default: 'production' },
-  BOT_PROFILE: { type: 'enum', enum: ['live', 'paper'], default: 'live' },
+  BOT_PROFILE: { type: 'enum', enum: ['live', 'paper', 'live_spot', 'paper_spot', 'paper_perps', 'live_perps'], default: 'live' },
   BOT_DATA_DIR: { type: 'string', default: 'data' },
   PORT: { type: 'int', min: 1024, max: 65535, default: 3002 },
   DASHBOARD_BIND_HOST: { type: 'string', default: '127.0.0.1' },
   PAPER_TRADING: { type: 'bool', default: false },
   PAPER_BALANCE_USD: { type: 'float', min: 0, default: 10000 },
-  AI_BACKES_DECISION_CACHE_MS: { type: 'int', min: 1000, default: 1800000, hotReload: true },
-  AI_SWING_DECISION_CACHE_MS: { type: 'int', min: 1000, default: 1800000, hotReload: true },
-  KUCOIN_BACKES_HEAT_ALLOWANCE_PCT: { type: 'float', min: 0, max: 100, default: 95, hotReload: true },
-  KUCOIN_SWING_HEAT_ALLOWANCE_PCT: { type: 'float', min: 0, max: 100, default: 95, hotReload: true },
-  KUCOIN_BACKES_CANDIDATE_LIMIT: { type: 'int', min: 10, max: 120, default: 80, hotReload: true },
-  KUCOIN_SWING_CANDIDATE_LIMIT: { type: 'int', min: 10, max: 120, default: 80, hotReload: true },
+  PAPER_DISABLE_CONSECUTIVE_LOSS_GATE: { type: 'bool', default: false },
+  PAPER_DISABLE_KPI_PERFORMANCE_GATE: { type: 'bool', default: false },
+  PAPER_DISABLE_PROFITABILITY_GUARD: { type: 'bool', default: false },
 
   // ── Self-evolution gates (DANGER: 2026-05-16 these are 'false' in live) ──
   SELF_EVOLUTION_ENABLED: { type: 'bool', default: false, hotReload: true },
@@ -31,6 +28,15 @@ const KNOBS = {
   SELF_EVOLUTION_ALLOW_LIVE_APPLY: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_AUTO_PROMOTE: { type: 'bool', default: false, hotReload: true },
   SELF_EVOLUTION_UNSAFE_EXPERIMENTAL: { type: 'bool', default: false, hotReload: true },
+  SELF_EVOLUTION_REQUIRE_V2_EVIDENCE_GATE: { type: 'bool', default: false, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_SAMPLE_SIZE: { type: 'int', min: 1, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_PROFIT_FACTOR: { type: 'float', min: 0, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_EXPECTANCY_USD: { type: 'float', default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_STRESSED_EXPECTANCY_USD: { type: 'float', default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MAX_DRAWDOWN_PCT: { type: 'float', min: 0, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MAX_SYMBOL_CONCENTRATION_PCT: { type: 'float', min: 0, max: 100, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MIN_REGIME_COVERAGE_COUNT: { type: 'int', min: 1, default: null, hotReload: true },
+  SELF_EVOLUTION_V2_GATE_MAX_EXECUTION_DISCREPANCY_PCT: { type: 'float', min: 0, max: 100, default: null, hotReload: true },
 
   // ── Risk caps ──────────────────────────────────────────────────────
   MAX_POSITION_SIZE_PCT: { type: 'float', min: 0, max: 100, default: 3, hotReload: true },
@@ -38,6 +44,13 @@ const KNOBS = {
   BSC_MAX_CONSECUTIVE_LOSSES: { type: 'int', min: 1, max: 50, default: 8, hotReload: true },
   BSC_MOMENTUM_HEAT_ALLOWANCE_PCT: { type: 'float', min: 0, max: 100, default: 60, hotReload: true },
   LIVE_BSC_ENTRIES_ENABLED: { type: 'bool', default: false, hotReload: true },
+  V2_TARGET_PORTFOLIO_HEAT_PCT: { type: 'float', min: 0, max: 100, default: 3, hotReload: true },
+  V2_MAX_PORTFOLIO_HEAT_PCT: { type: 'float', min: 0, max: 100, default: 25, hotReload: true },
+  V2_MAX_PORTFOLIO_CORRELATION: { type: 'float', min: 0, max: 1, default: 1, hotReload: true },
+  V2_PROFILE_RISK_BUDGETS_JSON: { type: 'json', default: {}, hotReload: true },
+  V2_STRATEGY_RISK_BUDGETS_JSON: { type: 'json', default: {}, hotReload: true },
+  V2_RISK_ENFORCEMENT_MODE: { type: 'enum', enum: ['advisory', 'block_core', 'enforce'], default: 'advisory', hotReload: true },
+  V2_RISK_ENFORCE_PROFILES: { type: 'string', default: '', hotReload: true },
 
   // ── Strategy knobs ─────────────────────────────────────────────────
   MIN_LIQUIDITY_USD: { type: 'float', min: 0, default: 5000, hotReload: true },
@@ -45,60 +58,17 @@ const KNOBS = {
   MOMENTUM_ENABLED: { type: 'bool', default: true, hotReload: true },
   MOMENTUM_ENABLED_CHAINS: { type: 'string', default: 'kucoin', hotReload: true },
   MOMENTUM_SELL_TIERS: { type: 'json', default: null, hotReload: true },
+  MOMENTUM_STOP_LOSS_PCT: { type: 'float', min: 0, max: 100, default: 4.5, hotReload: true },
+  MOMENTUM_TAKE_PROFIT_PCT: { type: 'float', min: 0, max: 100, default: 25, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_ENABLED: { type: 'bool', default: true, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS: { type: 'float', min: 0, default: 24, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER: { type: 'float', min: 0, max: 1, default: 0.75, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_FLOOR_MULTIPLIER: { type: 'float', min: 0, max: 1, default: 0.35, hotReload: true },
+  MOMENTUM_STOP_LOSS_THROTTLE_MIN_LOSS_USD: { type: 'float', min: 0, default: 20, hotReload: true },
   MOMENTUM_ROTATION_EDGE_MIN: { type: 'float', default: null, hotReload: true },
   MOMENTUM_ROTATION_PERSISTENCE: { type: 'int', default: null, hotReload: true },
-  BACKES_ENABLED: { type: 'bool', default: false, hotReload: true },
-  BACKES_ENABLED_CHAINS: { type: 'string', default: 'kucoin', hotReload: true },
-  BACKES_MAX_CONCURRENT_POSITIONS: { type: 'int', min: 1, default: 3, hotReload: true },
-  BACKES_MA_DAILY_PERIOD: { type: 'int', min: 2, default: 56, hotReload: true },
-  BACKES_MA_WEEKLY_FAST: { type: 'int', min: 2, default: 8, hotReload: true },
-  BACKES_MA_WEEKLY_SUPPORT: { type: 'int', min: 2, default: 21, hotReload: true },
-  BACKES_WEEKLY_RSI_PERIOD: { type: 'int', min: 2, default: 14, hotReload: true },
-  BACKES_WEEKLY_RSI_OVERSOLD: { type: 'float', min: 0, max: 100, default: 30, hotReload: true },
-  BACKES_RANGE_LOOKBACK_DAYS: { type: 'int', min: 20, max: 60, default: 60, hotReload: true },
-  BACKES_DAILY_VOLUME_SPIKE_MULTIPLIER: { type: 'float', min: 0, default: 1.5, hotReload: true },
-  BACKES_4H_VOLUME_SPIKE_MULTIPLIER: { type: 'float', min: 0, default: 1.3, hotReload: true },
-  BACKES_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR: { type: 'float', min: 0, default: 0.75, hotReload: true },
-  BACKES_RISK_PCT: { type: 'float', min: 0, max: 100, default: 0.5, hotReload: true },
-  BACKES_CAPITULATION_RISK_PCT: { type: 'float', min: 0, max: 100, default: 0.2, hotReload: true },
-  BACKES_MAX_EXPOSURE_PCT: { type: 'float', min: 0, max: 100, default: 25, hotReload: true },
-  BACKES_HARD_MAX_LOSS_PCT: { type: 'float', min: 0, max: 100, default: 10, hotReload: true },
-  BACKES_MIN_LIQUIDITY_USD: { type: 'float', min: 0, default: 500000, hotReload: true },
-  BACKES_MIN_24H_VOLUME_USD: { type: 'float', min: 0, default: 5000000, hotReload: true },
-  BACKES_PREFERRED_24H_VOLUME_USD: { type: 'float', min: 0, default: 20000000, hotReload: true },
-  BACKES_MIN_TOKEN_AGE_DAYS: { type: 'int', min: 0, default: 30, hotReload: true },
-  BACKES_MIN_PRICE_CHANGE_24H_PCT_ALL: { type: 'float', default: -20, hotReload: true },
-  BACKES_MAX_PRICE_CHANGE_24H_PCT_ALL: { type: 'float', default: 40, hotReload: true },
-  BACKES_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: { type: 'float', default: -20, hotReload: true },
-  BACKES_MAX_PRICE_CHANGE_24H_PCT_KUCOIN: { type: 'float', default: 40, hotReload: true },
-  BACKES_STOP_LOSS_PCT: { type: 'float', min: 0, default: 10, hotReload: true },
-  BACKES_TAKE_PROFIT_PCT: { type: 'float', min: 0, default: 24, hotReload: true },
-  BACKES_SCAN_INTERVAL_MINUTES: { type: 'int', min: 10, default: 30, hotReload: true },
-  BACKES_EXIT_CHECK_MINUTES: { type: 'int', min: 30, default: 60, hotReload: true },
-  BACKES_WATCHLIST_REFRESH_HOURS: { type: 'int', min: 1, default: 24, hotReload: true },
-  BACKES_SELL_TIERS: { type: 'json', default: null, hotReload: true },
   SWING_ENABLED: { type: 'bool', default: false, hotReload: true },
   SWING_ENABLED_CHAINS: { type: 'string', default: 'kucoin', hotReload: true },
-  SWING_MAX_CONCURRENT_POSITIONS: { type: 'int', min: 1, default: 3, hotReload: true },
-  SWING_MA_DAILY_PERIOD: { type: 'int', min: 2, default: 56, hotReload: true },
-  SWING_MA_WEEKLY_FAST: { type: 'int', min: 2, default: 8, hotReload: true },
-  SWING_MA_WEEKLY_SUPPORT: { type: 'int', min: 2, default: 21, hotReload: true },
-  SWING_WEEKLY_RSI_PERIOD: { type: 'int', min: 2, default: 14, hotReload: true },
-  SWING_WEEKLY_RSI_OVERSOLD: { type: 'float', min: 0, max: 100, default: 30, hotReload: true },
-  SWING_RANGE_LOOKBACK_DAYS: { type: 'int', min: 20, max: 60, default: 60, hotReload: true },
-  SWING_DAILY_VOLUME_SPIKE_MULTIPLIER: { type: 'float', min: 0, default: 1.5, hotReload: true },
-  SWING_4H_VOLUME_SPIKE_MULTIPLIER: { type: 'float', min: 0, default: 1.3, hotReload: true },
-  SWING_MAX_ENTRY_DISTANCE_FROM_SUPPORT_ATR: { type: 'float', min: 0, default: 0.75, hotReload: true },
-  SWING_RISK_PCT: { type: 'float', min: 0, max: 100, default: 0.5, hotReload: true },
-  SWING_CAPITULATION_RISK_PCT: { type: 'float', min: 0, max: 100, default: 0.2, hotReload: true },
-  SWING_MAX_EXPOSURE_PCT: { type: 'float', min: 0, max: 100, default: 25, hotReload: true },
-  SWING_HARD_MAX_LOSS_PCT: { type: 'float', min: 0, max: 100, default: 10, hotReload: true },
-  SWING_MIN_LIQUIDITY_USD: { type: 'float', min: 0, default: 500000, hotReload: true },
-  SWING_MIN_24H_VOLUME_USD: { type: 'float', min: 0, default: 5000000, hotReload: true },
-  SWING_PREFERRED_24H_VOLUME_USD: { type: 'float', min: 0, default: 20000000, hotReload: true },
-  SWING_SCAN_INTERVAL_MINUTES: { type: 'int', min: 10, default: 30, hotReload: true },
-  SWING_EXIT_CHECK_MINUTES: { type: 'int', min: 30, default: 60, hotReload: true },
-  SWING_WATCHLIST_REFRESH_HOURS: { type: 'int', min: 1, default: 24, hotReload: true },
   BACKES_SWING_ENABLED: { type: 'bool', default: false, hotReload: true },
   BACKES_SWING_ENABLED_CHAINS: { type: 'string', default: 'kucoin', hotReload: true },
   BACKES_SWING_MAX_CONCURRENT_POSITIONS: { type: 'int', min: 1, default: 3, hotReload: true },
@@ -146,19 +116,7 @@ const KNOBS = {
   BULL_FLAG_5M_POLE_MAX_CANDLES: { type: 'int', min: 1, default: 12, hotReload: true },
   BULL_FLAG_5M_FLAG_MIN_CANDLES: { type: 'int', min: 1, default: 3, hotReload: true },
   BULL_FLAG_5M_FLAG_MAX_CANDLES: { type: 'int', min: 1, default: 24, hotReload: true },
-  BULL_FLAG_BREAKOUT_LOOKBACK_CANDLES: { type: 'int', min: 0, default: 0, hotReload: true },
-  BULL_FLAG_5M_BREAKOUT_LOOKBACK_CANDLES: { type: 'int', min: 0, default: 0, hotReload: true },
   BULL_FLAG_ALLOW_TRENDLINE_BREAKOUT: { type: 'bool', default: true, hotReload: true },
-  BULL_FLAG_ALLOW_CONTINUATION_SCOUT: { type: 'bool', default: false, hotReload: true },
-  BULL_FLAG_SCOUT_POLE_PCT_MIN: { type: 'float', min: 0, default: 5, hotReload: true },
-  BULL_FLAG_SCOUT_MIN_60M_MOVE_PCT: { type: 'float', default: 5, hotReload: true },
-  BULL_FLAG_SCOUT_LATEST_VOLUME_MIN_RATIO: { type: 'float', min: 0, default: 2, hotReload: true },
-  BULL_FLAG_SCOUT_BREAKOUT_VOL_MIN_RATIO: { type: 'float', min: 0, default: 1.5, hotReload: true },
-  BULL_FLAG_SCOUT_FLAG_VOL_CONTRACT_MAX_RATIO: { type: 'float', min: 0, default: 0.7, hotReload: true },
-  BULL_FLAG_SCOUT_LOOKBACK_CANDLES: { type: 'int', min: 2, default: 16, hotReload: true },
-  BULL_FLAG_SCOUT_MIN_PULLBACK_PCT: { type: 'float', min: 0, default: 0.1, hotReload: true },
-  BULL_FLAG_SCOUT_MAX_DEPTH_PCT: { type: 'float', min: 1, default: 75, hotReload: true },
-  BULL_FLAG_SCOUT_RECLAIM_TOLERANCE_PCT: { type: 'float', min: 0, default: 0.1, hotReload: true },
   BULL_FLAG_REQUIRE_EMA_CONFIRMATION: { type: 'bool', default: true, hotReload: true },
   BULL_FLAG_REQUIRE_1H_CONFIRMATION: { type: 'bool', default: true, hotReload: true },
   BULL_FLAG_EMA_FAST_PERIOD: { type: 'int', min: 1, default: 9, hotReload: true },
@@ -273,8 +231,10 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
   const unknown = [];
 
   // Default ignore prefixes — Node, npm, system, common third-party.
-  // 2026-05-23: expanded with full Windows env enumeration + known bot config
-  // prefixes documented in config/index.js but not individually typed.
+  // 2026-05-23: expanded with full Windows env enumeration (ChocolateyInstall,
+  // ComSpec, etc.) and known bot config prefixes that are documented + parsed
+  // in config/index.js but not individually typed in KNOBS (long-tail strategy
+  // knobs that don't need bounds-checking at this layer).
   const defaultIgnore = [
     // Node / npm / shell
     'npm_', 'NODE_', 'PATH', 'HOME', 'USER', 'PWD', 'TEMP', 'TMP',
@@ -290,15 +250,20 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
     'PSExecutionPolicyPreference', 'POWERSHELL_TELEMETRY_OPTOUT',
     'SESSIONNAME', 'windir',
     'ChocolateyInstall', 'ChocolateyLastPathUpdate',
+    // MSYS / Git Bash / WSL / Cygwin
     'MSYSTEM', 'EXEPATH', 'PLINK_PROTOCOL', 'SHELL', 'SHLVL', 'OLDPWD', '_',
     'VIRTUAL_ENV', '__COMPAT_LAYER', 'NoDefaultCurrentDirectoryInExePath',
     'COREPACK_ENABLE_AUTO_PIN', 'CLIENTNAME',
+    // Microsoft Copilot / VS Code / Application Insights telemetry
     'COPILOT_', 'APPLICATION_INSIGHTS_', 'CLAUDECODE', 'MCP_',
+    // Case-variant duplicates from PowerShell env enumeration
     'PROGRAMFILES', 'SYSTEMDRIVE', 'SYSTEMROOT', 'COMMONPROGRAMFILES',
-    // Bot config prefixes — parsed in config/index.js with their own defaults.
+    // Bot config prefixes — these are parsed in config/index.js with their own
+    // defaults/validation. Listed here to keep the unknown-vars report focused
+    // on truly-unrecognized vars rather than legit long-tail strategy knobs.
     'AI_', 'ANTHROPIC_', 'GEMINI_', 'GROQ_', 'OLLAMA_', 'POLYGON_',
     'COINMARKETCAP_', 'COINPAPRIKA_', 'DEXSCREENER_', 'BIRDEYE_',
-    'BSC_', 'KUCOIN_', 'SOLANA_', 'BASE_',
+    'BSC_', 'KUCOIN_', 'SOLANA_', 'BASE_', 'PERPS_',
     'MOMENTUM_', 'STRATEGY_', 'BULL_FLAG_', 'BACKES_',
     'JITO_', 'MERKLE_', 'MEV_',
     'BREAKOUT_', 'BRAIN_', 'BACKTEST_',
@@ -309,8 +274,8 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
     'SQL_', 'NATIVE_', 'NEWS_', 'MARKET_',
     'LIQUIDITY_', 'LIVE_', 'LOG_',
     'TOKEN_', 'USE_',
-    'RL_', 'MAX_', 'MIN_', 'ESTIMATED_', 'REQUIRE_',
-    'DASHBOARD_', 'FAST_', 'YOUNG_',
+    'RL_', 'MAX_', 'MIN_', 'ESTIMATED_', 'REQUIRE_', 'FAST_', 'YOUNG_',
+    'DASHBOARD_', 'DAILY_',
   ];
   const ignoreAll = [...defaultIgnore, ...ignorePrefixes];
 
@@ -331,6 +296,10 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
   if (unknown.length && strictUnknown) {
     errors.push(`Unknown env vars: ${unknown.join(', ')}`);
   } else if (unknown.length) {
+    // Day 7 hotfix 2026-05-22: write the unknown list to disk for one-time review
+    // instead of repeating the noisy "N env vars not in schema" warning on every
+    // boot. User can prune .env or add knobs to KNOBS; report file is overwritten
+    // each boot so it always reflects current state.
     try {
       const fs = require('fs');
       const path = require('path');
@@ -346,6 +315,7 @@ function validate(env = process.env, { strictUnknown = false, ignorePrefixes = [
       ].join('\n');
       fs.writeFileSync(reportPath, header + unknown.sort().join('\n') + '\n', 'utf8');
     } catch (_) { /* best-effort */ }
+    // Single-line summary instead of dumping the list to logs every cycle.
     warnings.push(`${unknown.length} env vars not in schema — see data/config-unknown-env-vars.txt (set CONFIG_STRICT_UNKNOWN=true to enforce)`);
   }
 

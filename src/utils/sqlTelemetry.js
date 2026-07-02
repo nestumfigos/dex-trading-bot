@@ -1,8 +1,9 @@
  'use strict';
  
- const os = require('os');
- const crypto = require('crypto');
- const { getPool, ensureSchema, sql } = require('./sqlServer');
+const os = require('os');
+const crypto = require('crypto');
+const { getPool, ensureSchema, sql } = require('./sqlServer');
+const { normalizeBotProfile, normalizeTradingEvent } = require('../../packages/core');
  
  function uuid() {
    return typeof crypto.randomUUID === 'function'
@@ -12,43 +13,58 @@
  
 function safeJson(value, maxLen = 4000, options = {}) {
   if (value === undefined) return null;
-  let str = null;
+  const strict = Boolean(options && options.strict);
+  let str;
   try {
     str = JSON.stringify(value);
   } catch {
-    if (options.strict) throw new Error('JSON payload serialization failed');
+    if (strict) {
+      const err = new Error('safeJson: value not serializable');
+      err.code = 'SAFE_JSON_UNSERIALIZABLE';
+      throw err;
+    }
     return null;
   }
   if (typeof str !== 'string') return null;
   if (str.length <= maxLen) return str;
-  if (options.strict) {
-    const error = new Error(`JSON payload exceeds SQL limit (${str.length} > ${maxLen})`);
-    error.code = 'SQL_JSON_TOO_LARGE';
-    throw error;
+  if (strict) {
+    const err = new Error(`safeJson: serialized payload (${str.length}) exceeds SQL limit (${maxLen})`);
+    err.code = 'SAFE_JSON_TRUNCATED';
+    err.size = str.length;
+    err.limit = maxLen;
+    throw err;
   }
-  return JSON.stringify({
+  // Non-strict: emit a self-describing marker so downstream parsers know the
+  // payload was truncated rather than silently losing the JSON tail.
+  const marker = JSON.stringify({
     _truncated: true,
-    originalLength: str.length,
-    maxLength: maxLen,
-    preview: str.slice(0, Math.max(0, maxLen - 160)),
+    _originalSize: str.length,
+    _limit: maxLen,
+    _preview: str.slice(0, Math.max(0, maxLen - 120)),
   });
+  // If even the marker is too large, fall back to a minimal one.
+  if (marker.length > maxLen) {
+    return JSON.stringify({ _truncated: true, _originalSize: str.length, _limit: maxLen });
+  }
+  return marker;
 }
 
-function parseSqlJson(raw, label, logger = console) {
-  if (!raw) return { ok: true, value: null };
-  try {
-    const value = JSON.parse(raw);
-    if (value && typeof value === 'object' && value._truncated) {
-      const reason = `${label} was stored as a truncated placeholder; refusing restore`;
-      logger?.warn?.(`[SQL] ${reason}`);
-      return { ok: false, reason, value: null };
-    }
-    return { ok: true, value };
-  } catch (error) {
-    const reason = `${label} JSON parse failed: ${error.message}`;
-    logger?.warn?.(`[SQL] ${reason}`);
-    return { ok: false, reason, value: null };
+function parseSqlJson(raw, columnName = 'json', logger = console) {
+  if (raw === null || raw === undefined || raw === '') {
+    return { ok: false, value: null, reason: 'empty' };
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch (error) {
+    logger?.warn?.(`[SQL] ${columnName} parse failed: ${error?.message || error}`);
+    return { ok: false, value: null, reason: 'invalid_json', error: error?.message || String(error) };
+  }
+  if (parsed && typeof parsed === 'object' && parsed._truncated === true) {
+    logger?.warn?.(`[SQL] ${columnName} was truncated (original size ${parsed._originalSize})`);
+    return { ok: false, value: parsed, reason: 'truncated' };
+  }
+  return { ok: true, value: parsed };
 }
 
 function toDateOrNull(value) {
@@ -59,6 +75,19 @@ function toDateOrNull(value) {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function uuidOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
+    ? text
+    : null;
+}
+
+function numberOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function loadSharedAgentMemory(pool) {
@@ -192,11 +221,19 @@ async function loadSharedAgentMemory(pool) {
   }
 
   logTradeLedger(trade) {
-    this.enqueue('trade_ledger', { ...trade, trade_id: trade?.trade_id || uuid() });
+    this.enqueue('trade_ledger', trade);
   }
 
   logPnlPoint(point) {
-    this.enqueue('pnl_point', { ...point, pnl_point_id: point?.pnl_point_id || uuid() });
+    this.enqueue('pnl_point', point);
+  }
+
+  logPortfolioExposureSnapshot(snapshot) {
+    this.enqueue('portfolio_exposure_snapshot', snapshot);
+  }
+
+  logCorrelationSnapshot(snapshot) {
+    this.enqueue('correlation_snapshot', snapshot);
   }
 
   logDecision(decision) {
@@ -215,44 +252,53 @@ async function loadSharedAgentMemory(pool) {
     this.enqueue('promotion_event', event);
   }
 
+  logMutationProposal(proposal) {
+    this.enqueue('mutation_proposal', proposal);
+  }
+
+  logPromotionGateEvaluation(evaluation) {
+    this.enqueue('promotion_gate_evaluation', evaluation);
+  }
+
   logOpsEvent(evt) {
     this.enqueue('ops', evt);
+  }
+
+  logTradingEvent(event) {
+    this.enqueue('trading_event', event);
   }
  
    async flush() {
      if (!this.isEnabled()) return;
-     if (this._flushInFlight) return;
      const pool = await getPool(this.logger);
      if (!pool) return;
      await ensureSchema(this.logger);
      return this.flushWithPool(pool);
    }
- 
-   async flushWithPool(pool) {
-     if (!pool) return;
-     if (this._flushInFlight) return;
-     this._flushInFlight = true;
-     try {
-       while (this._queue.length) {
-         const batch = this._queue.splice(0, this.maxBatch);
-         let nextUnwrittenIndex = 0;
-         // Best-effort sequential inserts; schema is append-heavy and batches are small.
-         try {
-           for (; nextUnwrittenIndex < batch.length; nextUnwrittenIndex += 1) {
-             // eslint-disable-next-line no-await-in-loop
-             await this._writeOne(pool, batch[nextUnwrittenIndex]);
-           }
-         } catch (e) {
-           const unwritten = batch.slice(nextUnwrittenIndex);
-           this._queue.unshift(...unwritten);
-           this.logger.warn(`[SQL] flush failed (requeued ${unwritten.length} unwritten): ${e.message}`);
-           return;
-         }
-       }
-     } finally {
-       this._flushInFlight = false;
-     }
-   }
+
+  async flushWithPool(pool) {
+    if (!this.isEnabled()) return;
+    if (this._flushInFlight) return;
+    this._flushInFlight = true;
+    try {
+      while (this._queue.length) {
+        const batch = this._queue.splice(0, this.maxBatch);
+        try {
+          for (const item of batch) {
+            // eslint-disable-next-line no-await-in-loop
+            await this._writeOne(pool, item);
+          }
+        } catch (e) {
+          // Requeue the entire batch (preserve order) so nothing is silently dropped.
+          this._queue.unshift(...batch);
+          this.logger?.warn?.(`[SQL] flush batch failed (requeued ${batch.length}): ${e?.message || e}`);
+          return;
+        }
+      }
+    } finally {
+      this._flushInFlight = false;
+    }
+  }
  
    async _writeOne(pool, { kind, payload }) {
      const runId = this.runId;
@@ -293,6 +339,32 @@ async function loadSharedAgentMemory(pool) {
  `);
        return;
      }
+
+    if (kind === 'trading_event') {
+      const normalized = normalizeTradingEvent({
+        ...(payload || {}),
+        botProfile: payload?.botProfile || payload?.bot_profile || this.botProfile,
+      });
+      const req = pool.request();
+      req.input('event_id', sql.UniqueIdentifier, payload?.eventId || payload?.event_id || uuid());
+      req.input('event_name', sql.NVarChar(120), String(normalized.eventName).slice(0, 120));
+      req.input('bot_profile', sql.NVarChar(20), String(normalized.botProfile || this.botProfile).slice(0, 20));
+      req.input('strategy', sql.NVarChar(80), normalized.strategy ? String(normalized.strategy).slice(0, 80) : null);
+      req.input('symbol', sql.NVarChar(80), normalized.symbol ? String(normalized.symbol).slice(0, 80) : null);
+      req.input('severity', sql.NVarChar(16), String(normalized.severity || 'info').slice(0, 16));
+      req.input('occurred_at', sql.DateTime2(3), new Date(normalized.occurredAt || Date.now()));
+      req.input('correlation_id', sql.NVarChar(120), normalized.correlationId ? String(normalized.correlationId).slice(0, 120) : null);
+      req.input('payload_json', sql.NVarChar(sql.MAX), safeJson(normalized.payload, 30000));
+      await req.query(`
+INSERT INTO dbo.trading_events(
+  event_id, event_name, bot_profile, strategy, symbol, severity, occurred_at, correlation_id, payload_json
+)
+VALUES (
+  @event_id, @event_name, @bot_profile, @strategy, @symbol, @severity, @occurred_at, @correlation_id, @payload_json
+)
+`);
+      return;
+    }
  
      if (kind === 'order') {
        const o = payload || {};
@@ -450,8 +522,8 @@ async function loadSharedAgentMemory(pool) {
       req.input('bot_profile', sql.NVarChar(20), this.botProfile);
       req.input('snapshot_kind', sql.NVarChar(30), String(s.snapshot_kind || 'periodic').slice(0, 30));
       req.input('ts', sql.DateTime2(3), new Date(s.ts || Date.now()));
-      req.input('state_json', sql.NVarChar(sql.MAX), safeJson(s.state, 800000, { strict: true }));
-      req.input('market_state_json', sql.NVarChar(sql.MAX), safeJson(s.market_state, 800000, { strict: true }));
+      req.input('state_json', sql.NVarChar(sql.MAX), safeJson(s.state, 200000));
+      req.input('market_state_json', sql.NVarChar(sql.MAX), safeJson(s.market_state, 200000));
       req.input('stats_json', sql.NVarChar(sql.MAX), safeJson(s.stats, 40000));
       await req.query(`
  INSERT INTO dbo.bot_state_snapshots(snapshot_id, run_id, bot_profile, snapshot_kind, ts, state_json, market_state_json, stats_json)
@@ -480,15 +552,14 @@ async function loadSharedAgentMemory(pool) {
       req.input('txid', sql.NVarChar(200), t.txid ? String(t.txid).slice(0, 200) : null);
       req.input('signal_source', sql.NVarChar(80), t.signalSource ? String(t.signalSource).slice(0, 80) : null);
       req.input('reason', sql.NVarChar(200), t.reason ? String(t.reason).slice(0, 200) : null);
-      req.input('exit_category', sql.NVarChar(60), t.exitCategory ? String(t.exitCategory).slice(0, 60) : null);
       req.input('setup_type', sql.NVarChar(40), setupType ? String(setupType).slice(0, 40) : null);
       req.input('raw_trade_json', sql.NVarChar(sql.MAX), safeJson(t, 20000));
       await req.query(`
  INSERT INTO dbo.bot_trade_ledger(
-   trade_id, bot_profile, ts, trade_type, symbol, chain, chain_key, strategy, address, price, quantity, value_usd, pnl_usd, txid, signal_source, reason, exit_category, setup_type, raw_trade_json
+   trade_id, bot_profile, ts, trade_type, symbol, chain, chain_key, strategy, address, price, quantity, value_usd, pnl_usd, txid, signal_source, reason, setup_type, raw_trade_json
  )
  VALUES (
-   @trade_id, @bot_profile, @ts, @trade_type, @symbol, @chain, @chain_key, @strategy, @address, @price, @quantity, @value_usd, @pnl_usd, @txid, @signal_source, @reason, @exit_category, @setup_type, @raw_trade_json
+   @trade_id, @bot_profile, @ts, @trade_type, @symbol, @chain, @chain_key, @strategy, @address, @price, @quantity, @value_usd, @pnl_usd, @txid, @signal_source, @reason, @setup_type, @raw_trade_json
  )
  `);
       return;
@@ -513,6 +584,57 @@ async function loadSharedAgentMemory(pool) {
    @pnl_point_id, @bot_profile, @ts, @cash, @equity, @total_pnl, @unrealized_pnl, @reason
  )
  `);
+      return;
+    }
+
+    if (kind === 'portfolio_exposure_snapshot') {
+      const snap = payload || {};
+      const req = pool.request();
+      req.input('snapshot_id', sql.UniqueIdentifier, snap.snapshot_id || snap.snapshotId || uuid());
+      req.input('bot_profile', sql.NVarChar(20), normalizeBotProfile(snap.bot_profile || snap.botProfile || this.botProfile));
+      req.input('ts', sql.DateTime2(3), new Date(snap.timestamp || snap.ts || Date.now()));
+      req.input('market_type', sql.NVarChar(20), snap.market_type || snap.marketType || null);
+      req.input('symbol', sql.NVarChar(80), snap.symbol ? String(snap.symbol).slice(0, 80) : null);
+      req.input('strategy', sql.NVarChar(80), snap.strategy ? String(snap.strategy).slice(0, 80) : null);
+      req.input('exposure_usd', sql.Float, Number.isFinite(Number(snap.exposure_usd ?? snap.exposureUsd)) ? Number(snap.exposure_usd ?? snap.exposureUsd) : null);
+      req.input('notional_usd', sql.Float, Number.isFinite(Number(snap.notional_usd ?? snap.notionalUsd)) ? Number(snap.notional_usd ?? snap.notionalUsd) : null);
+      req.input('risk_usd', sql.Float, Number.isFinite(Number(snap.risk_usd ?? snap.riskUsd)) ? Number(snap.risk_usd ?? snap.riskUsd) : null);
+      req.input('leverage', sql.Float, Number.isFinite(Number(snap.leverage)) ? Number(snap.leverage) : null);
+      req.input('correlation_bucket', sql.NVarChar(80), snap.correlation_bucket || snap.correlationBucket || null);
+      req.input('details_json', sql.NVarChar(sql.MAX), safeJson(snap.details || snap.details_json || {}, 30000));
+      await req.query(`
+INSERT INTO dbo.portfolio_exposure_snapshots(
+  snapshot_id, bot_profile, ts, market_type, symbol, strategy, exposure_usd, notional_usd,
+  risk_usd, leverage, correlation_bucket, details_json
+)
+VALUES (
+  @snapshot_id, @bot_profile, @ts, @market_type, @symbol, @strategy, @exposure_usd, @notional_usd,
+  @risk_usd, @leverage, @correlation_bucket, @details_json
+)
+`);
+      return;
+    }
+
+    if (kind === 'correlation_snapshot') {
+      const snap = payload || {};
+      const req = pool.request();
+      req.input('snapshot_id', sql.UniqueIdentifier, snap.snapshot_id || snap.snapshotId || uuid());
+      req.input('bot_profile', sql.NVarChar(20), normalizeBotProfile(snap.bot_profile || snap.botProfile || this.botProfile));
+      req.input('ts', sql.DateTime2(3), new Date(snap.timestamp || snap.ts || Date.now()));
+      req.input('asset_a', sql.NVarChar(80), snap.asset_a || snap.assetA ? String(snap.asset_a || snap.assetA).slice(0, 80) : null);
+      req.input('asset_b', sql.NVarChar(80), snap.asset_b || snap.assetB ? String(snap.asset_b || snap.assetB).slice(0, 80) : null);
+      req.input('correlation', sql.Float, Number.isFinite(Number(snap.correlation)) ? Number(snap.correlation) : null);
+      req.input('lookback_minutes', sql.Int, Number.isFinite(Number(snap.lookback_minutes ?? snap.lookbackMinutes)) ? Number(snap.lookback_minutes ?? snap.lookbackMinutes) : null);
+      req.input('source', sql.NVarChar(80), snap.source ? String(snap.source).slice(0, 80) : null);
+      req.input('details_json', sql.NVarChar(sql.MAX), safeJson(snap.details || snap.details_json || {}, 30000));
+      await req.query(`
+INSERT INTO dbo.correlation_snapshots(
+  snapshot_id, bot_profile, ts, asset_a, asset_b, correlation, lookback_minutes, source, details_json
+)
+VALUES (
+  @snapshot_id, @bot_profile, @ts, @asset_a, @asset_b, @correlation, @lookback_minutes, @source, @details_json
+)
+`);
       return;
     }
 
@@ -644,6 +766,94 @@ WHEN NOT MATCHED THEN
 INSERT INTO dbo.promotion_events(event_id, version_id, bot_profile, ts, event_type, stage, status, discrepancy_score, promotion_confidence, approval_required, approved_by, notes, context_json)
 VALUES(@event_id, @version_id, @bot_profile, @ts, @event_type, @stage, @status, @discrepancy_score, @promotion_confidence, @approval_required, @approved_by, @notes, @context_json)
 `);
+      return;
+    }
+
+    if (kind === 'mutation_proposal') {
+      const p = payload || {};
+      const patch = p.patch_json || p.patch || p.changes || null;
+      if (!patch || !p.strategy) return;
+      const req = pool.request();
+      req.input('proposal_id', sql.UniqueIdentifier, uuidOrNull(p.proposal_id || p.proposalId) || uuid());
+      req.input('bot_profile', sql.NVarChar(20), String(p.bot_profile || p.botProfile || this.botProfile).slice(0, 20));
+      req.input('target_profile', sql.NVarChar(20), p.target_profile || p.targetProfile ? String(p.target_profile || p.targetProfile).slice(0, 20) : null);
+      req.input('strategy', sql.NVarChar(80), String(p.strategy).slice(0, 80));
+      req.input('strategy_version', sql.NVarChar(80), p.strategy_version || p.strategyVersion ? String(p.strategy_version || p.strategyVersion).slice(0, 80) : null);
+      req.input('proposal_type', sql.NVarChar(40), String(p.proposal_type || p.proposalType || 'config_patch').slice(0, 40));
+      req.input('proposer', sql.NVarChar(80), p.proposer ? String(p.proposer).slice(0, 80) : null);
+      req.input('status', sql.NVarChar(40), String(p.status || 'proposed').slice(0, 40));
+      req.input('stage', sql.NVarChar(40), String(p.stage || 'proposal').slice(0, 40));
+      req.input('created_at', sql.DateTime2(3), new Date(p.created_at || p.createdAt || Date.now()));
+      req.input('reviewed_at', sql.DateTime2(3), toDateOrNull(p.reviewed_at || p.reviewedAt));
+      req.input('patch_hash', sql.NVarChar(120), p.patch_hash || p.patchHash ? String(p.patch_hash || p.patchHash).slice(0, 120) : null);
+      req.input('patch_json', sql.NVarChar(sql.MAX), typeof patch === 'string' ? patch : safeJson(patch, 200000));
+      req.input('rationale_json', sql.NVarChar(sql.MAX), typeof p.rationale_json === 'string' ? p.rationale_json : safeJson(p.rationale, 20000));
+      req.input('expected_impact_json', sql.NVarChar(sql.MAX), typeof p.expected_impact_json === 'string' ? p.expected_impact_json : safeJson(p.expectedImpact || p.expected_impact, 20000));
+      req.input('risk_notes_json', sql.NVarChar(sql.MAX), typeof p.risk_notes_json === 'string' ? p.risk_notes_json : safeJson(p.riskNotes || p.risk_notes, 20000));
+      req.input('evidence_refs_json', sql.NVarChar(sql.MAX), typeof p.evidence_refs_json === 'string' ? p.evidence_refs_json : safeJson(p.evidenceRefs || p.evidence_refs, 20000));
+      req.input('review_notes_json', sql.NVarChar(sql.MAX), typeof p.review_notes_json === 'string' ? p.review_notes_json : safeJson(p.reviewNotes || p.review_notes, 20000));
+      await req.query(`
+MERGE dbo.mutation_proposals WITH (HOLDLOCK) AS t
+USING (SELECT @proposal_id AS proposal_id) AS s
+ON t.proposal_id = s.proposal_id
+WHEN MATCHED THEN
+  UPDATE SET status=@status, stage=@stage, reviewed_at=COALESCE(@reviewed_at, t.reviewed_at),
+             expected_impact_json=@expected_impact_json, risk_notes_json=@risk_notes_json,
+             evidence_refs_json=@evidence_refs_json, review_notes_json=@review_notes_json
+WHEN NOT MATCHED THEN
+  INSERT(proposal_id, bot_profile, target_profile, strategy, strategy_version, proposal_type, proposer, status, stage,
+         created_at, reviewed_at, patch_hash, patch_json, rationale_json, expected_impact_json, risk_notes_json,
+         evidence_refs_json, review_notes_json)
+  VALUES(@proposal_id, @bot_profile, @target_profile, @strategy, @strategy_version, @proposal_type, @proposer,
+         @status, @stage, @created_at, @reviewed_at, @patch_hash, @patch_json, @rationale_json,
+         @expected_impact_json, @risk_notes_json, @evidence_refs_json, @review_notes_json);
+`);
+      return;
+    }
+
+    if (kind === 'promotion_gate_evaluation') {
+      const e = payload || {};
+      const metrics = e.metrics || {};
+      if (!e.strategy) return;
+      const req = pool.request();
+      req.input('evaluation_id', sql.UniqueIdentifier, uuidOrNull(e.evaluation_id || e.evaluationId) || uuid());
+      req.input('candidate_id', sql.UniqueIdentifier, uuidOrNull(e.candidate_id || e.candidateId));
+      req.input('proposal_id', sql.UniqueIdentifier, uuidOrNull(e.proposal_id || e.proposalId));
+      req.input('bot_profile', sql.NVarChar(20), String(e.bot_profile || e.botProfile || this.botProfile).slice(0, 20));
+      req.input('target_profile', sql.NVarChar(20), String(e.target_profile || e.targetProfile || 'live_spot').slice(0, 20));
+      req.input('strategy', sql.NVarChar(80), String(e.strategy).slice(0, 80));
+      req.input('strategy_version', sql.NVarChar(80), e.strategy_version || e.strategyVersion ? String(e.strategy_version || e.strategyVersion).slice(0, 80) : null);
+      req.input('strategy_class', sql.NVarChar(40), e.strategy_class || e.strategyClass ? String(e.strategy_class || e.strategyClass).slice(0, 40) : null);
+      req.input('ts', sql.DateTime2(3), new Date(e.ts || e.evaluatedAt || Date.now()));
+      req.input('passed', sql.Bit, Boolean(e.passed));
+      req.input('score', sql.Float, numberOrNull(e.score));
+      req.input('sample_size', sql.Int, numberOrNull(metrics.sampleSize ?? metrics.sample_size));
+      req.input('expectancy_usd', sql.Float, numberOrNull(metrics.expectancyUsd ?? metrics.expectancy_usd));
+      req.input('stressed_expectancy_usd', sql.Float, numberOrNull(metrics.stressedExpectancyUsd ?? metrics.stressed_expectancy_usd));
+      req.input('profit_factor', sql.Float, numberOrNull(metrics.profitFactor ?? metrics.profit_factor));
+      req.input('max_drawdown_pct', sql.Float, numberOrNull(metrics.maxDrawdownPct ?? metrics.max_drawdown_pct));
+      req.input('symbol_concentration_pct', sql.Float, numberOrNull(metrics.symbolConcentrationPct ?? metrics.symbol_concentration_pct));
+      req.input('regime_coverage_count', sql.Int, numberOrNull(metrics.regimeCoverageCount ?? metrics.regime_coverage_count));
+      req.input('execution_discrepancy_pct', sql.Float, numberOrNull(metrics.executionDiscrepancyPct ?? metrics.execution_discrepancy_pct));
+      req.input('failure_reasons_json', sql.NVarChar(sql.MAX), safeJson(e.reasons || e.failureReasons || e.failure_reasons, 20000));
+      req.input('metrics_json', sql.NVarChar(sql.MAX), safeJson(metrics, 20000));
+      req.input('thresholds_json', sql.NVarChar(sql.MAX), safeJson(e.thresholds, 20000));
+      req.input('raw_json', sql.NVarChar(sql.MAX), safeJson(e.raw || e, 200000));
+      await req.query(`
+INSERT INTO dbo.promotion_gate_evaluations(
+  evaluation_id, candidate_id, proposal_id, bot_profile, target_profile, strategy, strategy_version, strategy_class,
+  ts, passed, score, sample_size, expectancy_usd, stressed_expectancy_usd, profit_factor, max_drawdown_pct,
+  symbol_concentration_pct, regime_coverage_count, execution_discrepancy_pct, failure_reasons_json, metrics_json,
+  thresholds_json, raw_json
+)
+VALUES(
+  @evaluation_id, @candidate_id, @proposal_id, @bot_profile, @target_profile, @strategy, @strategy_version,
+  @strategy_class, @ts, @passed, @score, @sample_size, @expectancy_usd, @stressed_expectancy_usd,
+  @profit_factor, @max_drawdown_pct, @symbol_concentration_pct, @regime_coverage_count,
+  @execution_discrepancy_pct, @failure_reasons_json, @metrics_json, @thresholds_json, @raw_json
+)
+`);
+      return;
     }
   }
 
@@ -669,18 +879,12 @@ ORDER BY ts DESC
     const row = res.recordset?.[0];
     if (!row) return { ok: true, found: false };
 
-    const stateResult = parseSqlJson(row.state_json, 'state_json', this.logger);
-    const marketResult = parseSqlJson(row.market_state_json, 'market_state_json', this.logger);
-    const statsResult = parseSqlJson(row.stats_json, 'stats_json', this.logger);
-    if (!stateResult.ok) {
-      return {
-        ok: false,
-        found: true,
-        reason: stateResult.reason,
-        snapshotId: row.snapshot_id,
-        ts: row.ts,
-      };
-    }
+    let state = null;
+    let marketState = null;
+    let stats = null;
+    try { state = row.state_json ? JSON.parse(row.state_json) : null; } catch {}
+    try { marketState = row.market_state_json ? JSON.parse(row.market_state_json) : null; } catch {}
+    try { stats = row.stats_json ? JSON.parse(row.stats_json) : null; } catch {}
 
     return {
       ok: true,
@@ -690,85 +894,10 @@ ORDER BY ts DESC
       botProfile: row.bot_profile,
       snapshotKind: row.snapshot_kind,
       ts: row.ts,
-      state: stateResult.value,
-      marketState: marketResult.ok ? marketResult.value : null,
-      stats: statsResult.ok ? statsResult.value : null,
+      state,
+      marketState,
+      stats,
     };
-  }
-
-  // Load all queryable learning state back from SQL on startup.
-  async loadQueryableState({ memoryScope = 'shared' } = {}) {
-    if (!this.isEnabled()) return { ok: false, reason: 'sql_disabled' };
-    const pool = await getPool(this.logger);
-    if (!pool) return { ok: false, reason: 'no_pool' };
-    await ensureSchema(this.logger);
-
-    const result = {
-      agentMemory: { tradeLessons: [], strategyDiscoveries: [], tokenBlacklist: {}, tokenPreferences: {}, evolutionOutcomes: [], knowledgeBase: [] },
-      learning: { badTokenMemory: {}, sleevePerformance: {}, brainProfiles: {}, strategyBrain: { profiles: {}, adjustments: {}, mutations: [], knownArchetypes: [] } },
-    };
-
-    try {
-      const botProfile = this.botProfile;
-      const scope = String(memoryScope || 'shared').slice(0, 40);
-
-      const lessonsRes = await pool.request().input('scope', sql.NVarChar(40), scope)
-        .query('SELECT TOP 500 lesson_id, ts, symbol, chain_key, strategy, outcome, pnl_usd, pnl_pct, reason, lesson_text, hit_count, entry_conditions_json, bot_profile FROM dbo.agent_trade_lessons WHERE memory_scope = @scope ORDER BY ts DESC');
-      result.agentMemory.tradeLessons = (lessonsRes.recordset || []).map((r) => ({ id: r.lesson_id, ts: r.ts, symbol: r.symbol, chain: r.chain_key, strategy: r.strategy, outcome: r.outcome, pnlUsd: r.pnl_usd, pnlPct: r.pnl_pct, reason: r.reason, lesson: r.lesson_text, hitCount: r.hit_count, entryConditions: r.entry_conditions_json ? (parseSqlJson(r.entry_conditions_json, 'entry_conditions_json', this.logger).value || null) : null, botProfile: r.bot_profile }));
-
-      const discoveriesRes = await pool.request().input('scope', sql.NVarChar(40), scope)
-        .query('SELECT TOP 200 discovery_id, ts, source, theme, sector, insight, proposed_action, urgency, applied, applied_at FROM dbo.agent_strategy_discoveries WHERE memory_scope = @scope ORDER BY ts DESC');
-      result.agentMemory.strategyDiscoveries = (discoveriesRes.recordset || []).map((r) => ({ id: r.discovery_id, ts: r.ts, source: r.source, theme: r.theme, sector: r.sector, insight: r.insight, proposedAction: r.proposed_action, urgency: r.urgency, applied: Boolean(r.applied), appliedAt: r.applied_at }));
-
-      const blacklistRes = await pool.request().input('scope', sql.NVarChar(40), scope)
-        .query('SELECT symbol, reason, source, added_at, expires_at FROM dbo.agent_token_blacklist WHERE memory_scope = @scope');
-      for (const r of blacklistRes.recordset || []) result.agentMemory.tokenBlacklist[r.symbol] = { reason: r.reason, source: r.source, addedAt: r.added_at, expiresAt: r.expires_at };
-
-      const prefsRes = await pool.request().input('scope', sql.NVarChar(40), scope)
-        .query('SELECT symbol, boost, reason, research_summary, added_at, expires_at FROM dbo.agent_token_preferences WHERE memory_scope = @scope');
-      for (const r of prefsRes.recordset || []) result.agentMemory.tokenPreferences[r.symbol] = { boost: r.boost, reason: r.reason, researchSummary: r.research_summary, addedAt: r.added_at, expiresAt: r.expires_at };
-
-      const knowledgeRes = await pool.request().input('scope', sql.NVarChar(40), scope)
-        .query('SELECT TOP 500 ts, category, insight, source, confidence FROM dbo.agent_knowledge_base WHERE memory_scope = @scope ORDER BY ts DESC');
-      result.agentMemory.knowledgeBase = (knowledgeRes.recordset || []).map((r) => ({ ts: r.ts, category: r.category, insight: r.insight, source: r.source, confidence: r.confidence }));
-
-      const evolutionRes = await pool.request().input('scope', sql.NVarChar(40), scope)
-        .query('SELECT TOP 200 ts, patch_summary, pf_before, pf_after, wr_before, wr_after, verdict FROM dbo.agent_evolution_outcomes WHERE memory_scope = @scope ORDER BY ts DESC');
-      result.agentMemory.evolutionOutcomes = (evolutionRes.recordset || []).map((r) => ({ ts: r.ts, patchSummary: r.patch_summary, pfBefore: r.pf_before, pfAfter: r.pf_after, wrBefore: r.wr_before, wrAfter: r.wr_after, verdict: r.verdict }));
-
-      const badTokenRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT token_key, chain_key, symbol, address, strikes, hard_ban, first_seen, last_seen, ban_until, last_reason, reasons_json FROM dbo.learning_bad_token_memory WHERE bot_profile = @bot_profile');
-      for (const r of badTokenRes.recordset || []) result.learning.badTokenMemory[r.token_key] = { chainKey: r.chain_key, symbol: r.symbol, address: r.address, strikes: r.strikes, hardBan: Boolean(r.hard_ban), firstSeen: r.first_seen, lastSeen: r.last_seen, banUntil: r.ban_until, lastReason: r.last_reason, reasons: r.reasons_json ? (parseSqlJson(r.reasons_json, 'reasons_json', this.logger).value || []) : [] };
-
-      const sleeveRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT sleeve_key, recent_win_rate_pct, size_multiplier, total_closed, wins, losses, outcomes_json, last_updated FROM dbo.learning_sleeve_performance WHERE bot_profile = @bot_profile');
-      for (const r of sleeveRes.recordset || []) result.learning.sleevePerformance[r.sleeve_key] = { recentWinRatePct: r.recent_win_rate_pct, sizeMultiplier: r.size_multiplier, totalClosed: r.total_closed, wins: r.wins, losses: r.losses, outcomes: r.outcomes_json ? (parseSqlJson(r.outcomes_json, 'outcomes_json', this.logger).value || []) : [], lastUpdated: r.last_updated };
-
-      const learningBrainRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT profile_key, chain_key, strategy, lane, trigger_name, samples, wins, losses, total_pnl, recent_win_rate_pct, avg_recent_pnl_usd, recent_outcomes_json, recent_pnl_json, last_updated FROM dbo.learning_brain_profiles WHERE bot_profile = @bot_profile');
-      for (const r of learningBrainRes.recordset || []) result.learning.brainProfiles[r.profile_key] = { chainKey: r.chain_key, strategy: r.strategy, lane: r.lane, trigger: r.trigger_name, samples: r.samples, wins: r.wins, losses: r.losses, totalPnl: r.total_pnl, recentWinRatePct: r.recent_win_rate_pct, avgRecentPnlUsd: r.avg_recent_pnl_usd, recentOutcomes: r.recent_outcomes_json ? (parseSqlJson(r.recent_outcomes_json, 'recent_outcomes_json', this.logger).value || []) : [], recentPnl: r.recent_pnl_json ? (parseSqlJson(r.recent_pnl_json, 'recent_pnl_json', this.logger).value || []) : [], lastUpdated: r.last_updated };
-
-      const sbProfilesRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT profile_key, samples, wins, losses, total_pnl, recent_win_rate_pct, recent_outcomes_json, recent_pnl_json, updated_at FROM dbo.strategy_brain_profiles WHERE bot_profile = @bot_profile');
-      for (const r of sbProfilesRes.recordset || []) result.learning.strategyBrain.profiles[r.profile_key] = { samples: r.samples, wins: r.wins, losses: r.losses, totalPnl: r.total_pnl, recentWinRatePct: r.recent_win_rate_pct, recentOutcomes: r.recent_outcomes_json ? (parseSqlJson(r.recent_outcomes_json, 'recent_outcomes_json', this.logger).value || []) : [], recentPnl: r.recent_pnl_json ? (parseSqlJson(r.recent_pnl_json, 'recent_pnl_json', this.logger).value || []) : [], updatedAt: r.updated_at };
-
-      const sbAdjustRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT adjustment_key, rsi_buy_threshold_delta, rsi_buy_max_threshold_delta, volume_spike_multiplier_delta, min_price_change_24h_pct_all_delta, max_price_change_24h_pct_all_delta, updated_at FROM dbo.strategy_brain_adjustments WHERE bot_profile = @bot_profile');
-      for (const r of sbAdjustRes.recordset || []) result.learning.strategyBrain.adjustments[r.adjustment_key] = { rsiBuyThresholdDelta: r.rsi_buy_threshold_delta, rsiBuyMaxThresholdDelta: r.rsi_buy_max_threshold_delta, volumeSpikeMultiplierDelta: r.volume_spike_multiplier_delta, minPriceChange24hPctAllDelta: r.min_price_change_24h_pct_all_delta, maxPriceChange24hPctAllDelta: r.max_price_change_24h_pct_all_delta, updatedAt: r.updated_at };
-
-      const sbMutRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT TOP 120 ts, adjustment_key, source_profile, recent_win_rate_pct, adjustment_json FROM dbo.strategy_brain_mutations WHERE bot_profile = @bot_profile ORDER BY ts DESC');
-      result.learning.strategyBrain.mutations = (sbMutRes.recordset || []).map((r) => ({ timestamp: r.ts, key: r.adjustment_key, sourceProfile: r.source_profile, recentWinRatePct: r.recent_win_rate_pct, adjustment: r.adjustment_json ? (parseSqlJson(r.adjustment_json, 'adjustment_json', this.logger).value || {}) : {} }));
-
-      const sbArchRes = await pool.request().input('bot_profile', sql.NVarChar(20), botProfile)
-        .query('SELECT archetype FROM dbo.strategy_brain_known_archetypes WHERE bot_profile = @bot_profile');
-      result.learning.strategyBrain.knownArchetypes = (sbArchRes.recordset || []).map((r) => r.archetype).filter(Boolean);
-
-      return { ok: true, ...result };
-    } catch (error) {
-      this.logger.warn(`[SQL] loadQueryableState failed: ${error.message}`);
-      return { ok: false, reason: error.message, ...result };
-    }
   }
 
   async syncQueryableState(payload = {}) {
@@ -803,10 +932,16 @@ ORDER BY ts DESC
         'DELETE FROM dbo.strategy_brain_adjustments WHERE bot_profile = @bot_profile',
         'DELETE FROM dbo.strategy_brain_mutations WHERE bot_profile = @bot_profile',
         'DELETE FROM dbo.strategy_brain_known_archetypes WHERE bot_profile = @bot_profile',
+        'DELETE FROM dbo.intelligence_reports WHERE bot_profile = @bot_profile',
+        'DELETE FROM dbo.self_evolution_history WHERE bot_profile = @bot_profile',
       ];
       const deleteByScope = [
+        'DELETE FROM dbo.agent_trade_lessons WHERE memory_scope = @memory_scope',
+        'DELETE FROM dbo.agent_strategy_discoveries WHERE memory_scope = @memory_scope',
         'DELETE FROM dbo.agent_token_blacklist WHERE memory_scope = @memory_scope',
         'DELETE FROM dbo.agent_token_preferences WHERE memory_scope = @memory_scope',
+        'DELETE FROM dbo.agent_evolution_outcomes WHERE memory_scope = @memory_scope',
+        'DELETE FROM dbo.agent_knowledge_base WHERE memory_scope = @memory_scope',
       ];
 
       for (const queryText of deleteByProfile) {
@@ -959,7 +1094,7 @@ ORDER BY ts DESC
         req.input('hit_count', sql.Int, Number.isFinite(Number(lesson?.hitCount)) ? Number(lesson.hitCount) : null);
         req.input('entry_conditions_json', sql.NVarChar(sql.MAX), safeJson(lesson?.entryConditions, 20000));
         req.input('bot_profile', sql.NVarChar(20), lesson?.botProfile ? String(lesson.botProfile).slice(0, 20) : null);
-        await req.query('IF NOT EXISTS (SELECT 1 FROM dbo.agent_trade_lessons WHERE lesson_id = @lesson_id) INSERT INTO dbo.agent_trade_lessons(lesson_id, memory_scope, ts, symbol, chain_key, strategy, outcome, pnl_usd, pnl_pct, reason, lesson_text, hit_count, entry_conditions_json, bot_profile) VALUES (@lesson_id, @memory_scope, @ts, @symbol, @chain_key, @strategy, @outcome, @pnl_usd, @pnl_pct, @reason, @lesson_text, @hit_count, @entry_conditions_json, @bot_profile)');
+        await req.query('INSERT INTO dbo.agent_trade_lessons(lesson_id, memory_scope, ts, symbol, chain_key, strategy, outcome, pnl_usd, pnl_pct, reason, lesson_text, hit_count, entry_conditions_json, bot_profile) VALUES (@lesson_id, @memory_scope, @ts, @symbol, @chain_key, @strategy, @outcome, @pnl_usd, @pnl_pct, @reason, @lesson_text, @hit_count, @entry_conditions_json, @bot_profile)');
       }
 
       for (const discovery of Array.isArray(agentMemory.strategyDiscoveries) ? agentMemory.strategyDiscoveries : []) {
@@ -975,7 +1110,7 @@ ORDER BY ts DESC
         req.input('urgency', sql.NVarChar(12), discovery?.urgency ? String(discovery.urgency).slice(0, 12) : null);
         req.input('applied', sql.Bit, Boolean(discovery?.applied));
         req.input('applied_at', sql.DateTime2(3), toDateOrNull(discovery?.appliedAt));
-        await req.query('IF NOT EXISTS (SELECT 1 FROM dbo.agent_strategy_discoveries WHERE discovery_id = @discovery_id) INSERT INTO dbo.agent_strategy_discoveries(discovery_id, memory_scope, ts, source, theme, sector, insight, proposed_action, urgency, applied, applied_at) VALUES (@discovery_id, @memory_scope, @ts, @source, @theme, @sector, @insight, @proposed_action, @urgency, @applied, @applied_at)');
+        await req.query('INSERT INTO dbo.agent_strategy_discoveries(discovery_id, memory_scope, ts, source, theme, sector, insight, proposed_action, urgency, applied, applied_at) VALUES (@discovery_id, @memory_scope, @ts, @source, @theme, @sector, @insight, @proposed_action, @urgency, @applied, @applied_at)');
       }
 
       for (const [symbol, entry] of Object.entries(agentMemory.tokenBlacklist || {})) {
@@ -1012,14 +1147,7 @@ ORDER BY ts DESC
         req.input('wr_before', sql.Float, Number.isFinite(Number(outcome?.wrBefore)) ? Number(outcome.wrBefore) : null);
         req.input('wr_after', sql.Float, Number.isFinite(Number(outcome?.wrAfter)) ? Number(outcome.wrAfter) : null);
         req.input('verdict', sql.NVarChar(40), outcome?.verdict ? String(outcome.verdict).slice(0, 40) : null);
-        await req.query(`IF NOT EXISTS (
-          SELECT 1 FROM dbo.agent_evolution_outcomes
-          WHERE memory_scope = @memory_scope
-            AND ts = @ts
-            AND ISNULL(patch_summary, '') = ISNULL(@patch_summary, '')
-        )
-        INSERT INTO dbo.agent_evolution_outcomes(outcome_id, memory_scope, ts, patch_summary, pf_before, pf_after, wr_before, wr_after, verdict)
-        VALUES (@outcome_id, @memory_scope, @ts, @patch_summary, @pf_before, @pf_after, @wr_before, @wr_after, @verdict)`);
+        await req.query('INSERT INTO dbo.agent_evolution_outcomes(outcome_id, memory_scope, ts, patch_summary, pf_before, pf_after, wr_before, wr_after, verdict) VALUES (@outcome_id, @memory_scope, @ts, @patch_summary, @pf_before, @pf_after, @wr_before, @wr_after, @verdict)');
       }
 
       for (const knowledge of Array.isArray(agentMemory.knowledgeBase) ? agentMemory.knowledgeBase : []) {
@@ -1031,15 +1159,7 @@ ORDER BY ts DESC
         req.input('insight', sql.NVarChar(sql.MAX), knowledge?.insight ? String(knowledge.insight) : null);
         req.input('source', sql.NVarChar(120), knowledge?.source ? String(knowledge.source).slice(0, 120) : null);
         req.input('confidence', sql.Float, Number.isFinite(Number(knowledge?.confidence)) ? Number(knowledge.confidence) : null);
-        await req.query(`IF NOT EXISTS (
-          SELECT 1 FROM dbo.agent_knowledge_base
-          WHERE memory_scope = @memory_scope
-            AND ISNULL(category, '') = ISNULL(@category, '')
-            AND ISNULL(source, '') = ISNULL(@source, '')
-            AND ISNULL(CAST(insight AS NVARCHAR(4000)), '') = ISNULL(CAST(@insight AS NVARCHAR(4000)), '')
-        )
-        INSERT INTO dbo.agent_knowledge_base(knowledge_id, memory_scope, ts, category, insight, source, confidence)
-        VALUES (@knowledge_id, @memory_scope, @ts, @category, @insight, @source, @confidence)`);
+        await req.query('INSERT INTO dbo.agent_knowledge_base(knowledge_id, memory_scope, ts, category, insight, source, confidence) VALUES (@knowledge_id, @memory_scope, @ts, @category, @insight, @source, @confidence)');
       }
 
       for (const entry of selfEvolutionHistory) {
@@ -1052,15 +1172,7 @@ ORDER BY ts DESC
         req.input('reason', sql.NVarChar(sql.MAX), entry?.reason ? String(entry.reason) : null);
         req.input('proposal_path', sql.NVarChar(400), entry?.proposalPath ? String(entry.proposalPath).slice(0, 400) : null);
         req.input('raw_entry_json', sql.NVarChar(sql.MAX), safeJson(entry, 20000));
-        await req.query(`IF NOT EXISTS (
-          SELECT 1 FROM dbo.self_evolution_history
-          WHERE bot_profile = @bot_profile
-            AND ts = @ts
-            AND ISNULL(status, '') = ISNULL(@status, '')
-            AND ISNULL(proposal_path, '') = ISNULL(@proposal_path, '')
-        )
-        INSERT INTO dbo.self_evolution_history(history_id, bot_profile, ts, status, summary, reason, proposal_path, raw_entry_json)
-        VALUES (@history_id, @bot_profile, @ts, @status, @summary, @reason, @proposal_path, @raw_entry_json)`);
+        await req.query('INSERT INTO dbo.self_evolution_history(history_id, bot_profile, ts, status, summary, reason, proposal_path, raw_entry_json) VALUES (@history_id, @bot_profile, @ts, @status, @summary, @reason, @proposal_path, @raw_entry_json)');
       }
 
       await tx.commit();
@@ -1073,4 +1185,4 @@ ORDER BY ts DESC
   }
 }
  
-module.exports = { SqlTelemetry, uuid, safeJson, parseSqlJson };
+ module.exports = { SqlTelemetry, uuid, safeJson, parseSqlJson };
