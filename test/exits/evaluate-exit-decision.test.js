@@ -245,19 +245,52 @@ test('TIME_STOP: past deadline + extend=true -> extend_hold, NOT sell', () => {
 
 // 5. MIN_HOLD_NO_GAIN
 
-test('MIN_HOLD_NO_GAIN: held >= minHoldHours with no profit -> sell', () => {
+test('MIN_HOLD_NO_GAIN: held >= minHoldHours and decayed past floor -> sell', () => {
   const r = decideExitAction({
     position: basePosition({
       entryPrice: 100,
       openedAt: new Date(NOW - 5 * HOUR_MS).toISOString(), // 5h
     }),
-    tokenData: { price: 99 }, // -1%
+    tokenData: { price: 98 }, // -2% — past the -1.5% default floor
     strategyCfg: baseStrategyCfg({ minHoldHours: 4 }),
     riskCfg: baseRiskCfg(),
     sellTiers: DEFAULT_TIERS,
     now: NOW,
   });
   assert.equal(r.action, 'sell');
+  assert.equal(r.reason, 'MIN_HOLD_NO_GAIN');
+});
+
+// 2026-07-02 perf audit: barely-negative positions keep their optionality —
+// the cull only fires past noGainExitProfitFloorPct (default -1.5%). The old
+// any-loss trigger produced 22 paper trades at 0% win / -$357.
+test('MIN_HOLD_NO_GAIN: barely negative (-1%) above floor -> NOT triggered', () => {
+  const r = decideExitAction({
+    position: basePosition({
+      entryPrice: 100,
+      openedAt: new Date(NOW - 5 * HOUR_MS).toISOString(),
+    }),
+    tokenData: { price: 99 }, // -1% — above the -1.5% floor
+    strategyCfg: baseStrategyCfg({ minHoldHours: 4 }),
+    riskCfg: baseRiskCfg(),
+    sellTiers: DEFAULT_TIERS,
+    now: NOW,
+  });
+  assert.notEqual(r.reason, 'MIN_HOLD_NO_GAIN');
+});
+
+test('MIN_HOLD_NO_GAIN: floor 0 restores legacy any-loss cull', () => {
+  const r = decideExitAction({
+    position: basePosition({
+      entryPrice: 100,
+      openedAt: new Date(NOW - 5 * HOUR_MS).toISOString(),
+    }),
+    tokenData: { price: 99.9 }, // -0.1%
+    strategyCfg: baseStrategyCfg({ minHoldHours: 4, noGainExitProfitFloorPct: 0 }),
+    riskCfg: baseRiskCfg(),
+    sellTiers: DEFAULT_TIERS,
+    now: NOW,
+  });
   assert.equal(r.reason, 'MIN_HOLD_NO_GAIN');
 });
 

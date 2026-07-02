@@ -41,6 +41,15 @@ module.exports = {
         // sell tier instead of trail-scratching; stop tightened 4.5 -> 4.0.
         MOMENTUM_STOP_LOSS_PCT: '4.0',
         MOMENTUM_TAKE_PROFIT_PCT: '25',
+        // 2026-07-02 session-edge finding (218 closed momentum/kucoin paper
+        // trades): UTC 20-24h ran 36% win / -$820 — nearly the whole net
+        // bleed — while 16-20h ran 76% win / +$486. Block NEW entries in the
+        // toxic window (thin books + memecoin dump hour); exits always run
+        // regardless of window. Only 20-24 blocked: the 08-12 bucket was
+        // also negative (-$112) but at 48% win the signal is too weak to
+        // act on yet.
+        TRADING_WINDOWS_ENABLED: 'true',
+        TRADING_WINDOWS: '[{"startUtcHour":0,"endUtcHour":20}]',
         MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
         MOMENTUM_TRAILING_STOP_PCT: '3.25',
         MOMENTUM_STOP_LOSS_THROTTLE_ENABLED: 'true',
@@ -131,6 +140,15 @@ module.exports = {
         // sell tier instead of trail-scratching; stop tightened 4.5 -> 4.0.
         MOMENTUM_STOP_LOSS_PCT: '4.0',
         MOMENTUM_TAKE_PROFIT_PCT: '25',
+        // 2026-07-02 session-edge finding (218 closed momentum/kucoin paper
+        // trades): UTC 20-24h ran 36% win / -$820 — nearly the whole net
+        // bleed — while 16-20h ran 76% win / +$486. Block NEW entries in the
+        // toxic window (thin books + memecoin dump hour); exits always run
+        // regardless of window. Only 20-24 blocked: the 08-12 bucket was
+        // also negative (-$112) but at 48% win the signal is too weak to
+        // act on yet.
+        TRADING_WINDOWS_ENABLED: 'true',
+        TRADING_WINDOWS: '[{"startUtcHour":0,"endUtcHour":20}]',
         MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
         MOMENTUM_TRAILING_STOP_PCT: '3.25',
         MOMENTUM_STOP_LOSS_THROTTLE_ENABLED: 'true',
@@ -256,6 +274,10 @@ module.exports = {
         MOMENTUM_STOP_LOSS_PCT: '4.0',
         MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
         MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        // 2026-07-02: block 20-24 UTC entries (36% win / -$820 bucket).
+        // Mirrors live; see live block comment for the full numbers.
+        TRADING_WINDOWS_ENABLED: 'true',
+        TRADING_WINDOWS: '[{"startUtcHour":0,"endUtcHour":20}]',
         MOMENTUM_RSI_BUY_THRESHOLD: '40',
         MOMENTUM_RSI_BUY_MAX_THRESHOLD: '78',
         MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.35',
@@ -333,6 +355,10 @@ module.exports = {
         MOMENTUM_STOP_LOSS_PCT: '4.0',
         MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
         MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        // 2026-07-02: block 20-24 UTC entries (36% win / -$820 bucket).
+        // Mirrors live; see live block comment for the full numbers.
+        TRADING_WINDOWS_ENABLED: 'true',
+        TRADING_WINDOWS: '[{"startUtcHour":0,"endUtcHour":20}]',
         MOMENTUM_RSI_BUY_THRESHOLD: '40',
         MOMENTUM_RSI_BUY_MAX_THRESHOLD: '78',
         MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.35',
