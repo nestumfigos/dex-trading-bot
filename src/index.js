@@ -3149,10 +3149,16 @@ function getHealthStatus() {
     if (strategyName === 'backes') return Math.max(30 * 60_000, Number(config.strategies?.backes?.exitCheckMinutes || 60) * 60_000);
     return momentumExitMs;
   };
+  // 2026-07-06: entry scans intentionally pause outside the trading window
+  // (scan-cycle returns early), so scan staleness is only meaningful while
+  // entries are allowed. Without this, /health flips ok:false with
+  // loop_stalled_or_timer_missing for the whole blocked window (20-24 UTC),
+  // poisoning external monitoring. Exit-loop staleness stays enforced 24/7.
+  const scanStaleSuppressed = !isWithinTradingWindow();
   const strategyLoopStaleness = Object.fromEntries(enabledRuntimeStrategyNames.map((strategyName) => [
     strategyName,
     {
-      scan: checkStale(getScanLockKey(strategyName), getStrategyScanIntervalMs(strategyName), 3, {
+      scan: scanStaleSuppressed ? false : checkStale(getScanLockKey(strategyName), getStrategyScanIntervalMs(strategyName), 3, {
         active: Boolean(loopLocks[getScanLockKey(strategyName)]),
       }),
       exit: checkStale(getExitLockKey(strategyName), getStrategyExitIntervalMs(strategyName), 3, {
@@ -3161,8 +3167,8 @@ function getHealthStatus() {
     },
   ]));
   const loopStaleness = {
-    momentumScan: checkStale('momentumScan', momentumScanMs, 3, { active: Boolean(loopLocks.momentumScan) }),
-    bullFlagScan: checkStale('bullFlagScan', bullFlagScanMs, 3, { active: Boolean(loopLocks.bullFlagScan) }),
+    momentumScan: scanStaleSuppressed ? false : checkStale('momentumScan', momentumScanMs, 3, { active: Boolean(loopLocks.momentumScan) }),
+    bullFlagScan: scanStaleSuppressed ? false : checkStale('bullFlagScan', bullFlagScanMs, 3, { active: Boolean(loopLocks.bullFlagScan) }),
     momentumExit: checkStale('momentumExit', momentumExitMs, 3, { active: Boolean(loopLocks.momentumExit) }),
     bullFlagExit: checkStale('bullFlagExit', bullFlagExitMs, 3, { active: Boolean(loopLocks.bullFlagExit) }),
     realtimeStop: Boolean(config.risk?.realtimeStopLossEnabled !== false)
