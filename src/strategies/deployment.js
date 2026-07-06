@@ -7,6 +7,7 @@ const IMPLEMENTED_STRATEGIES = [
   'base_dex_momentum_reclaim',
   'backes_swing',
   'momentum',
+  'fable',
 ];
 
 const STRATEGY_DEPLOYMENTS = Object.freeze({
@@ -25,6 +26,19 @@ const STRATEGY_DEPLOYMENTS = Object.freeze({
     priority: 50,
     live: { defaultEnabled: true, defaultChains: ['kucoin'] },
     paper: { defaultEnabled: true, defaultChains: ['solana', 'bsc', 'kucoin'] },
+  }),
+  // FABLE (2026-07-07): original session-transition strategy — thin-session
+  // (20-24 UTC) markdown on weak volume, bought at the Asia-liquidity refill
+  // (00:00-02:30 UTC), flat by 08:00 UTC. Paper-only until it proves PF>1.1
+  // at n>=30 on realistic fills. See src/strategies/fable-evaluator.js.
+  fable: Object.freeze({
+    label: 'Fable thin-session refill',
+    stage: 'paper_runtime_canary',
+    implemented: true,
+    paperOnly: true,
+    priority: 45,
+    live: { defaultEnabled: false, defaultChains: [] },
+    paper: { defaultEnabled: true, defaultChains: ['kucoin'] },
   }),
   swing: Object.freeze({
     label: 'Legacy swing',

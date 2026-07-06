@@ -439,6 +439,9 @@ function createExecutionFlow(deps = {}) {
       macroRegime: tokenData.macroRegime || null,
       breakoutClosePrice: Number.isFinite(Number(tokenData.breakoutClosePrice)) ? Number(tokenData.breakoutClosePrice) : null,
       manualCutDeadlineAt: tokenData.manualCutDeadlineAt || null,
+      // FABLE (2026-07-07): time-boxed thesis — position must be flat by this
+      // ISO timestamp (08:00 UTC by default); enforced in evaluate-exit-decision.
+      fableTimeExitAt: tokenData.fableTimeExitAt || null,
       flagHighPrice: Number.isFinite(Number(tokenData.flagHighPrice)) ? Number(tokenData.flagHighPrice) : null,
       flagLowPrice: Number.isFinite(Number(tokenData.flagLowPrice)) ? Number(tokenData.flagLowPrice) : null,
       poleStartPrice: Number.isFinite(Number(tokenData.poleStartPrice)) ? Number(tokenData.poleStartPrice) : null,

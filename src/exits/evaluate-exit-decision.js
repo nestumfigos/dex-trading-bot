@@ -47,6 +47,44 @@ function decideExitAction({
     ? buildProfitLockMutations({ position, entryPrice, price, riskCfg })
     : {};
 
+  // 0a) FABLE SETUP (2026-07-07) — thin-session refill trade. Three exits,
+  //     all structural, evaluated BEFORE generic logic:
+  //       FABLE_STRUCTURE_STOP   thin-session low broken -> thesis wrong
+  //       FABLE_REFILL_COMPLETE  retrace target reached  -> thesis played out
+  //       FABLE_TIME_EXIT        08:00 UTC deadline      -> thesis expired
+  //     Fable positions skip tiers/trailing/min-hold: the refill either
+  //     happens in the overnight window or it doesn't.
+  if (position.setupType === 'fable') {
+    const fableStop = Number(position.structuralStopPrice || position.stopLoss || 0);
+    if (fableStop > 0 && price <= fableStop) {
+      return sell({
+        reason: 'FABLE_STRUCTURE_STOP',
+        sellPct: 1,
+        meta: { stopLevel: fableStop, currentProfit },
+      });
+    }
+    const fableTarget = Number(position.measuredMoveTargetPrice || 0);
+    if (fableTarget > 0 && price >= fableTarget) {
+      return sell({
+        reason: 'FABLE_REFILL_COMPLETE',
+        sellPct: 1,
+        meta: { targetLevel: fableTarget, currentProfit },
+      });
+    }
+    const timeExitMs = Date.parse(position.fableTimeExitAt || '') || 0;
+    if (timeExitMs > 0 && now >= timeExitMs) {
+      return sell({
+        reason: 'FABLE_TIME_EXIT',
+        sellPct: 1,
+        meta: { timeExitAt: position.fableTimeExitAt, currentProfit },
+      });
+    }
+    if (!staleData && exitSignal?.shouldExit) {
+      return sell({ reason: exitSignal.reason || 'STRATEGY_EXIT', sellPct: 1 });
+    }
+    return noop({ reason: 'fable_hold' });
+  }
+
   // 0) BULL-FLAG SETUP — structural stop, measured-move target, manual-cut
   //    deadline. Branches run BEFORE generic trailing/stop logic so the
   //    setup's own invariants govern the exit.

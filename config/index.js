@@ -556,6 +556,36 @@ const config = {
       trailingActivationMultiplier: parseFloat(process.env.MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER || '1.025'),
       trailingStopPct: parseFloat(process.env.MOMENTUM_TRAILING_STOP_PCT || '2.5'),
     },
+    // FABLE (2026-07-07): original session-transition refill strategy.
+    // Thin-session (20-24 UTC) markdown on weak volume -> buy the Asia
+    // liquidity return (00:00-02:30 UTC) -> flat by 08:00 UTC always.
+    // Paper-only via deployment registry. See src/strategies/fable-evaluator.js.
+    fable: {
+      enabled: process.env.FABLE_ENABLED != null ? process.env.FABLE_ENABLED === 'true' : undefined,
+      enabledChains: String(process.env.FABLE_ENABLED_CHAINS || 'kucoin').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
+      maxConcurrentPositions: parseInt(process.env.FABLE_MAX_CONCURRENT_POSITIONS || '2', 10),
+      scanIntervalSeconds: parseInt(process.env.FABLE_SCAN_INTERVAL_SECONDS || '300', 10),
+      // Scanner prefilter gates (generic prefilter reads these)
+      min24hVolumeUsd: parseFloat(process.env.FABLE_MIN_24H_VOLUME_USD || '1000000'),
+      minLiquidityUsd: parseFloat(process.env.FABLE_MIN_LIQUIDITY_USD || '250000'),
+      // Session geometry
+      entryWindowStartUtc: parseFloat(process.env.FABLE_ENTRY_WINDOW_START_UTC || '0'),
+      entryWindowEndUtc: parseFloat(process.env.FABLE_ENTRY_WINDOW_END_UTC || '2.5'),
+      timeExitUtcHour: parseInt(process.env.FABLE_TIME_EXIT_UTC_HOUR || '8', 10),
+      // Signal gates
+      markdownMinPct: parseFloat(process.env.FABLE_MARKDOWN_MIN_PCT || '2'),
+      markdownMaxPct: parseFloat(process.env.FABLE_MARKDOWN_MAX_PCT || '9'),
+      thinVolMaxRatio: parseFloat(process.env.FABLE_THIN_VOL_MAX_RATIO || '0.8'),
+      bidReturnVolRatio: parseFloat(process.env.FABLE_BID_RETURN_VOL_RATIO || '1.2'),
+      maxKnifeRangePct: parseFloat(process.env.FABLE_MAX_KNIFE_RANGE_PCT || '3'),
+      supportBreakTolerancePct: parseFloat(process.env.FABLE_SUPPORT_BREAK_TOLERANCE_PCT || '0.5'),
+      // Trade geometry
+      stopUnderLowPct: parseFloat(process.env.FABLE_STOP_UNDER_LOW_PCT || '0.2'),
+      maxStopDistancePct: parseFloat(process.env.FABLE_MAX_STOP_DISTANCE_PCT || '6'),
+      targetRetraceFraction: parseFloat(process.env.FABLE_TARGET_RETRACE_FRACTION || '0.618'),
+      minRR: parseFloat(process.env.FABLE_MIN_RR || '1.0'),
+      riskPct: parseFloat(process.env.FABLE_RISK_PCT || '0.35'),
+    },
     swing: {
       enabled: process.env.SWING_ENABLED === 'true',
       enabledChains: String(process.env.SWING_ENABLED_CHAINS || 'kucoin').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean),
