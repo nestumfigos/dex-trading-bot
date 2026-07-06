@@ -1383,6 +1383,13 @@ const bullFlagEvaluator = createBullFlagEvaluator({
   detectBullFlag,
 });
 
+// FABLE evaluator (2026-07-07): original thin-session refill strategy.
+const { createFableEvaluator } = require('./strategies/fable-evaluator');
+const fableEvaluator = createFableEvaluator({
+  logger,
+  fetchOhlcv: getOhlcvSeries,
+});
+
 const backesEvaluator = createBackesEvaluator({
   logger,
   fetchOhlcv: getOhlcvSeries,
@@ -1488,6 +1495,10 @@ const strategy = {
 
     if (strategyName === 'solana_bull_flag_v2') {
       return solanaBullFlagEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
+    }
+
+    if (strategyName === 'fable') {
+      return fableEvaluator.evaluate(tokenData, { config: strategyCfg, chainKey: chainName });
     }
 
     const adaptiveParams = strategyBrain.getAdaptiveParameters(chainName, strategyName, strategyCfg, tokenData);
@@ -4552,6 +4563,17 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
       tokenData.manualCutDeadlineAt = new Date(Date.now() + cutCandles * cutTimeframeMin * 60_000).toISOString();
       tokenData._bullFlagRiskPct = Number(evaluation.details.riskPct) || null;
       tokenData._bullFlagIsAPlus = Boolean(evaluation.details.isAPlus);
+    } else if (strategyName === 'fable' && evaluation.details.setupType === 'fable') {
+      // FABLE (2026-07-07): structural refill trade — geometry travels on the
+      // position so the fable exit block in evaluate-exit-decision.js can
+      // enforce stop / retrace target / 08:00 UTC time exit.
+      tokenData.setupType = 'fable';
+      tokenData.strategyVariant = 'fable_thin_session_refill';
+      tokenData.structureType = 'thin_session_refill';
+      tokenData.structuralStopPrice = Number(evaluation.details.stopPrice) || null;
+      tokenData.measuredMoveTargetPrice = Number(evaluation.details.targetPrice) || null;
+      tokenData.fableTimeExitAt = evaluation.details.timeExitAt || null;
+      tokenData._fableRiskPct = Number(evaluation.details.riskPct) || null;
     } else if (strategyName === 'backes' && evaluation.details.setupType === 'backes') {
       tokenData.setupType = 'backes';
       tokenData.strategyVariant = evaluation.details.strategyMode || 'backes_htf_swing';

@@ -661,3 +661,67 @@ test('precedence: TIME_STOP beats STALE_DRIFT', () => {
   });
   assert.equal(r.reason, 'TIME_STOP');
 });
+
+// ─── FABLE (2026-07-07): thin-session refill structural exits ───────────────
+
+function fablePosition(over = {}) {
+  return basePosition({
+    setupType: 'fable',
+    entryPrice: 96.2,
+    structuralStopPrice: 95.0,
+    measuredMoveTargetPrice: 98.9,
+    fableTimeExitAt: new Date(NOW + 3 * 3600_000).toISOString(),
+    ...over,
+  });
+}
+
+test('FABLE: price at structural stop -> FABLE_STRUCTURE_STOP', () => {
+  const r = decideExitAction({
+    position: fablePosition(),
+    tokenData: { price: 94.9 },
+    strategyCfg: baseStrategyCfg(),
+    riskCfg: baseRiskCfg(),
+    sellTiers: DEFAULT_TIERS,
+    now: NOW,
+  });
+  assert.equal(r.action, 'sell');
+  assert.equal(r.reason, 'FABLE_STRUCTURE_STOP');
+  assert.equal(r.sellPct, 1);
+});
+
+test('FABLE: price at retrace target -> FABLE_REFILL_COMPLETE', () => {
+  const r = decideExitAction({
+    position: fablePosition(),
+    tokenData: { price: 99.0 },
+    strategyCfg: baseStrategyCfg(),
+    riskCfg: baseRiskCfg(),
+    sellTiers: DEFAULT_TIERS,
+    now: NOW,
+  });
+  assert.equal(r.reason, 'FABLE_REFILL_COMPLETE');
+});
+
+test('FABLE: past 08:00 UTC deadline -> FABLE_TIME_EXIT even at a loss', () => {
+  const r = decideExitAction({
+    position: fablePosition({ fableTimeExitAt: new Date(NOW - 60_000).toISOString() }),
+    tokenData: { price: 95.8 }, // small loss, above stop
+    strategyCfg: baseStrategyCfg(),
+    riskCfg: baseRiskCfg(),
+    sellTiers: DEFAULT_TIERS,
+    now: NOW,
+  });
+  assert.equal(r.reason, 'FABLE_TIME_EXIT');
+});
+
+test('FABLE: in-window, between stop and target -> hold (no generic exits)', () => {
+  const r = decideExitAction({
+    position: fablePosition(),
+    tokenData: { price: 96.8 },
+    strategyCfg: baseStrategyCfg(),
+    riskCfg: baseRiskCfg(),
+    sellTiers: DEFAULT_TIERS,
+    now: NOW,
+  });
+  assert.equal(r.action, 'noop');
+  assert.equal(r.reason, 'fable_hold');
+});
