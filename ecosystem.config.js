@@ -459,13 +459,6 @@ module.exports = {
         PORT: '3004',
         DASHBOARD_BIND_HOST: '127.0.0.1', // perps server is localhost-only by design
         PERPS_PAPER_SERVICE_ENABLED: 'true',
-        // 2026-07-06 strategy audit: 4 days x 12 symbols produced ZERO range
-        // setups under strict params (0.35% touch tolerance on 1h extremes +
-        // both-side recency) — the strategy can never gather promotion
-        // evidence at that rate. Relaxed-research mode is purpose-built for
-        // this (risk drops to 0.25%, tolerance 0.6%, minTouches 1). This is
-        // a paper research service; evidence-gathering IS the mission.
-        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'true',
         PERPS_DATA_SOURCE: 'kucoin',
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
@@ -482,12 +475,19 @@ module.exports = {
         PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: process.env.PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD || '0',
         SQL_CONNECTION_STRING: process.env.SQL_CONNECTION_STRING || '',
         PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'true',
-        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'false',
-        PERPS_RANGE_LOOKBACK: '12',
-        PERPS_RANGE_MAX_WIDTH_PCT: '12',
-        PERPS_RANGE_TOUCH_TOLERANCE_PCT: '0.35',
-        PERPS_RANGE_MIN_TOUCHES: '2',
-        PERPS_RANGE_REQUIRE_RECENT_TOUCHES: 'true',
+        // 2026-07-06 strategy audit: 4 days x 12 symbols produced ZERO range
+        // setups under the strict params previously pinned here (0.35% touch
+        // tolerance on 1h extremes + both-side recency) — the strategy can
+        // never gather promotion evidence at that rate. Switched to the
+        // purpose-built relaxed-research profile (risk auto-drops to 0.25%);
+        // explicit PERPS_RANGE_* pins below match the relaxed defaults so
+        // the effective config is visible here.
+        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'true',
+        PERPS_RANGE_LOOKBACK: '18',
+        PERPS_RANGE_MAX_WIDTH_PCT: '18',
+        PERPS_RANGE_TOUCH_TOLERANCE_PCT: '0.6',
+        PERPS_RANGE_MIN_TOUCHES: '1',
+        PERPS_RANGE_REQUIRE_RECENT_TOUCHES: 'false',
         PERPS_MIN_REWARD_RISK: '3',
         PERPS_DEVIATION_RETEST_TOLERANCE_PCT: '0.25',
         PERPS_DEVIATION_RECLAIM_MARGIN_PCT: '0.05',
@@ -498,13 +498,6 @@ module.exports = {
         PORT: '3004',
         DASHBOARD_BIND_HOST: '127.0.0.1',
         PERPS_PAPER_SERVICE_ENABLED: 'true',
-        // 2026-07-06 strategy audit: 4 days x 12 symbols produced ZERO range
-        // setups under strict params (0.35% touch tolerance on 1h extremes +
-        // both-side recency) — the strategy can never gather promotion
-        // evidence at that rate. Relaxed-research mode is purpose-built for
-        // this (risk drops to 0.25%, tolerance 0.6%, minTouches 1). This is
-        // a paper research service; evidence-gathering IS the mission.
-        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'true',
         PERPS_DATA_SOURCE: 'kucoin',
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
@@ -521,12 +514,19 @@ module.exports = {
         PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD: process.env.PERPS_PROFITABILITY_GUARD_MIN_EXPECTANCY_USD || '0',
         SQL_CONNECTION_STRING: process.env.SQL_CONNECTION_STRING || '',
         PERPS_PAPER_STRATEGY_ADMISSION_REQUIRED: 'true',
-        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'false',
-        PERPS_RANGE_LOOKBACK: '12',
-        PERPS_RANGE_MAX_WIDTH_PCT: '12',
-        PERPS_RANGE_TOUCH_TOLERANCE_PCT: '0.35',
-        PERPS_RANGE_MIN_TOUCHES: '2',
-        PERPS_RANGE_REQUIRE_RECENT_TOUCHES: 'true',
+        // 2026-07-06 strategy audit: 4 days x 12 symbols produced ZERO range
+        // setups under the strict params previously pinned here (0.35% touch
+        // tolerance on 1h extremes + both-side recency) — the strategy can
+        // never gather promotion evidence at that rate. Switched to the
+        // purpose-built relaxed-research profile (risk auto-drops to 0.25%);
+        // explicit PERPS_RANGE_* pins below match the relaxed defaults so
+        // the effective config is visible here.
+        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'true',
+        PERPS_RANGE_LOOKBACK: '18',
+        PERPS_RANGE_MAX_WIDTH_PCT: '18',
+        PERPS_RANGE_TOUCH_TOLERANCE_PCT: '0.6',
+        PERPS_RANGE_MIN_TOUCHES: '1',
+        PERPS_RANGE_REQUIRE_RECENT_TOUCHES: 'false',
         PERPS_MIN_REWARD_RISK: '3',
         PERPS_DEVIATION_RETEST_TOLERANCE_PCT: '0.25',
         PERPS_DEVIATION_RECLAIM_MARGIN_PCT: '0.05',
