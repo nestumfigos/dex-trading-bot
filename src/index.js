@@ -1598,7 +1598,17 @@ const strategy = {
     const maxMoveForChain = chainName === 'kucoin' ? kucoinMaxMove : maxMoveAll;
     const minMoveConfirmed = !(Number.isFinite(minMoveForChain) && minMoveForChain > 0) || absMove24h >= minMoveForChain;
     const maxMoveConfirmed = !(Number.isFinite(maxMoveForChain) && maxMoveForChain > 0) || absMove24h <= maxMoveForChain;
-    const rsiGatePassed = rsiInRange || (!hasRsi && (volumeConfirmed || flowConfirmed || ratioConfirmed || strongMove));
+    // 2026-07-06 strategy audit: missing-RSI fallback is now KuCoin-fail-closed.
+    // On KuCoin, klines are always available for listed symbols — a missing RSI
+    // means insufficient candle history (fresh/illiquid listing), exactly the
+    // cohort that dumps. The old fallback let volume-spike alone satisfy the
+    // RSI gate (and via kucoinFlowProxy also the flow gate), collapsing three
+    // independent confirmations into one signal. DEX chains keep the fallback
+    // (RSI legitimately unavailable there). Escape hatch:
+    // MOMENTUM_KUCOIN_ALLOW_MISSING_RSI=true restores the old behavior.
+    const allowMissingRsiFallback = chainName !== 'kucoin'
+      || process.env.MOMENTUM_KUCOIN_ALLOW_MISSING_RSI === 'true';
+    const rsiGatePassed = rsiInRange || (!hasRsi && allowMissingRsiFallback && (volumeConfirmed || flowConfirmed || ratioConfirmed || strongMove));
 
     if (!hasRsi) {
       reasons.push('missing_rsi_using_momentum_fallback');
@@ -4522,7 +4532,16 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
       tokenData.expectedSpreadBps = Number(evaluation.details.expectedSpreadBps) || null;
       const activeBullFlagCfg = config.strategies?.[strategyName] || config.strategies?.spot_day_bull_flag || {};
       const cutCandles = Number(activeBullFlagCfg.manualCutCandlesNoFollowThrough || config.strategies?.spot_day_bull_flag?.manualCutCandlesNoFollowThrough || 3);
-      const cutTimeframeMin = Number(activeBullFlagCfg.manualCutTimeframeMinutes || config.strategies?.spot_day_bull_flag?.manualCutTimeframeMinutes || 5);
+      // 2026-07-06 strategy audit: the cut clock must run on the timeframe the
+      // pattern was DETECTED on. The old hardcoded 5m default gave a 15m-candle
+      // flag only 3x5=15 minutes to show +0.5% follow-through — one detection
+      // candle — which converted would-be winners into MANUAL_CUT scratches
+      // (5 of 9 paper exits; PF 0.015). Explicit env override still wins.
+      const cfgCutTimeframeMin = Number(activeBullFlagCfg.manualCutTimeframeMinutes || config.strategies?.spot_day_bull_flag?.manualCutTimeframeMinutes || 5);
+      const detectedTimeframeMin = Number(evaluation.details.detection?.timeframeMinutes || evaluation.details.timeframeMinutes || 0);
+      const cutTimeframeMin = process.env.BULL_FLAG_MANUAL_CUT_TIMEFRAME_MIN
+        ? cfgCutTimeframeMin
+        : (detectedTimeframeMin > 0 ? detectedTimeframeMin : cfgCutTimeframeMin);
       tokenData.manualCutDeadlineAt = new Date(Date.now() + cutCandles * cutTimeframeMin * 60_000).toISOString();
       tokenData._bullFlagRiskPct = Number(evaluation.details.riskPct) || null;
       tokenData._bullFlagIsAPlus = Boolean(evaluation.details.isAPlus);

@@ -64,6 +64,11 @@ module.exports = {
         // better-confirmed entries raise win rate at small trade-count cost.
         MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.8',
         MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '55',
+        // 2026-07-06 strategy audit: ESPORTS took two full stop-losses 22 days
+        // apart (-$110 combined) because the symbol-quality blacklist only
+        // looks back 168h. One hard stop now blocks the symbol for 14 days —
+        // with a 700+ symbol universe, losing one name costs nothing.
+        SPOT_SYMBOL_QUALITY_LOOKBACK_HOURS: '336',
         MOMENTUM_MIN_NET_BUY_FLOW_USD: '5000',
         MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: '2',
         MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_KUCOIN: '35',
@@ -163,6 +168,11 @@ module.exports = {
         // better-confirmed entries raise win rate at small trade-count cost.
         MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.8',
         MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '55',
+        // 2026-07-06 strategy audit: ESPORTS took two full stop-losses 22 days
+        // apart (-$110 combined) because the symbol-quality blacklist only
+        // looks back 168h. One hard stop now blocks the symbol for 14 days —
+        // with a 700+ symbol universe, losing one name costs nothing.
+        SPOT_SYMBOL_QUALITY_LOOKBACK_HOURS: '336',
         MOMENTUM_MIN_NET_BUY_FLOW_USD: '5000',
         MOMENTUM_MIN_PRICE_CHANGE_24H_PCT_KUCOIN: '2',
         MOMENTUM_MAX_PRICE_CHANGE_24H_PCT_KUCOIN: '35',
@@ -449,6 +459,13 @@ module.exports = {
         PORT: '3004',
         DASHBOARD_BIND_HOST: '127.0.0.1', // perps server is localhost-only by design
         PERPS_PAPER_SERVICE_ENABLED: 'true',
+        // 2026-07-06 strategy audit: 4 days x 12 symbols produced ZERO range
+        // setups under strict params (0.35% touch tolerance on 1h extremes +
+        // both-side recency) — the strategy can never gather promotion
+        // evidence at that rate. Relaxed-research mode is purpose-built for
+        // this (risk drops to 0.25%, tolerance 0.6%, minTouches 1). This is
+        // a paper research service; evidence-gathering IS the mission.
+        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'true',
         PERPS_DATA_SOURCE: 'kucoin',
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
@@ -481,6 +498,13 @@ module.exports = {
         PORT: '3004',
         DASHBOARD_BIND_HOST: '127.0.0.1',
         PERPS_PAPER_SERVICE_ENABLED: 'true',
+        // 2026-07-06 strategy audit: 4 days x 12 symbols produced ZERO range
+        // setups under strict params (0.35% touch tolerance on 1h extremes +
+        // both-side recency) — the strategy can never gather promotion
+        // evidence at that rate. Relaxed-research mode is purpose-built for
+        // this (risk drops to 0.25%, tolerance 0.6%, minTouches 1). This is
+        // a paper research service; evidence-gathering IS the mission.
+        PERPS_PAPER_RELAXED_SETUP_RESEARCH: 'true',
         PERPS_DATA_SOURCE: 'kucoin',
         PERPS_PAPER_OBSERVATION_DAYS: '0',
         PERPS_PAPER_MARKET_DATA_ENABLED: 'true',
