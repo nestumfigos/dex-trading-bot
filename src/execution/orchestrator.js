@@ -33,6 +33,9 @@ function createExecutionOrchestrator(deps) {
     ensureStatsShape,
     round,
     recoverFailedSellExecutionFromExchange,
+    // 2026-07-06: exchange-side stop manager (nullable; live KuCoin only,
+    // flag-gated OFF by default). See src/execution/kucoin-stop-orders.js.
+    kucoinStopManager = null,
   } = deps;
 
   function isBullFlagSetupType(setupType) {
@@ -825,12 +828,56 @@ function createExecutionOrchestrator(deps) {
       try {
         const sellTimeoutMs = Math.max(15000, Number(config.execution?.sellTimeoutMs || config.execution?.buyTimeoutMs || 30000));
 
+        // 2026-07-06 exchange-stop simulation (paper validation for the live
+        // KuCoin stop-order build). Ledger data shows loop-detected stops fill
+        // at -5..-8% vs the 4.0% configured stop — the 8s detection loop eats
+        // 1.5-3.5% per stop on fast dumps. A server-side stop-market order
+        // triggers at the stop level itself. When enabled, hard-stop exits
+        // fill against the stop price (clamped by a max-slip gap model in the
+        // paper fill sim) instead of the already-overshot current price.
+        // PAPER_SIM_EXCHANGE_STOPS=true (paper env only; live path ignores it).
+        const HARD_STOP_REASONS = new Set(['FAST_STOP_LOSS', 'ORACLE_STOP_LOSS', 'STOP_LOSS']);
+        const exchangeStopSimEnabled = process.env.PAPER_SIM_EXCHANGE_STOPS === 'true'
+          && config.paperTrading
+          && chainName === 'kucoin'
+          && HARD_STOP_REASONS.has(String(reason || '').toUpperCase());
+        const stopReferencePriceUsd = exchangeStopSimEnabled ? Number(position?.stopLoss) || 0 : 0;
+
+        // 2026-07-06 live exchange-stops: before a loop-driven sell, cancel
+        // the resting server-side stop. If the cancel discovers the stop
+        // already FILLED, the exchange sold this position — finalize with
+        // that fill and never market-sell a second unit (double-sell guard).
+        // No-op unless KUCOIN_EXCHANGE_STOPS_ENABLED=true on live.
+        if (kucoinStopManager && chainName === 'kucoin' && !config.paperTrading && kucoinStopManager.isEnabled()) {
+          const stopGate = await kucoinStopManager.cancelBeforeManualSell(position?.key || tokenData?.address);
+          if (!stopGate.proceed) {
+            if (stopGate.adoptedFill) {
+              logger.warn(`[kucoin-stops] ${tokenData.symbol}: exchange stop already filled — adopting fill instead of re-selling`);
+              await finalizeSellExecution({
+                chainName,
+                tokenData,
+                position,
+                txResult: stopGate.adoptedFill,
+                reason: 'EXCHANGE_STOP_FILLED',
+                strategyName,
+                expectedExitPrice,
+                quantityRequested: quantityToSell,
+                requestedFraction: fraction,
+              });
+            } else {
+              logger.warn(`[kucoin-stops] ${tokenData.symbol}: stop cancel unresolved (${stopGate.reason || 'retry'}) — deferring sell to next tick`);
+            }
+            return;
+          }
+        }
+
         const txResult = await executeSellViaVenue({
           exchange,
           tokenData,
           quantityToSell,
           execTimeoutMs: sellTimeoutMs,
           withTimeout,
+          stopReferencePriceUsd,
         });
         await finalizeSellExecution({
           chainName,

@@ -78,9 +78,12 @@ async function executeSellViaVenue({
   quantityToSell,
   execTimeoutMs,
   withTimeout,
+  stopReferencePriceUsd = 0,
 }) {
   return withTimeout(
-    exchange.executeSell(tokenData.address, quantityToSell),
+    // stopReferencePriceUsd: paper exchange-stop simulation reference
+    // (2026-07-06). Adapters that don't accept a third arg ignore it.
+    exchange.executeSell(tokenData.address, quantityToSell, { stopReferencePriceUsd }),
     execTimeoutMs,
     `Sell execution timed out for ${tokenData.symbol} after ${execTimeoutMs}ms`
   );

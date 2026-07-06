@@ -837,7 +837,7 @@ class KuCoinExchange {
     }
   }
 
-  async executeSell(symbol, amount) {
+  async executeSell(symbol, amount, options = {}) {
     symbol = this.normalizeSymbol(symbol);
     if (config.paperTrading) {
       logger.info(`[PAPER] KuCoin SELL ${symbol} amount ${amount}`);
@@ -848,6 +848,27 @@ class KuCoinExchange {
         const { bestBid } = await this.getTopOfBook(symbol);
         if (Number.isFinite(bestBid) && bestBid > 0) referencePriceUsd = bestBid;
       } catch (_) { /* fall through to legacy ideal fill */ }
+      // 2026-07-06 exchange-stop simulation: when the orchestrator passes a
+      // stop reference (hard-stop exits with PAPER_SIM_EXCHANGE_STOPS=true),
+      // model a server-side stop-market order instead of a loop-detected
+      // market sell. A real stop triggers AT the stop level:
+      //   - bid above stop (price bounced): the stop already fired at the
+      //     stop level on the way down -> fill at stopPrice.
+      //   - bid within maxGap below stop: normal trigger slippage -> fill
+      //     at bid.
+      //   - bid far below stop (gap-through): even a server-side stop slips,
+      //     but it fires within the gap -> floor at stopPrice*(1-maxGap).
+      // PAPER_SIM_EXCHANGE_STOP_MAX_GAP_BPS default 100 (1%).
+      const stopRef = Number(options?.stopReferencePriceUsd || 0);
+      if (stopRef > 0 && referencePriceUsd > 0) {
+        const maxGapBps = Math.max(0, Number(process.env.PAPER_SIM_EXCHANGE_STOP_MAX_GAP_BPS || 100));
+        const floor = stopRef * (1 - maxGapBps / 10000);
+        const simulatedStopFill = Math.min(stopRef, Math.max(referencePriceUsd, floor));
+        logger.info(
+          `[PAPER] exchange-stop sim ${symbol}: bid=${referencePriceUsd} stop=${stopRef} -> fillRef=${simulatedStopFill}`
+        );
+        referencePriceUsd = simulatedStopFill;
+      }
       return simulatePaperFill({
         side: 'sell',
         referencePriceUsd,
