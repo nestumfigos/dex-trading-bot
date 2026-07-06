@@ -4664,7 +4664,19 @@ async function processToken(chainName, exchange, tokenAddress, options = {}) {
 
 const { recoverFailedSellExecutionFromExchange: _recoverFailedSellExecutionFromExchange } = createSellRecovery({ logger });
 
+// 2026-07-06: exchange-side stop orders for live KuCoin positions
+// (src/execution/kucoin-stop-orders.js). Default OFF — arm with
+// KUCOIN_EXCHANGE_STOPS_ENABLED=true after the paper exchange-stop
+// simulation validates fill-quality improvement. The reconciler interval
+// is started in the boot section below; the manager itself no-ops while
+// disabled or in paper mode.
+const { createKucoinStopOrderManager } = require('./execution/kucoin-stop-orders');
+const kucoinStopManager = exchanges.kucoin
+  ? createKucoinStopOrderManager({ exchange: exchanges.kucoin, logger, config })
+  : null;
+
 const { executeBuy, executeSell, finalizeSellExecution } = createExecutionOrchestrator({
+  kucoinStopManager,
   config,
   logger,
   portfolio,
@@ -4692,6 +4704,50 @@ const { executeBuy, executeSell, finalizeSellExecution } = createExecutionOrches
   round,
   recoverFailedSellExecutionFromExchange: _recoverFailedSellExecutionFromExchange,
 });
+
+// Exchange-stop reconciler loop: every KUCOIN_STOP_ENSURE_INTERVAL_MS
+// (default 60s) place/replace/sweep server-side stops for open live KuCoin
+// positions and finalize any position the exchange already stopped out.
+// Interval only starts when the manager is armed (env flag + not paper).
+if (kucoinStopManager && kucoinStopManager.isEnabled()) {
+  const ensureIntervalMs = Math.max(15_000, Number(process.env.KUCOIN_STOP_ENSURE_INTERVAL_MS || 60_000));
+  setInterval(async () => {
+    try {
+      const openKucoin = Object.fromEntries(
+        Object.entries(portfolio.positions || {})
+          .filter(([, pos]) => pos && String(pos.chainKey || '').toLowerCase() === 'kucoin' && Number(pos.quantity) > 0)
+      );
+      const { adoptedFills } = await kucoinStopManager.ensureStops(openKucoin);
+      for (const { positionKey, order } of adoptedFills) {
+        const position = portfolio.positions?.[positionKey];
+        if (!position) continue;
+        logger.warn(`[kucoin-stops] adopting exchange stop fill for ${position.symbol} (order=${order?.id})`);
+        await finalizeSellExecution({
+          chainName: 'kucoin',
+          tokenData: { symbol: position.symbol, address: position.address, price: Number(order?.average || order?.price || position.stopLoss) },
+          position,
+          txResult: {
+            txid: order?.id || `stop_fill_${Date.now()}`,
+            simulated: false,
+            executedPriceUsd: Number(order?.average || order?.price || 0),
+            filledBaseQty: Number(order?.filled || 0),
+            filledQuoteUsd: Number(order?.cost || 0),
+            hasExchangeFilledData: Number(order?.filled || 0) > 0,
+            exchangeStopFill: true,
+          },
+          reason: 'EXCHANGE_STOP_FILLED',
+          strategyName: position.strategy || 'momentum',
+          expectedExitPrice: Number(position.stopLoss) || Number(order?.average || 0),
+          quantityRequested: Number(order?.filled || position.quantity),
+          requestedFraction: 1,
+        });
+      }
+    } catch (error) {
+      logger.warn(`[kucoin-stops] ensure cycle error: ${error?.message || error}`);
+    }
+  }, ensureIntervalMs);
+  logger.info(`[kucoin-stops] exchange-stop reconciler armed (every ${ensureIntervalMs / 1000}s)`);
+}
 
 const { checkExitConditions } = createExitConditions({
   config,

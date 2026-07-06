@@ -284,6 +284,11 @@ module.exports = {
         MOMENTUM_STOP_LOSS_PCT: '4.0',
         MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
         MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        // 2026-07-06 exchange-stop simulation: hard-stop exits fill against
+        // the stop level (server-side stop-market model) instead of the
+        // loop-detected overshot price. Validates the live KuCoin stop-order
+        // build; compare FAST_STOP_LOSS depth in ledger before/after.
+        PAPER_SIM_EXCHANGE_STOPS: 'true',
         // 2026-07-02: block 20-24 UTC entries (36% win / -$820 bucket).
         // Mirrors live; see live block comment for the full numbers.
         TRADING_WINDOWS_ENABLED: 'true',
@@ -365,6 +370,11 @@ module.exports = {
         MOMENTUM_STOP_LOSS_PCT: '4.0',
         MOMENTUM_TRAILING_ACTIVATION_MULTIPLIER: '1.045',
         MOMENTUM_TRAILING_STOP_PCT: '3.25',
+        // 2026-07-06 exchange-stop simulation: hard-stop exits fill against
+        // the stop level (server-side stop-market model) instead of the
+        // loop-detected overshot price. Validates the live KuCoin stop-order
+        // build; compare FAST_STOP_LOSS depth in ledger before/after.
+        PAPER_SIM_EXCHANGE_STOPS: 'true',
         // 2026-07-02: block 20-24 UTC entries (36% win / -$820 bucket).
         // Mirrors live; see live block comment for the full numbers.
         TRADING_WINDOWS_ENABLED: 'true',
