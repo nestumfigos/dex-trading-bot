@@ -973,6 +973,120 @@ function startDashboard(portfolio, ctx) {
     },
   }));
 
+  // ─── FLEET VIEW (2026-07-07) ───────────────────────────────────────────
+  // One link for all three bots. /fleet serves the unified page; /api/fleet
+  // aggregates live :3002, paper :3003, perps :3004 SERVER-SIDE via
+  // localhost, so a LAN browser reaches the localhost-bound perps service
+  // through whichever bot serves this page, and no CORS is involved.
+  const FLEET_TIMEOUT_MS = 5000;
+  async function fleetFetchJson(url) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), FLEET_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { signal: ac.signal });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (_) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function fleetProbeSpot(port) {
+    const status = await fleetFetchJson(`http://127.0.0.1:${port}/api/status`);
+    if (!status) return { status: 'down' };
+    const p = status.portfolio || {};
+    const h = status.health || {};
+    return {
+      status: 'up',
+      ok: h.ok !== false,
+      degraded: Boolean(h.degraded),
+      unhealthyReasons: Array.isArray(h.unhealthyReasons) ? h.unhealthyReasons : [],
+      uptimeHours: Number.isFinite(Number(status.uptimeSeconds)) ? Math.round(Number(status.uptimeSeconds) / 360) / 10 : null,
+      equity: Number(p.equity ?? p.cashBalance ?? 0) || null,
+      openPositionCount: Number(p.openPositionCount || 0),
+      activeStrategies: h.loops?.strategies ? Object.keys(h.loops.strategies).length : null,
+      performance: {
+        realizedPnl: Number(p.realizedPnl ?? 0),
+        winRate: Number(p.winRate ?? NaN),
+        profitFactor: Number(p.profitFactor ?? NaN),
+        closedTrades: Number(p.closedTrades ?? 0),
+      },
+    };
+  }
+
+  async function fleetProbePerps(port) {
+    const [health, statusPayload, statsPayload] = await Promise.all([
+      fleetFetchJson(`http://127.0.0.1:${port}/health`),
+      fleetFetchJson(`http://127.0.0.1:${port}/api/status`),
+      fleetFetchJson(`http://127.0.0.1:${port}/api/stats`),
+    ]);
+    if (!health && !statsPayload) return { status: 'down' };
+    return {
+      status: 'up',
+      ok: health ? health.ok !== false : true,
+      scannerEnabled: Boolean(health?.paperMarketScanner?.enabled),
+      livePromotionEligible: Boolean(statusPayload?.livePromotionEligible),
+      stats: statsPayload?.stats || null,
+    };
+  }
+
+  // Post-reset per-strategy table (paper canary). SQL is shared, so either
+  // serving bot can compute it; cached 30s to keep the fleet page cheap.
+  const FLEET_RESET_TS = '2026-07-02T22:00:00';
+  let fleetStrategyCache = { at: 0, rows: [] };
+  async function fleetPaperStrategies() {
+    if (Date.now() - fleetStrategyCache.at < 30_000) return fleetStrategyCache.rows;
+    try {
+      const { getPool } = require('./utils/sqlServer');
+      const pool = await getPool(ctx.logger || console);
+      if (!pool) return fleetStrategyCache.rows;
+      const r = await pool.request().query(`
+        SELECT strategy, COUNT(*) n,
+          SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) wins,
+          SUM(pnl_usd) pnl,
+          SUM(CASE WHEN pnl_usd > 0 THEN pnl_usd ELSE 0 END) gp,
+          SUM(CASE WHEN pnl_usd <= 0 THEN -pnl_usd ELSE 0 END) gl
+        FROM bot_trade_ledger
+        WHERE bot_profile='paper' AND trade_type='SELL' AND pnl_usd IS NOT NULL
+          AND ts >= '${FLEET_RESET_TS}'
+        GROUP BY strategy ORDER BY SUM(pnl_usd) DESC`);
+      fleetStrategyCache = {
+        at: Date.now(),
+        rows: (r.recordset || []).map((row) => ({
+          strategy: row.strategy,
+          n: Number(row.n),
+          winPct: Number(row.n) > 0 ? (100 * Number(row.wins)) / Number(row.n) : null,
+          pf: Number(row.gl) > 0 ? Number(row.gp) / Number(row.gl) : null,
+          pnl: Number(row.pnl),
+        })),
+      };
+    } catch (_) { /* keep stale cache */ }
+    return fleetStrategyCache.rows;
+  }
+
+  app.get('/fleet', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'fleet.html'));
+  });
+
+  app.get('/api/fleet', async (_req, res) => {
+    const [live, paper, perps, strategies] = await Promise.all([
+      fleetProbeSpot(3002),
+      fleetProbeSpot(3003),
+      fleetProbePerps(3004),
+      fleetPaperStrategies(),
+    ]);
+    if (paper && paper.status === 'up') paper.strategies = strategies;
+    res.json({
+      host: `${config.paperTrading ? 'paper' : 'live'}:${config.bot.port}`,
+      generatedAt: new Date().toISOString(),
+      live,
+      paper,
+      perps,
+    });
+  });
+
   app.get('/api/status', (req, res) => {
     // B4.dash.4: surface fetchedAt so the UI can render "as of HH:MM:SS" and
     // operators can spot stale data. Inject at the response edge — does not
