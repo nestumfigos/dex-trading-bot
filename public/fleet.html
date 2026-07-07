@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleet — DEX TradeBot</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --card: #12161f;
+    --card2: #171c27;
+    --border: #232a38;
+    --text: #e6e9ef;
+    --muted: #8b93a7;
+    --green: #34d399;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --accent: #7aa2f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    padding: 24px clamp(12px, 4vw, 48px);
+  }
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; margin-bottom: 20px;
+  }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.4px; }
+  h1 .dot { color: var(--accent); }
+  #updated { color: var(--muted); font-size: 12px; }
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .card h2 {
+    font-size: 14px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1px; display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
+  }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--muted); flex-shrink: 0;
+  }
+  .status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.warn { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .status-dot.down { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .sub { color: var(--muted); font-size: 11.5px; margin-bottom: 14px; }
+  .big {
+    font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums;
+    margin-bottom: 2px;
+  }
+  .big.pos { color: var(--green); }
+  .big.neg { color: var(--red); }
+  .big-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 14px; }
+  .stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 8px;
+  }
+  .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .v.pos { color: var(--green); }
+  .stat .v.neg { color: var(--red); }
+  .stat .k { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 1px; }
+  .open-positions { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .open-positions .row, .strat-table .row {
+    display: flex; justify-content: space-between; font-size: 12.5px;
+    padding: 3px 0; font-variant-numeric: tabular-nums;
+  }
+  .muted { color: var(--muted); }
+  .section-title {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted); margin: 26px 0 10px;
+  }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: right; color: var(--muted); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 7px 10px; text-align: right; border-bottom: 1px solid rgba(35,42,56,0.5); }
+  tr:last-child td { border-bottom: none; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  .pill {
+    display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); margin-left: 6px;
+    vertical-align: middle; letter-spacing: 0.5px;
+  }
+  .links { margin-top: 12px; font-size: 12px; }
+  .links a { color: var(--accent); text-decoration: none; margin-right: 14px; }
+  .links a:hover { text-decoration: underline; }
+  footer { color: var(--muted); font-size: 11px; margin-top: 28px; text-align: center; }
+  @media (max-width: 700px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fleet<span class="dot">.</span> <span class="pill" id="host-pill">—</span></h1>
+  <span id="updated">loading…</span>
+</header>
+
+<div class="grid" id="cards"></div>
+
+<div class="section-title">Paper strategies — post-reset (2026-07-02)</div>
+<div class="card" style="padding:8px 6px;">
+  <table id="strat-table">
+    <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>PF</th><th>PnL</th></tr></thead>
+    <tbody><tr><td class="muted" colspan="5">loading…</td></tr></tbody>
+  </table>
+</div>
+
+<footer>auto-refresh 10s · fleet aggregates live :3002 · paper :3003 · perps :3004 server-side</footer>
+
+<script>
+const fmtUsd = (n, d = 2) => Number.isFinite(Number(n)) ? `${n < 0 ? '−' : ''}$${Math.abs(Number(n)).toFixed(d)}` : '—';
+const fmtPct = (n, d = 1) => Number.isFinite(Number(n)) ? `${Number(n).toFixed(d)}%` : '—';
+const fmtNum = (n, d = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
+const cls = (n) => Number(n) > 0 ? 'pos' : (Number(n) < 0 ? 'neg' : '');
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+function stat(k, v, klass = '') {
+  return `<div class="stat"><div class="v ${klass}">${v}</div><div class="k">${k}</div></div>`;
+}
+
+function botCard({ id, title, sub, dotClass, headline, headlineClass, headlineLabel, stats, extraHtml, link }) {
+  return `<div class="card" id="card-${id}">
+    <h2><span class="status-dot ${dotClass}"></span>${title}</h2>
+    <div class="sub">${sub}</div>
+    <div class="big ${headlineClass}">${headline}</div>
+    <div class="big-label">${headlineLabel}</div>
+    <div class="stats">${stats.join('')}</div>
+    ${extraHtml || ''}
+    ${link ? `<div class="links"><a href="${link}" target="_blank">full dashboard →</a></div>` : ''}
+  </div>`;
+}
+
+function spotCard(id, title, sub, bot, port) {
+  if (!bot || bot.status === 'down') {
+    return botCard({ id, title, sub, dotClass: 'down', headline: 'OFFLINE', headlineClass: 'neg', headlineLabel: 'unreachable', stats: [], link: null });
+  }
+  const dot = bot.ok ? (bot.degraded ? 'warn' : 'ok') : 'down';
+  const p = bot.performance || {};
+  const link = `http://${location.hostname}:${port}/`;
+  return botCard({
+    id, title, dotClass: dot,
+    sub: `${bot.ok ? 'healthy' : 'UNHEALTHY'}${bot.degraded ? ' · degraded' : ''} · up ${bot.uptimeHours ?? '—'}h${(bot.unhealthyReasons || []).length ? ' · ' + esc(bot.unhealthyReasons.join(', ')) : ''}`,
+    headline: fmtUsd(bot.equity, 2),
+    headlineClass: '',
+    headlineLabel: 'equity',
+    stats: [
+      stat('PnL (book)', fmtUsd(p.realizedPnl), cls(p.realizedPnl)),
+      stat('Win rate', fmtPct(p.winRate)),
+      stat('PF', fmtNum(p.profitFactor)),
+      stat('Closed', p.closedTrades ?? '—'),
+      stat('Open', bot.openPositionCount ?? '—'),
+      stat('Strategies', bot.activeStrategies ?? '—'),
+    ],
+    link,
+  });
+}
+
+function perpsCard(bot) {
+  if (!bot || bot.status === 'down') {
+    return botCard({ id: 'perps', title: 'Perps (research)', sub: 'KuCoin futures · paper-only', dotClass: 'down', headline: 'OFFLINE', headlineClass: 'neg', headlineLabel: 'unreachable', stats: [] });
+  }
+  const s = bot.stats || {};
+  return botCard({
+    id: 'perps', title: 'Perps (research)', dotClass: bot.ok ? 'ok' : 'down',
+    sub: `paper-only · scanner ${bot.scannerEnabled ? 'on' : 'off'} · promotion ${bot.livePromotionEligible ? 'ELIGIBLE' : 'not eligible'}`,
+    headline: fmtUsd(s.pnlUsd),
+    headlineClass: cls(s.pnlUsd),
+    headlineLabel: 'paper pnl (all-time)',
+    stats: [
+      stat('Trades', s.trades ?? '—'),
+      stat('Win rate', fmtPct(s.winRatePct)),
+      stat('PF', fmtNum(s.profitFactor)),
+      stat('Fees paid', fmtUsd(s.feesPaidUsd, 0)),
+      stat('Expectancy', fmtUsd(s.expectancyUsd), cls(s.expectancyUsd)),
+      stat('Near-liq', s.liquidationNearMisses ?? '—'),
+    ],
+  });
+}
+
+async function refresh() {
+  let d;
+  try {
+    const res = await fetch('/api/fleet', { cache: 'no-store' });
+    d = await res.json();
+  } catch (e) {
+    document.getElementById('updated').textContent = 'aggregator unreachable — retrying…';
+    return;
+  }
+  document.getElementById('host-pill').textContent = `served by ${d.host || '?'}`;
+  document.getElementById('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
+
+  document.getElementById('cards').innerHTML = [
+    spotCard('live', 'Live — Spot', 'real capital · KuCoin', d.live, 3002),
+    spotCard('paper', 'Paper — Canary', 'realistic fills · $10k book', d.paper, 3003),
+    perpsCard(d.perps),
+  ].join('');
+
+  const rows = (d.paper?.strategies || []);
+  document.querySelector('#strat-table tbody').innerHTML = rows.length
+    ? rows.map((s) => `<tr>
+        <td>${esc(s.strategy)}</td>
+        <td>${s.n}</td>
+        <td>${fmtPct(s.winPct, 0)}</td>
+        <td>${fmtNum(s.pf)}</td>
+        <td class="${cls(s.pnl)}">${fmtUsd(s.pnl)}</td>
+      </tr>`).join('')
+    : '<tr><td class="muted" colspan="5">no closed trades since reset</td></tr>';
+}
+
+refresh();
+setInterval(refresh, 10_000);
+</script>
+</body>
+</html>
