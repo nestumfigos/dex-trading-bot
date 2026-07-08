@@ -37,3 +37,4 @@ agentdb.rvf
 data/config-unknown-env-vars.txt
 agentdb.rvf.lock
 ruvector.db
+data/exit-log.jsonl

@@ -62,7 +62,10 @@ module.exports = {
         // Entry confirmation tightened (1.5 -> 1.8 vol spike, 52 -> 55 buy
         // ratio): at 38% win the marginal chop entry was net-negative; fewer,
         // better-confirmed entries raise win rate at small trade-count cost.
-        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.8',
+        // 2026-07-08: 1.8 -> 1.65. Pre-agreed trigger fired: paper traded
+        // ~1.8/day for 6 days while live took ZERO entries — live's gate was
+        // over-tight relative to the canary. Buy-ratio 55 stays.
+        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.65',
         MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '55',
         // 2026-07-06 strategy audit: ESPORTS took two full stop-losses 22 days
         // apart (-$110 combined) because the symbol-quality blacklist only
@@ -166,7 +169,10 @@ module.exports = {
         // Entry confirmation tightened (1.5 -> 1.8 vol spike, 52 -> 55 buy
         // ratio): at 38% win the marginal chop entry was net-negative; fewer,
         // better-confirmed entries raise win rate at small trade-count cost.
-        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.8',
+        // 2026-07-08: 1.8 -> 1.65. Pre-agreed trigger fired: paper traded
+        // ~1.8/day for 6 days while live took ZERO entries — live's gate was
+        // over-tight relative to the canary. Buy-ratio 55 stays.
+        MOMENTUM_VOLUME_SPIKE_MULTIPLIER: '1.65',
         MOMENTUM_MIN_BUY_RATIO_RECENT_PCT: '55',
         // 2026-07-06 strategy audit: ESPORTS took two full stop-losses 22 days
         // apart (-$110 combined) because the symbol-quality blacklist only
