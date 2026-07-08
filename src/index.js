@@ -196,6 +196,13 @@ try {
   logger.warn(`[config/source-audit] check skipped: ${e.message}`);
 }
 
+// 2026-07-08: exit recorder BEFORE the singleton so its 'exit' listener is
+// registered first and captures the singleton's duplicate-spawn exit(0) path
+// too. Hunts the silent-restart cause (heap-OOM theory falsified: rss max
+// 586MB across 16 restarts). Reads: data/exit-log.jsonl.
+const { startExitRecorder } = require('./boot/exit-recorder');
+startExitRecorder({ dataDirAbs: DATA_DIR_ABS, profile: BOT_PROFILE, logger });
+
 acquireRuntimeSingleton({
   dataDirAbs: DATA_DIR_ABS,
   profile: BOT_PROFILE,

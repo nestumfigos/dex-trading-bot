@@ -27,3 +27,4 @@ scripts/__pycache__/
 *.pyc
 ruvector.db
 .swarm/
+data/exit-log.jsonl
