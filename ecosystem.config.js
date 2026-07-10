@@ -259,7 +259,7 @@ module.exports = {
       // If automatic recycling becomes necessary again, prefer a long
       // interval (e.g. '0 */4 * * *' = every 4h) AND bump kill_timeout to
       // 30s so the old process drains fully before the new spawn lands.
-      node_args: '--max-old-space-size=2048',
+      node_args: '--max-old-space-size=2048 --report-on-fatalerror --report-compact --report-directory=./data/diag',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
