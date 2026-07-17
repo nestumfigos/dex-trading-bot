@@ -279,7 +279,11 @@ module.exports = {
         MOMENTUM_ENABLED: 'true',
         MOMENTUM_ENABLED_CHAINS: 'kucoin',
         MOMENTUM_MAX_CONCURRENT_POSITIONS: '2',
-        MOMENTUM_MIN_24H_VOLUME_USD: '1000000',
+        // 2026-07-16 unfreeze: $1M floor + quiet market + tightened gates
+        // produced ZERO fleet entries for 10 days (33-95% of rotation cycles
+        // failed volume alone). Paper-only relaxation so the canary can
+        // gather data again; live stays at $5M.
+        MOMENTUM_MIN_24H_VOLUME_USD: '500000',
         MOMENTUM_MIN_LIQUIDITY_USD: '250000',
         MOMENTUM_MAX_SPREAD_BPS: '80',
         MOMENTUM_MIN_NET_EDGE_PCT: '0.8',
@@ -309,6 +313,14 @@ module.exports = {
         BACKES_ENABLED_CHAINS: 'kucoin',
         BACKES_SWING_ENABLED: 'true',
         BACKES_SWING_ENABLED_CHAINS: 'kucoin',
+        // 2026-07-16 FABLE wiring fix: the timer scheduler (main-loop
+        // isStrategyEnabled) demands config.strategies.fable.enabled === true;
+        // without this env the config field stayed undefined and NO scan/exit
+        // timers were ever created — fable never ran despite the boot log
+        // saying "enabled" (that line uses the registry-aware check). Split-
+        // brain enablement; explicit env resolves it on the strict side.
+        FABLE_ENABLED: 'true',
+        FABLE_ENABLED_CHAINS: 'kucoin',
         BSC_FLOW_BREAKOUT_ENABLED: 'true',
         BSC_FLOW_BREAKOUT_ENABLED_CHAINS: 'bsc',
         BSC_FLOW_BREAKOUT_SCAN_ONLY: 'true',
@@ -365,7 +377,11 @@ module.exports = {
         MOMENTUM_ENABLED: 'true',
         MOMENTUM_ENABLED_CHAINS: 'kucoin',
         MOMENTUM_MAX_CONCURRENT_POSITIONS: '2',
-        MOMENTUM_MIN_24H_VOLUME_USD: '1000000',
+        // 2026-07-16 unfreeze: $1M floor + quiet market + tightened gates
+        // produced ZERO fleet entries for 10 days (33-95% of rotation cycles
+        // failed volume alone). Paper-only relaxation so the canary can
+        // gather data again; live stays at $5M.
+        MOMENTUM_MIN_24H_VOLUME_USD: '500000',
         MOMENTUM_MIN_LIQUIDITY_USD: '250000',
         MOMENTUM_MAX_SPREAD_BPS: '80',
         MOMENTUM_MIN_NET_EDGE_PCT: '0.8',
@@ -395,6 +411,14 @@ module.exports = {
         BACKES_ENABLED_CHAINS: 'kucoin',
         BACKES_SWING_ENABLED: 'true',
         BACKES_SWING_ENABLED_CHAINS: 'kucoin',
+        // 2026-07-16 FABLE wiring fix: the timer scheduler (main-loop
+        // isStrategyEnabled) demands config.strategies.fable.enabled === true;
+        // without this env the config field stayed undefined and NO scan/exit
+        // timers were ever created — fable never ran despite the boot log
+        // saying "enabled" (that line uses the registry-aware check). Split-
+        // brain enablement; explicit env resolves it on the strict side.
+        FABLE_ENABLED: 'true',
+        FABLE_ENABLED_CHAINS: 'kucoin',
         BSC_FLOW_BREAKOUT_ENABLED: 'true',
         BSC_FLOW_BREAKOUT_ENABLED_CHAINS: 'bsc',
         BSC_FLOW_BREAKOUT_SCAN_ONLY: 'true',
