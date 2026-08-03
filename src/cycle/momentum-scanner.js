@@ -1,5 +1,86 @@
 'use strict';
 
+const STABLE_OR_QUASI_STABLE_BASES = new Set([
+  'USDC',
+  'DAI',
+  'TUSD',
+  'FDUSD',
+  'USDP',
+  'USDJ',
+  'PYUSD',
+  'EUR',
+  'EURT',
+]);
+
+const LEVERAGED_BASE_RE = /(?:3L|3S|2L|2S|UP|DOWN|BULL|BEAR)$/i;
+
+function normalizeKucoinSymbol(token) {
+  const raw = String(token || '').trim().toUpperCase().replace('-', '/');
+  if (!raw) return '';
+  return raw.includes('/') ? raw : `${raw}/USDT`;
+}
+
+// 2026-08-03: volume-ranked scan universe (fixes the 30-day entry freeze).
+//
+// PROBLEM: getRotatingScanWindow walked the KuCoin universe blind — 40 of
+// ~583 tokens per cycle, cursor-ordered. But the universe is dominated by
+// dust: median 24h volume $51k, only 12.5% of names clear $500k. So ~80% of
+// every scan slice died at `prefilter_volume_below_min` before any strategy
+// logic ran, and the handful of survivors rarely cleared the downstream
+// confirmation stack. Result: zero entries fleet-wide for 30 days.
+//
+// FIX: rank by 24h quote volume and drop names below the strategy's own
+// volume floor BEFORE the rotation cursor sees the list. The cursor then
+// walks the qualifying subset — so every scanned token can actually trade,
+// while rotation still gives breadth across the eligible universe (better
+// than a static top-N, which would only ever show the same 40 names and
+// miss a mid-tier token waking up).
+//
+// This loosens NO strategy gate. It only stops wasting scan slots on names
+// the volume floor was always going to reject.
+//
+// Safety: cold ticker cache (startup) or a too-small qualifying set falls
+// back to volume-sorted full list rather than returning an empty universe —
+// scanning something beats scanning nothing. Disable with
+// KUCOIN_VOLUME_RANKED_SCAN=false.
+function rankKucoinByVolume(tokens = [], exchange = {}, { minVolumeUsd = 0, minCandidates = 40 } = {}) {
+  const tickerCache = exchange?.tickerCache || {};
+  const scored = [...new Set(tokens)]
+    .map((token, originalIndex) => {
+      const symbol = normalizeKucoinSymbol(token);
+      const base = symbol.replace('/USDT', '');
+      const ticker = tickerCache[symbol] || tickerCache[token] || {};
+      const quoteVolume = Number(ticker.quoteVolume || ticker.quoteVolumeUsd || 0);
+      return { token, symbol, base, quoteVolume, originalIndex };
+    })
+    .filter((item) => item.symbol.endsWith('/USDT'))
+    .filter((item) => !STABLE_OR_QUASI_STABLE_BASES.has(item.base))
+    .filter((item) => !LEVERAGED_BASE_RE.test(item.base))
+    .sort((left, right) => {
+      if (right.quoteVolume !== left.quoteVolume) return right.quoteVolume - left.quoteVolume;
+      return left.originalIndex - right.originalIndex;
+    });
+
+  if (!scored.length) return [...new Set(tokens)];
+
+  // Cold cache guard: if we have no volume data at all, ranking is
+  // meaningless — hand back the original order untouched.
+  if (!scored.some((item) => item.quoteVolume > 0)) return [...new Set(tokens)];
+
+  const qualifying = minVolumeUsd > 0
+    ? scored.filter((item) => item.quoteVolume >= minVolumeUsd)
+    : scored;
+
+  // Never starve the scanner: if the floor leaves too few names to fill a
+  // cycle, top up with the next-highest-volume tokens (they still get
+  // rejected downstream, but the scan keeps moving and the log shows why).
+  const selected = qualifying.length >= minCandidates
+    ? qualifying
+    : scored.slice(0, Math.max(minCandidates, qualifying.length));
+
+  return selected.map((item) => item.token);
+}
+
 /**
  * Per-chain scan dispatcher (Week 16.1 extraction from src/index.js).
  *
@@ -100,11 +181,26 @@ function createMomentumScanner(deps = {}) {
           syncChainScanStatus(chainName);
         },
       });
-      const candidateTokens = [...new Set([
+      let candidateTokens = [...new Set([
         ...newListings,
         ...catalystPriority,
         ...allTokens,
       ])];
+      let volumeRankStats = null;
+      if (chainName === 'kucoin' && process.env.KUCOIN_VOLUME_RANKED_SCAN !== 'false') {
+        // 2026-08-03: rank + volume-floor the universe before the rotation
+        // cursor sees it (see rankKucoinByVolume for the full rationale).
+        // Uses the strategy's OWN floor so live ($5M) and paper ($500k)
+        // each get a correctly-sized eligible set.
+        const strategyCfg = config?.strategies?.[strategyName] || {};
+        const minVolumeUsd = Number(strategyCfg.min24hVolumeUsd || 0);
+        const before = candidateTokens.length;
+        candidateTokens = rankKucoinByVolume(candidateTokens, exchange, {
+          minVolumeUsd,
+          minCandidates: Math.max(20, Number(config?.bot?.kucoinMaxTokensPerCycle || 40)),
+        });
+        volumeRankStats = { before, after: candidateTokens.length, minVolumeUsd };
+      }
       status.discoveredTokens = candidateTokens.length;
 
       if (candidateTokens.length === 0) {
@@ -137,7 +233,10 @@ function createMomentumScanner(deps = {}) {
         : 500;
 
       if (chainName === 'kucoin' && strategyName === 'momentum') {
-        logger.info(`KuCoin momentum scan window: ${scanTokens.length}/${candidateTokens.length} this cycle (rotating full universe)`);
+        const rankNote = volumeRankStats
+          ? `volume-ranked ${volumeRankStats.after}/${volumeRankStats.before} eligible >= $${Math.round(volumeRankStats.minVolumeUsd).toLocaleString()}`
+          : 'rotating full universe';
+        logger.info(`KuCoin momentum scan window: ${scanTokens.length}/${candidateTokens.length} this cycle (${rankNote})`);
       }
 
       for (let i = 0; i < scanTokens.length; i += batchSize) {
@@ -182,4 +281,4 @@ function createMomentumScanner(deps = {}) {
   return { scanChain };
 }
 
-module.exports = { createMomentumScanner };
+module.exports = { createMomentumScanner, rankKucoinByVolume };
