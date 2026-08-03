@@ -27,7 +27,15 @@ module.exports = {
         MOMENTUM_ENABLED: 'true',
         MOMENTUM_ENABLED_CHAINS: 'kucoin',
         MOMENTUM_MAX_CONCURRENT_POSITIONS: '1',
-        MOMENTUM_MIN_24H_VOLUME_USD: '5000000',
+        // 2026-08-04: $5M -> $2M. The volume-ranked scanner (1a44241)
+        // exposed that $5M left only 22 eligible names out of 850 KuCoin
+        // USDT pairs (2.6%) — the live book was starved of candidates, not
+        // being selective. $2M doubles it to 43 and unlocks liquid majors
+        // (SNX, TRUMP, PEPE, ENA, WIF, TRX, DOGE, ONDO, CHZ). At a ~$60
+        // position size that is ~0.003% of a $2M day — market impact is
+        // not a consideration; the floor exists to avoid illiquid dust,
+        // and $2M clears that bar by orders of magnitude.
+        MOMENTUM_MIN_24H_VOLUME_USD: '2000000',
         MOMENTUM_MIN_LIQUIDITY_USD: '500000',
         MOMENTUM_MAX_SPREAD_BPS: '45',
         MOMENTUM_MIN_NET_EDGE_PCT: '1.2',
@@ -134,7 +142,15 @@ module.exports = {
         MOMENTUM_ENABLED: 'true',
         MOMENTUM_ENABLED_CHAINS: 'kucoin',
         MOMENTUM_MAX_CONCURRENT_POSITIONS: '1',
-        MOMENTUM_MIN_24H_VOLUME_USD: '5000000',
+        // 2026-08-04: $5M -> $2M. The volume-ranked scanner (1a44241)
+        // exposed that $5M left only 22 eligible names out of 850 KuCoin
+        // USDT pairs (2.6%) — the live book was starved of candidates, not
+        // being selective. $2M doubles it to 43 and unlocks liquid majors
+        // (SNX, TRUMP, PEPE, ENA, WIF, TRX, DOGE, ONDO, CHZ). At a ~$60
+        // position size that is ~0.003% of a $2M day — market impact is
+        // not a consideration; the floor exists to avoid illiquid dust,
+        // and $2M clears that bar by orders of magnitude.
+        MOMENTUM_MIN_24H_VOLUME_USD: '2000000',
         MOMENTUM_MIN_LIQUIDITY_USD: '500000',
         MOMENTUM_MAX_SPREAD_BPS: '45',
         MOMENTUM_MIN_NET_EDGE_PCT: '1.2',
