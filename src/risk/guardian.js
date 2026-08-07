@@ -981,7 +981,12 @@ class RiskGuardian {
   positionSize(tokenData, strategyName = 'momentum') {
     const chainKey = this.normalizeChain(tokenData?.chainKey || tokenData?.chain);
     const strategyCfg = config.strategies?.[strategyName] || {};
-    let pct = 0.30;
+    // 2026-08-06: BASE_SIZE_PCT is the reference for the compounded-penalty
+    // floor applied at the end of this method. Every mutation below is a
+    // reduction (`*=`, verified — no branch raises pct), so the ratio
+    // pct/BASE_SIZE_PCT is exactly the total discretionary haircut.
+    const BASE_SIZE_PCT = 0.30;
+    let pct = BASE_SIZE_PCT;
 
     const regimeScalingEnabled = config.risk?.regimeSizeScalingEnabled !== false;
     if (regimeScalingEnabled) {
@@ -1162,6 +1167,33 @@ class RiskGuardian {
       );
     }
 
+    // 2026-08-06 COMPOUNDED-PENALTY FLOOR.
+    //
+    // Each size penalty above is individually defensible, but they multiply —
+    // and they measure OVERLAPPING risks (a token that is newly listed is
+    // usually also high-volatility, so it eats the vol cut AND both age cuts
+    // for the same underlying reason). Observed on live ACE: macro 0.80 x
+    // volatility 0.70 x listing-age 0.50 = 0.28x. On the live book that took
+    // a $15 target down to ~$4.20, under the $6 exchange minimum, so
+    // positionSize returned 0 and the entry died SILENTLY — every live BUY
+    // signal was being converted into a no-op by arithmetic, not by a risk
+    // decision.
+    //
+    // Penalties are meant to SHRINK a position, not veto it; vetoing is the
+    // gates' job. Flooring the compounded haircut keeps every penalty's
+    // signal while preventing the pathological collapse. Default floor 0.45
+    // (i.e. never cut more than 55% via stacked discretionary penalties).
+    // Set RISK_MIN_COMPOUNDED_SIZE_MULTIPLIER=0 to restore raw compounding.
+    const compoundedMultiplier = BASE_SIZE_PCT > 0 ? pct / BASE_SIZE_PCT : 1;
+    const compoundedFloor = Math.max(0, Math.min(1, Number(config.risk?.minCompoundedSizeMultiplier ?? 0.45)));
+    if (compoundedFloor > 0 && compoundedMultiplier < compoundedFloor) {
+      logger.warn(
+        `${tokenData.symbol}: compounded size penalties ${(compoundedMultiplier * 100).toFixed(0)}% ` +
+        `floored to ${(compoundedFloor * 100).toFixed(0)}% (stacked overlapping risk cuts)`
+      );
+      pct = BASE_SIZE_PCT * compoundedFloor;
+    }
+
     let chainWalletBalanceUsd = this.getChainCapitalBaseUsd(chainKey);
     // Enforce KuCoin 80% allocation cap
     if (chainKey === 'kucoin') {
@@ -1228,6 +1260,15 @@ class RiskGuardian {
     // Floor: never reduce below absolute minimum (avoid dust trades that won't fill)
     const minSizeUsd = Number(config.risk?.minPositionSizeUsd || 5);
     if (sizeUsd > 0 && sizeUsd < minSizeUsd) {
+      // 2026-08-06: log the rejection. This used to `return 0` silently, which
+      // made a month of dead live entries look like "no signals" when the
+      // signals were in fact firing and dying here. Never fail silently on a
+      // money path.
+      logger.warn(
+        `${tokenData.symbol}: entry dropped — sized $${sizeUsd.toFixed(2)} < min $${minSizeUsd.toFixed(2)} ` +
+        `(chainBase=$${chainWalletBalanceUsd.toFixed(2)}, pct=${(pct * 100).toFixed(2)}%, ` +
+        `capacity=$${remainingChainCapacityUsd.toFixed(2)})`
+      );
       return 0;
     }
     return Number.isFinite(sizeUsd) && sizeUsd > 0 ? sizeUsd : 0;

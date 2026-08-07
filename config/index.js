@@ -244,6 +244,11 @@ const config = {
     liquidityDepthSizingEnabled: process.env.LIQUIDITY_DEPTH_SIZING_ENABLED !== 'false',
     liquidityDepthMaxSharePct: parseFloat(process.env.LIQUIDITY_DEPTH_MAX_SHARE_PCT || '1.5'),
     minPositionSizeUsd: parseFloat(process.env.MIN_POSITION_SIZE_USD || '5'),
+    // 2026-08-06: floor on the COMPOUNDED discretionary size penalties in
+    // guardian.positionSize (see the block there). Stacked overlapping cuts
+    // were collapsing live orders below the exchange minimum, silently
+    // killing every entry. 0 disables the floor (raw compounding).
+    minCompoundedSizeMultiplier: parseFloat(process.env.RISK_MIN_COMPOUNDED_SIZE_MULTIPLIER || '0.45'),
     momentumStopLossThrottleEnabled: process.env.MOMENTUM_STOP_LOSS_THROTTLE_ENABLED !== 'false',
     momentumStopLossThrottleLookbackHours: parseFloat(process.env.MOMENTUM_STOP_LOSS_THROTTLE_LOOKBACK_HOURS || '24'),
     momentumStopLossThrottleBaseMultiplier: parseFloat(process.env.MOMENTUM_STOP_LOSS_THROTTLE_BASE_MULTIPLIER || '0.75'),

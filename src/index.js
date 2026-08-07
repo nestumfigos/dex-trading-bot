@@ -3078,7 +3078,24 @@ function getHealthStatus() {
     };
   });
 
-  const unhealthyDeps = dependencies.filter((item) => !item.healthy).length;
+  // 2026-08-06: only chains this profile ACTUALLY TRADES count toward the
+  // unhealthy flag. Live trades KuCoin only (LIVE_BSC_ENTRIES_ENABLED=false,
+  // no DEX strategy enabled), yet a slow public BSC RPC was setting
+  // exchange_dependency_unhealthy and painting the whole live bot ok:false —
+  // a permanently red health signal for a chain the bot never touches, which
+  // is exactly how real alerts get ignored. Every dependency is still
+  // REPORTED (visibility preserved); only the ones that can affect trading
+  // gate the flag. `traded` is surfaced per-dependency so the dashboard can
+  // show "degraded, not traded" instead of hiding it.
+  const tradedChainKeys = new Set(
+    Object.keys(exchangeCircuit).filter((chainKey) => RUNTIME_STRATEGY_NAMES
+      .some((strategyName) => isStrategyScanEnabled(chainKey, strategyName)))
+  );
+  for (const item of dependencies) {
+    item.traded = tradedChainKeys.has(item.chainKey);
+  }
+  const unhealthyDeps = dependencies.filter((item) => item.traded && !item.healthy).length;
+  const unhealthyUntradedDeps = dependencies.filter((item) => !item.traded && !item.healthy).map((item) => item.chainKey);
   const aiHealthRequired = Boolean(config.anthropic.enabled) && config.execution?.aiNonBlocking === false;
   const aiHealthy = aiHealthRequired
     ? (Boolean(config.anthropic.apiKey) && aiCircuit.cooldownUntil <= Date.now())
@@ -3262,6 +3279,13 @@ function getHealthStatus() {
   if (unhealthyDeps > 0) {
     unhealthyReasons.push('exchange_dependency_unhealthy');
   }
+  // Untraded chains that are unhealthy are reported as DEGRADED, never
+  // unhealthy — visible to the operator, but they cannot make a bot that is
+  // trading fine look broken (2026-08-06 BSC-RPC false alarm).
+  if (unhealthyUntradedDeps.length > 0) {
+    degradedReasons.push(`untraded_chain_degraded_${unhealthyUntradedDeps.join('_')}`);
+  }
+
   if (!aiHealthy) {
     unhealthyReasons.push('ai_brain_unhealthy');
   }
