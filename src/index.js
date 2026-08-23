@@ -1544,11 +1544,52 @@ const strategy = {
         if (Number.isFinite(computedRsi)) tokenData.rsi = computedRsi;
       }
       if (!Number.isFinite(Number(tokenData.volumeSpike)) || !tokenData.volumeSpike) {
-        const validVols = this.volumeHistory[histKey].filter((v) => v > 0);
-        if (validVols.length >= 8) {
-          const computedSpike = computeVolumeSpike(validVols, { method: 'median', minBars: 8 });
-          if (Number.isFinite(computedSpike) && computedSpike > 0) tokenData.volumeSpike = computedSpike;
+        // 2026-08-23 CRITICAL FIX — volumeSpike was structurally pinned to ~1.0.
+        //
+        // volumeHistory is fed by recordStrategyTick(..., volume24hUsd): a
+        // 24-HOUR ROLLING TOTAL, sampled every scan cycle (~2 min). Two
+        // consecutive samples of a 24h window differ only by the marginal
+        // couple of minutes, so latest/median(prior) is ~1.00 BY
+        // CONSTRUCTION. Gate telemetry measured exactly that: 0.94-1.00 on
+        // every token, every cycle, on both bots — failing
+        // volume_or_momentum_not_confirmed on 85-92% of all candidates and
+        // (via kucoinFlowProxy, which requires volumeConfirmed) killing the
+        // buy-flow gate too. One dead number blocked every entry for ~50
+        // days, and no threshold change could ever have fixed it: 1.00 is
+        // below both 1.35 and 1.65.
+        //
+        // A volume SPIKE is a per-bar phenomenon, so compute it from actual
+        // OHLCV bar volumes. The final bar is dropped because it is still
+        // forming — its partial volume would understate the ratio and mask
+        // real spikes. Falls back to the legacy rolling-total path only when
+        // candles are unavailable, so nothing regresses if OHLCV is down.
+        let computedSpike = Number.NaN;
+        if (chainName === 'kucoin' && process.env.MOMENTUM_BAR_VOLUME_SPIKE !== 'false') {
+          try {
+            const ohlcv = await getOhlcvSeries({
+              chainKey: chainName,
+              symbol: tokenData.symbol,
+              address: tokenData.address,
+              interval: String(config.strategies?.momentum?.volumeSpikeInterval || '15m'),
+              limit: 60,
+            });
+            const bars = Array.isArray(ohlcv?.candles) ? ohlcv.candles : [];
+            if (bars.length >= 10) {
+              const completed = bars.slice(0, -1); // drop in-progress bar
+              const barVolumes = completed.map((c) => Number(c?.volume || 0)).filter((v) => Number.isFinite(v) && v >= 0);
+              if (barVolumes.length >= 8) {
+                computedSpike = computeVolumeSpike(barVolumes, { method: 'median', minBars: 8 });
+              }
+            }
+          } catch (_) { /* fall through to legacy path */ }
         }
+        if (!Number.isFinite(computedSpike) || computedSpike <= 0) {
+          const validVols = this.volumeHistory[histKey].filter((v) => v > 0);
+          if (validVols.length >= 8) {
+            computedSpike = computeVolumeSpike(validVols, { method: 'median', minBars: 8 });
+          }
+        }
+        if (Number.isFinite(computedSpike) && computedSpike > 0) tokenData.volumeSpike = computedSpike;
       }
     }
 
