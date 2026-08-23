@@ -308,6 +308,25 @@ const orderToPositionId = new Map();
  * When tradingWindowsEnabled is false, always returns true (24/7 trading).
  * Windows where startUtcHour >= endUtcHour are ignored (invalid range).
  */
+// 2026-08-23: rate limiter for [gate-telemetry]. Without it the per-candidate
+// line would emit ~40x per scan cycle (~1200 lines/hour) and drown the log it
+// is meant to make readable. Caps at N lines per window; defaults give a
+// representative sample (12 candidates every 5 min) which is plenty to
+// characterise the gate distribution while staying safe to leave enabled.
+const _gateTelemetryState = { windowStartMs: 0, count: 0 };
+function _gateTelemetryAllow() {
+  const windowMs = Math.max(10_000, Number(process.env.MOMENTUM_GATE_TELEMETRY_WINDOW_MS || 300_000));
+  const maxPerWindow = Math.max(1, Number(process.env.MOMENTUM_GATE_TELEMETRY_MAX || 12));
+  const now = Date.now();
+  if (now - _gateTelemetryState.windowStartMs > windowMs) {
+    _gateTelemetryState.windowStartMs = now;
+    _gateTelemetryState.count = 0;
+  }
+  if (_gateTelemetryState.count >= maxPerWindow) return false;
+  _gateTelemetryState.count += 1;
+  return true;
+}
+
 function isWithinTradingWindow() {
   if (!config.tradingWindowsEnabled) return true;
   const windows = config.tradingWindows;
@@ -1644,6 +1663,35 @@ const strategy = {
       reasons.push(`net_edge_below_min:${Number.isFinite(expectedNetEdgePct) ? expectedNetEdgePct.toFixed(2) : 'NaN'}<${minNetEdgePct}`);
     }
     if (patternAnalysis?.strongestPattern?.pattern) reasons.push(`pattern_context:${patternAnalysis.strongestPattern.pattern}`);
+
+    // 2026-08-23 GATE TELEMETRY. 50 days with zero entries: the scanner now
+    // delivers eligible candidates and sizing no longer collapses them, so
+    // the block is here in the gates — but PAPER (4x looser thresholds)
+    // fails at nearly the same rate as LIVE, which rules out simple
+    // mis-tuning and points at either unreachable thresholds in this market
+    // or a broken/empty input feed. Reject *names* alone cannot tell those
+    // apart; the measured VALUES can. One cycle of this answers it.
+    //
+    // Emits a compact per-candidate line only while the gates are starving
+    // (sampled, capped) so it is safe to leave on in production.
+    // MOMENTUM_GATE_TELEMETRY=false disables.
+    if (process.env.MOMENTUM_GATE_TELEMETRY !== 'false' && chainName === 'kucoin' && _gateTelemetryAllow()) {
+      try {
+        const fmt = (v, d = 2) => (Number.isFinite(Number(v)) ? Number(v).toFixed(d) : 'NA');
+        logger.info(
+          `[gate-telemetry] ${tokenData.symbol}`
+          + ` volSpike=${fmt(volumeSpike)}/${fmt(volumeSpikeMin)}${volumeConfirmed ? '' : ' FAIL'}`
+          + ` rsi=${fmt(rsi, 1)}[${fmt(rsiMin, 0)}-${fmt(rsiMax, 0)}]${rsiInRange ? '' : (hasRsi ? ' FAIL' : ' MISSING')}`
+          + ` move24h=${fmt(priceChange24h)}%[${fmt(minMoveForChain)}-${fmt(maxMoveForChain)}]${minMoveConfirmed && maxMoveConfirmed ? '' : ' FAIL'}`
+          + ` buyRatio=${fmt(buyRatioRecentPct, 1)}/${fmt(minBuyRatioPct, 0)}`
+          + ` netFlow=${fmt(netBuyFlowUsd10m, 0)}/${fmt(minFlowUsd, 0)}`
+          + ` flowProxy=${kucoinFlowProxy ? 'Y' : 'N'}`
+          + ` vol24h=${fmt(tokenData?.volume24hUsd || tokenData?.volume24h, 0)}`
+          + ` spread=${fmt(spreadBps, 1)}bps`
+          + ` -> ${reasons.length ? reasons.slice(0, 4).join(',') : 'PASS'}`
+        );
+      } catch (_) { /* telemetry must never break evaluation */ }
+    }
 
     // Recovery mode — in deep/moderate recovery require BOTH volume AND buy-flow (no OR shortcut)
     const recoveryVolumeGate = recovery.requireBothFlowAndVolume
