@@ -153,7 +153,14 @@ const config = {
   groq: {
     enabled: process.env.GROQ_ENABLED !== 'false',
     apiKey: process.env.GROQ_API_KEY,
-    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    // 2026-08-24: llama-3.3-70b-versatile is NOT served on this key (404 ->
+    // 3 strikes -> provider auto-disabled every cycle, AI layer permanently
+    // offline). Verified against the live /models endpoint; gpt-oss-20b
+    // returns clean JSON in `content` (qwen leaks <think> into content) and
+    // is the most token-efficient of the working chat models, which matters
+    // on a free tier where TPM limits trigger the auto-disable.
+    model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
+    maxTokens: parseInt(process.env.GROQ_MAX_TOKENS || '700', 10),
   },
 
   gemini: {

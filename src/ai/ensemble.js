@@ -256,8 +256,11 @@ async function evaluateWithGroq(tokenData, technicalDetails, headlines) {
   if (Date.now() < modelBackoff.groq) return null;
   if (!checkAndTickQuota('groq')) return null;
   const configuredModel = String(config.groq.model || '').trim();
-  const model = /deepseek-r1-distill-llama-70b/i.test(configuredModel)
-    ? 'llama-3.3-70b-versatile'
+  // 2026-08-24: the legacy remap used to point at llama-3.3-70b-versatile,
+  // which Groq no longer serves — so the "fix" mapped one dead model onto
+  // another. Retarget to the verified-working default.
+  const model = /deepseek-r1-distill-llama-70b|llama-3\.3-70b-versatile/i.test(configuredModel)
+    ? 'openai/gpt-oss-20b'
     : configuredModel;
 
   if (!groqClient) {
@@ -274,7 +277,14 @@ async function evaluateWithGroq(tokenData, technicalDetails, headlines) {
         const response = await groqClient.chat.completions.create({
           model,
           temperature: 0.2,
-          max_tokens: 180,
+          // 2026-08-24: 180 -> 700. Groq's current free-tier models
+          // (openai/gpt-oss-*) are REASONING models: they spend completion
+          // tokens on internal reasoning before emitting content. Measured
+          // 168 completion tokens for a trivial prompt, so a real trade
+          // prompt under a 180 cap exhausts the budget mid-reasoning and
+          // returns EMPTY content with a 200 OK — a silently dead AI layer.
+          // 700 comfortably covers reasoning + the small JSON payload.
+          max_tokens: Math.max(200, Number(config.groq?.maxTokens || 700)),
           messages: [
             { role: 'system', content: 'Return only JSON.' },
             { role: 'user', content: buildEnsemblePrompt(tokenData, technicalDetails, headlines) },
