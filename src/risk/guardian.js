@@ -1256,7 +1256,41 @@ class RiskGuardian {
 
     const chainOpenExposureUsd = this.getChainExposureUsd(chainKey);
     const remainingChainCapacityUsd = Math.max(0, chainWalletBalanceUsd - chainOpenExposureUsd);
-    const sizeUsd = Math.min(targetSizeUsd, remainingChainCapacityUsd);
+    let sizeUsd = Math.min(targetSizeUsd, remainingChainCapacityUsd);
+
+    // 2026-08-24: fit the trade to available liquidity instead of refusing it.
+    //
+    // estimateMarketImpact REJECTS any entry whose size exceeds
+    // maxTradeShareOfHourlyVolumePct of estimated 1h volume. Once the
+    // volumeSpike fix (f5f271f) let candidates through the gates again, that
+    // cap became the new binding constraint and rejected every qualified
+    // signal on paper — STORJ 1.08%, CYS 1.10%, PROM 0.99%, ATA 1.62% against
+    // a 0.85% cap. All of them only slightly over.
+    //
+    // Raising the cap was the wrong answer: it is a REALISM constraint, and
+    // inflating it would have paper simulating fills it could never get —
+    // the same optimism bug that made the canary lie for months (59% vs 38%
+    // win rate) and that the realistic-fill work fixed in July.
+    //
+    // A real trader facing "my order is 1.1% of hourly volume" trades
+    // SMALLER, not never. So clamp size to the cap here, at the point where
+    // size is decided. estimateMarketImpact then passes naturally, and the
+    // only entries still rejected are those where even a cap-sized order is
+    // below the exchange minimum — i.e. genuinely untradeable, logged
+    // explicitly by the min-size branch below.
+    const liquidityVolume24hUsd = Number(tokenData.volume24h || tokenData.volume24hUsd || 0);
+    if (liquidityVolume24hUsd > 0 && sizeUsd > 0) {
+      const estimatedHourlyVolumeUsd = liquidityVolume24hUsd / 24;
+      const maxSharePct = Number(config.risk?.maxTradeShareOfHourlyVolumePct ?? 0.5);
+      const liquidityCapUsd = estimatedHourlyVolumeUsd * (maxSharePct / 100);
+      if (liquidityCapUsd > 0 && sizeUsd > liquidityCapUsd) {
+        logger.info(
+          `${tokenData.symbol}: size $${sizeUsd.toFixed(2)} -> $${liquidityCapUsd.toFixed(2)} ` +
+          `(liquidity cap ${maxSharePct}% of ~$${estimatedHourlyVolumeUsd.toFixed(0)} est. 1h volume)`
+        );
+        sizeUsd = liquidityCapUsd;
+      }
+    }
     // Floor: never reduce below absolute minimum (avoid dust trades that won't fill)
     const minSizeUsd = Number(config.risk?.minPositionSizeUsd || 5);
     if (sizeUsd > 0 && sizeUsd < minSizeUsd) {
