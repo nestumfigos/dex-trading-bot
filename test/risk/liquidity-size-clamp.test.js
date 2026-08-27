@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 function clampToLiquidity(sizeUsd, volume24hUsd, maxSharePct) {
   if (!(volume24hUsd > 0) || !(sizeUsd > 0)) return sizeUsd;
   const hourly = volume24hUsd / 24;
-  const cap = hourly * (maxSharePct / 100);
+  const cap = hourly * (maxSharePct / 100) * 0.995; // margin: see boundary test
   return cap > 0 && sizeUsd > cap ? cap : sizeUsd;
 }
 
@@ -41,10 +41,14 @@ test('clamp reduces, never inflates a size that already fits', () => {
   assert.equal(clampToLiquidity(small, volume24hUsd, CAP), small, 'compliant size must pass through untouched');
 });
 
-test('clamped size lands exactly at the cap, not above it', () => {
+// Lands JUST UNDER the cap by design — landing exactly on it is the ulp bug
+// pinned by the regression test at the bottom of this file.
+test('clamped size lands just under the cap, never above', () => {
   const volume24hUsd = 24 * 50_000;
   const clamped = clampToLiquidity(10_000, volume24hUsd, CAP);
-  assert.ok(Math.abs(sharePct(clamped, volume24hUsd) - CAP) < 1e-9);
+  const share = sharePct(clamped, volume24hUsd);
+  assert.ok(share <= CAP, `share ${share} must not exceed cap ${CAP}`);
+  assert.ok(share > CAP * 0.99, `share ${share} must stay within 1% of the cap (no over-shrinking)`);
 });
 
 test('illiquid token still yields a sub-minimum size (rejected downstream, not forced)', () => {
@@ -62,4 +66,25 @@ test('cap scales linearly with liquidity', () => {
   const a = clampToLiquidity(1e9, 24 * 100_000, CAP);
   const b = clampToLiquidity(1e9, 24 * 200_000, CAP);
   assert.ok(Math.abs(b - a * 2) < 1e-6, 'twice the volume must permit twice the size');
+});
+
+// 2026-08-27: the clamp originally landed size EXACTLY on the cap, which the
+// downstream gate then rejected to floating point — 28290*0.0085/28290*100
+// evaluates to 0.8500000000000001, one ulp above 0.85. Every clamped trade
+// was still blocked ("0.85% exceeds cap 0.85%" x5820 in the logs). The
+// margin must survive the gate's own re-derivation.
+test('REGRESSION: clamped size passes the gate re-derivation (no ulp overshoot)', () => {
+  for (const hourly of [28290, 100_000, 33_333.33, 12_345.67, 1e6]) {
+    const volume24hUsd = hourly * 24;
+    const clamped = clampToLiquidity(1e9, volume24hUsd, CAP);
+    const rederived = (clamped / hourly) * 100;      // exactly what the gate computes
+    assert.ok(!(rederived > CAP), `hourly=${hourly}: rederived ${rederived} must NOT exceed ${CAP}`);
+  }
+});
+
+test('margin stays economically negligible (>99% of the cap retained)', () => {
+  const hourly = 100_000;
+  const clamped = clampToLiquidity(1e9, hourly * 24, CAP);
+  const ideal = hourly * (CAP / 100);
+  assert.ok(clamped / ideal > 0.99, `retained ${(clamped / ideal * 100).toFixed(2)}% of cap`);
 });
