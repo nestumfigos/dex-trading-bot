@@ -105,6 +105,7 @@ async function queryLedgerPerformance(sql, {
   setupValues = [],
   chainValues = [],
   thresholds,
+  lookbackDays = 0,
 }) {
   if (!sql || typeof sql.request !== 'function') {
     return { label, scope, unavailable: true, reason: 'sql_unavailable' };
@@ -116,6 +117,29 @@ async function queryLedgerPerformance(sql, {
     const strategyClause = addSqlInParams(req, 'strategy', uniqueLower(strategyValues));
     const setupClause = addSqlInParams(req, 'setup', uniqueLower(setupValues));
     const chainClause = addSqlInParams(req, 'chain', uniqueLower(chainValues));
+
+    // 2026-08-27: bound the evidence window.
+    //
+    // This query used to aggregate the ENTIRE ledger, which deadlocked the
+    // guard: EDEN was refused on "chain:kucoin closed=241 pf 1.00 < 1.00,
+    // expectancy $-0.05 < $0.00" — 241 trades reaching back months, most of
+    // them executed under configurations since proven broken (volumeSpike
+    // pinned to ~1.0, mis-set exit geometry, ideal paper fills). Performance
+    // could never recover because recovering required trades the guard
+    // forbade, and stale evidence from a fixed bug is not predictive of the
+    // repaired system.
+    //
+    // A lookback makes the guard judge CURRENT behaviour and gives it a way
+    // to release. It still does its real job: once minClosedTrades land
+    // inside the window, a genuinely losing strategy is stopped again — and
+    // with recent, relevant data. Below that count the gate abstains
+    // (existing `continue`), which is the correct posture when there is not
+    // yet evidence to condemn. PROFITABILITY_GUARD_LOOKBACK_DAYS=0 restores
+    // the all-time behaviour.
+    const lookback = Number(lookbackDays);
+    const windowClause = Number.isFinite(lookback) && lookback > 0
+      ? `AND ts >= DATEADD(day, -${Math.floor(lookback)}, SYSUTCDATETIME())`
+      : '';
 
     const filters = [];
     if (strategyValues.length > 0) {
@@ -139,6 +163,7 @@ async function queryLedgerPerformance(sql, {
       FROM dbo.bot_trade_ledger
       WHERE LOWER(COALESCE(bot_profile, '')) IN (${profileClause})
         ${filters.length > 0 ? `AND (${filters.join(' OR ')})` : ''}
+        ${windowClause}
     `);
     return normalizePerformanceRow((r.recordset || [])[0] || {}, label, scope, thresholds);
   } catch (err) {
@@ -166,6 +191,9 @@ async function buildPerformanceAdmission(sql, { side, trade = {}, scope, strateg
   const minExpectancyUsd = Number.isFinite(Number(guardConfig.minExpectancyUsd))
     ? Number(guardConfig.minExpectancyUsd)
     : parseNumberEnv('PROFITABILITY_GUARD_MIN_EXPECTANCY_USD', 0);
+  const lookbackDays = Number.isFinite(Number(guardConfig.lookbackDays))
+    ? Number(guardConfig.lookbackDays)
+    : parseNumberEnv('PROFITABILITY_GUARD_LOOKBACK_DAYS', 30);
   const thresholds = { minClosedTrades, minProfitFactor, minExpectancyUsd };
 
   if (!enabled || side !== 'BUY') {
@@ -185,6 +213,7 @@ async function buildPerformanceAdmission(sql, { side, trade = {}, scope, strateg
       setupValues: [],
       chainValues: [],
       thresholds,
+      lookbackDays,
     }));
   }
   if (setupValues.length > 0) {
@@ -195,6 +224,7 @@ async function buildPerformanceAdmission(sql, { side, trade = {}, scope, strateg
       setupValues,
       chainValues: [],
       thresholds,
+      lookbackDays,
     }));
   }
   if (chainValues.length > 0) {
@@ -205,6 +235,7 @@ async function buildPerformanceAdmission(sql, { side, trade = {}, scope, strateg
       setupValues: [],
       chainValues,
       thresholds,
+      lookbackDays,
     }));
   }
 
