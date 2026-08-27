@@ -1283,12 +1283,21 @@ class RiskGuardian {
       const estimatedHourlyVolumeUsd = liquidityVolume24hUsd / 24;
       const maxSharePct = Number(config.risk?.maxTradeShareOfHourlyVolumePct ?? 0.5);
       const liquidityCapUsd = estimatedHourlyVolumeUsd * (maxSharePct / 100);
-      if (liquidityCapUsd > 0 && sizeUsd > liquidityCapUsd) {
+      // Clamp slightly UNDER the cap, not exactly onto it. estimateMarketImpact
+      // re-derives sharePct = size / hourly * 100 and rejects on `> cap`.
+      // Landing exactly on the boundary fails that test to floating point:
+      // 28290 * 0.0085 = 240.465, and 240.465 / 28290 * 100 evaluates to
+      // 0.8500000000000001 — one ulp above 0.85, so every clamped trade was
+      // still blocked ("0.85% exceeds cap 0.85%" appeared in the logs 5820
+      // times). The 0.5% haircut is far inside risk tolerance and immune to
+      // the rounding.
+      const safeLiquidityCapUsd = liquidityCapUsd * 0.995;
+      if (safeLiquidityCapUsd > 0 && sizeUsd > safeLiquidityCapUsd) {
         logger.info(
-          `${tokenData.symbol}: size $${sizeUsd.toFixed(2)} -> $${liquidityCapUsd.toFixed(2)} ` +
+          `${tokenData.symbol}: size $${sizeUsd.toFixed(2)} -> $${safeLiquidityCapUsd.toFixed(2)} ` +
           `(liquidity cap ${maxSharePct}% of ~$${estimatedHourlyVolumeUsd.toFixed(0)} est. 1h volume)`
         );
-        sizeUsd = liquidityCapUsd;
+        sizeUsd = safeLiquidityCapUsd;
       }
     }
     // Floor: never reduce below absolute minimum (avoid dust trades that won't fill)
